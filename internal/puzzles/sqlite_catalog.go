@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -577,9 +576,6 @@ func (c *SQLiteCatalog) hydrateCandidates(
 	keys []candidateKey,
 	limit int,
 ) ([]domain.Puzzle, error) {
-	rand.Shuffle(len(keys), func(i, j int) {
-		keys[i], keys[j] = keys[j], keys[i]
-	})
 	if len(keys) > limit {
 		keys = keys[:limit]
 	}
