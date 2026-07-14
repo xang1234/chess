@@ -39,5 +39,5 @@ type Catalog interface {
 	BeginImport(context.Context, Source) (StagedImport, error)
 	Get(context.Context, string) (domain.Puzzle, error)
 	RatedCandidates(context.Context, int, int, []string, int) ([]domain.Puzzle, error)
-	FreePracticeCandidates(context.Context, string, *int, *int, []string, int) ([]domain.Puzzle, error)
+	FreePracticeCandidates(context.Context, string, *int, *int, []string, *int, int) ([]domain.Puzzle, error)
 }

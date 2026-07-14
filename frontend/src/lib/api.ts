@@ -1,11 +1,14 @@
 import {
   CancelImport,
   GetImportResult,
+  GetParentSummary,
+  GetPracticeFilters,
   GetProfile,
   PauseSession,
   PlayMove,
   ResumeSession,
   RevealSolution,
+  StartFreePractice,
   StartGuided,
   StartLichessImport,
   UpdateProfile,
@@ -67,6 +70,52 @@ export type HintResult = {
   canReveal: boolean
 }
 
+export type PracticeSource = {
+  id: string
+  kind: string
+  minimumRating: number
+  maximumRating: number
+  hasRatingRange: boolean
+  maximumPlies: number
+}
+
+export type PracticeFilters = {
+  sources: PracticeSource[]
+  themes: string[]
+  maximumSolutionPlies: number
+}
+
+export type PracticeRequest = {
+  sourceId: string
+  minimumRating?: number
+  maximumRating?: number
+  themes: string[]
+  maximumSolutionPlies?: number
+}
+
+export type RatingPoint = { rating: number; recordedAt: number }
+export type ThemePerformance = { theme: string; attempts: number; accuracy: number }
+export type RecentSession = {
+  sessionId: string
+  mode: string
+  status: string
+  updatedAt: number
+  total: number
+  completed: number
+  firstTry: number
+  usedHint: number
+  revealed: number
+}
+export type ParentSummary = {
+  learnerRating: number
+  ratingTrend: RatingPoint[]
+  firstAttemptAccuracy: number
+  hintRate: number
+  themePerformance: ThemePerformance[]
+  dueReviews: number
+  recentSessions: RecentSession[]
+}
+
 export type ImportProgress = {
   jobId: string
   rowsRead: number
@@ -91,10 +140,13 @@ export interface AppAPI {
   updateProfile(profile: Profile): Promise<void>
   resumeSession(): Promise<SessionView | null>
   startGuided(): Promise<SessionView>
+  startFreePractice(request: PracticeRequest): Promise<SessionView>
   playMove(sessionId: string, uci: string): Promise<MoveResult>
   useHint(sessionId: string): Promise<HintResult>
   revealSolution(sessionId: string): Promise<MoveResult>
   pauseSession(sessionId: string): Promise<void>
+  getParentSummary(): Promise<ParentSummary>
+  getPracticeFilters(): Promise<PracticeFilters>
   startLichessImport(path: string): Promise<string>
   cancelImport(jobId: string): Promise<void>
   getImportResult(jobId: string): Promise<ImportResult>
@@ -107,10 +159,13 @@ const productionAPI: AppAPI = {
   updateProfile: async (profile) => UpdateProfile(profile),
   resumeSession: async () => (await ResumeSession()) as SessionView | null,
   startGuided: async () => (await StartGuided()) as SessionView,
+  startFreePractice: async (request) => (await StartFreePractice(request)) as SessionView,
   playMove: async (sessionId, uci) => (await PlayMove(sessionId, uci)) as MoveResult,
   useHint: async (sessionId) => (await UseHint(sessionId)) as HintResult,
   revealSolution: async (sessionId) => (await RevealSolution(sessionId)) as MoveResult,
   pauseSession: PauseSession,
+  getParentSummary: async () => (await GetParentSummary()) as ParentSummary,
+  getPracticeFilters: async () => (await GetPracticeFilters()) as PracticeFilters,
   startLichessImport: StartLichessImport,
   cancelImport: CancelImport,
   getImportResult: async (jobId) => (await GetImportResult(jobId)) as ImportResult,
@@ -125,6 +180,9 @@ const previewAPI: AppAPI = {
   resumeSession: async () => null,
   startGuided: async () => ({
     sessionId: 'preview-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
+  }),
+  startFreePractice: async () => ({
+    sessionId: 'preview-practice', mode: 'practice', status: 'active', currentIndex: 0, total: 5
   }),
   playMove: async () => ({
     session: {
@@ -144,6 +202,23 @@ const previewAPI: AppAPI = {
     puzzleCompleted: true
   }),
   pauseSession: async () => {},
+  getParentSummary: async () => ({
+    learnerRating: previewProfile?.learnerRating ?? 1200,
+    ratingTrend: [{ rating: 1150, recordedAt: 1 }, { rating: previewProfile?.learnerRating ?? 1200, recordedAt: 2 }],
+    firstAttemptAccuracy: 68.4,
+    hintRate: 18.2,
+    themePerformance: [{ theme: 'fork', attempts: 12, accuracy: 75 }],
+    dueReviews: 3,
+    recentSessions: []
+  }),
+  getPracticeFilters: async () => ({
+    sources: [{
+      id: 'lichess', kind: 'lichess', minimumRating: 400, maximumRating: 3000,
+      hasRatingRange: true, maximumPlies: 12
+    }],
+    themes: ['fork', 'mate', 'pin'],
+    maximumSolutionPlies: 12
+  }),
   startLichessImport: async () => 'preview-import',
   cancelImport: async () => {},
   getImportResult: async (jobId) => ({

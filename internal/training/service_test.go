@@ -325,3 +325,49 @@ func TestResumeSkipsPuzzleRemovedBySourceReimport(t *testing.T) {
 		t.Fatalf("attempts=%d, want only the completed historical attempt", attempts)
 	}
 }
+
+func TestFreePracticeFiltersPuzzlesAndNeverChangesLearnerRating(t *testing.T) {
+	root := t.TempDir()
+	puzzleDB, userDB, catalog := openTrainingStores(t, root)
+	defer puzzleDB.Close()
+	defer userDB.Close()
+	short := trainingPuzzle("e2e4")
+	long := trainingPuzzle("d2d4", "d7d5", "c1f4")
+	importTrainingPuzzles(t, catalog, short, long)
+	store := NewUserStore(userDB)
+	if err := store.UpdateProfile(context.Background(), Profile{LearnerRating: 1500, SessionSize: 5}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(catalog, store, chessrules.Rules{}, rand.New(rand.NewSource(1)))
+	minimum, maximum, maximumPlies := 1400, 1600, 1
+
+	started, err := service.StartFreePractice(context.Background(), PracticeRequest{
+		SourceID:             "lichess",
+		MinimumRating:        &minimum,
+		MaximumRating:        &maximum,
+		Themes:               []string{"development"},
+		MaximumSolutionPlies: &maximumPlies,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.Mode != "practice" || started.Total != 1 || started.Current == nil {
+		t.Fatalf("started=%+v", started)
+	}
+	wrong, err := service.PlayMove(context.Background(), started.SessionID, "e2e3")
+	if err != nil || wrong.Correct {
+		t.Fatalf("wrong=%+v err=%v", wrong, err)
+	}
+	completed, err := service.PlayMove(context.Background(), started.SessionID, "e2e4")
+	if err != nil || !completed.PuzzleCompleted || completed.Session.Status != "completed" {
+		t.Fatalf("completed=%+v err=%v", completed, err)
+	}
+	profile, err := store.Profile(context.Background())
+	if err != nil || profile.LearnerRating != 1500 {
+		t.Fatalf("profile=%+v err=%v", profile, err)
+	}
+	var reviews int
+	if err := userDB.QueryRow(`SELECT COUNT(*) FROM review_state`).Scan(&reviews); err != nil || reviews != 1 {
+		t.Fatalf("reviews=%d err=%v", reviews, err)
+	}
+}

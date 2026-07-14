@@ -3,6 +3,8 @@
   import HomeHub from './components/home/HomeHub.svelte'
   import ImportPanel from './components/import/ImportPanel.svelte'
   import InitialSetup from './components/parent/InitialSetup.svelte'
+  import ParentDashboard from './components/parent/ParentDashboard.svelte'
+  import FreePractice from './components/practice/FreePractice.svelte'
   import PuzzleScreen from './components/puzzle/PuzzleScreen.svelte'
   import { getAPI, type SessionView } from './lib/api'
   import { screen } from './lib/navigation'
@@ -43,6 +45,11 @@
     if (event.detail.completed) activeSession = null
     screen.set('home')
   }
+
+  function startPractice(event: CustomEvent<SessionView>): void {
+    activeSession = event.detail
+    screen.set('puzzle')
+  }
 </script>
 
 <svelte:head><title>Chess Trainer</title></svelte:head>
@@ -82,14 +89,15 @@
         on:change={(event) => { activeSession = event.detail }}
         on:home={leaveTraining}
       />
+    {:else if $screen === 'practice'}
+      <FreePractice on:start={startPractice} />
+    {:else if $screen === 'parent'}
+      <ParentDashboard on:import={() => screen.set('import')} />
     {:else}
       <section class="panel placeholder-panel">
-        <h2>{$screen === 'puzzle' ? 'Puzzle board' : $screen === 'practice' ? 'Free Practice' : $screen === 'games' ? 'Game Library' : 'Parent area'}</h2>
+        <h2>{$screen === 'puzzle' ? 'Puzzle board' : 'Game Library'}</h2>
         <p>This area is the next part of the build.</p>
         <div class="button-row">
-          {#if $screen === 'parent'}
-            <button class="primary" type="button" on:click={() => screen.set('import')}>Import puzzles</button>
-          {/if}
           <button class="secondary" type="button" on:click={() => screen.set('home')}>Back home</button>
         </div>
       </section>

@@ -501,6 +501,7 @@ func (c *SQLiteCatalog) FreePracticeCandidates(
 	minimum *int,
 	maximum *int,
 	themes []string,
+	maximumSolutionPlies *int,
 	limit int,
 ) ([]domain.Puzzle, error) {
 	if limit <= 0 {
@@ -508,8 +509,9 @@ func (c *SQLiteCatalog) FreePracticeCandidates(
 	}
 	query := strings.Builder{}
 	query.WriteString(`SELECT ps.fingerprint, ps.source_id
-        FROM puzzle_sources ps
-        WHERE ps.source_id = ?`)
+		FROM puzzle_sources ps
+		JOIN puzzles p ON p.fingerprint = ps.fingerprint
+		WHERE ps.source_id = ?`)
 	args := []any{sourceID}
 	if minimum != nil {
 		query.WriteString(` AND ps.rating >= ?`)
@@ -530,6 +532,10 @@ func (c *SQLiteCatalog) FreePracticeCandidates(
 		for _, theme := range themes {
 			args = append(args, theme)
 		}
+	}
+	if maximumSolutionPlies != nil {
+		query.WriteString(` AND p.solution_plies <= ?`)
+		args = append(args, *maximumSolutionPlies)
 	}
 	query.WriteString(` ORDER BY ps.fingerprint LIMIT 500`)
 	keys, err := c.candidateKeys(ctx, query.String(), args...)

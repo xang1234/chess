@@ -9,16 +9,21 @@ import (
 )
 
 type blockingImporter struct {
-	started chan context.Context
+	started chan startedImport
+}
+
+type startedImport struct {
+	path string
+	ctx  context.Context
 }
 
 func (i *blockingImporter) Import(
 	ctx context.Context,
 	_ string,
-	_ string,
+	path string,
 	progress puzzles.ProgressSink,
 ) (puzzles.ImportReport, error) {
-	i.started <- ctx
+	i.started <- startedImport{path: path, ctx: ctx}
 	progress(puzzles.Progress{RowsRead: 10, BytesRead: 20})
 	<-ctx.Done()
 	return puzzles.ImportReport{}, ctx.Err()
@@ -43,7 +48,7 @@ func (e *captureEmitter) Finished(result Result) {
 }
 
 func TestServiceRunsAndCancelsIndependentJobs(t *testing.T) {
-	importer := &blockingImporter{started: make(chan context.Context, 2)}
+	importer := &blockingImporter{started: make(chan startedImport, 2)}
 	emitter := &captureEmitter{
 		progress: make(chan emittedProgress, 2),
 		finished: make(chan Result, 2),
@@ -61,8 +66,13 @@ func TestServiceRunsAndCancelsIndependentJobs(t *testing.T) {
 	if firstID == secondID {
 		t.Fatal("job IDs are not unique")
 	}
-	firstContext := <-importer.started
-	secondContext := <-importer.started
+	contexts := map[string]context.Context{}
+	for range 2 {
+		started := <-importer.started
+		contexts[started.path] = started.ctx
+	}
+	firstContext := contexts["/first.csv.zst"]
+	secondContext := contexts["/second.csv.zst"]
 	if firstContext == secondContext {
 		t.Fatal("jobs share a context")
 	}

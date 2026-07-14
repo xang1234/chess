@@ -135,11 +135,11 @@ func TestSQLiteCatalogCandidateFilters(t *testing.T) {
 	}
 
 	minimum, maximum := 1400, 1600
-	practice, err := catalog.FreePracticeCandidates(ctx, "lichess", &minimum, &maximum, []string{"pin"}, 10)
+	practice, err := catalog.FreePracticeCandidates(ctx, "lichess", &minimum, &maximum, []string{"pin"}, nil, 10)
 	if err != nil || len(practice) != 1 || practice[0].Fingerprint != "P1500" {
 		t.Fatalf("practice=%v err=%v", practice, err)
 	}
-	filtered, err := catalog.FreePracticeCandidates(ctx, "lichess", &minimum, &maximum, []string{"fork"}, 10)
+	filtered, err := catalog.FreePracticeCandidates(ctx, "lichess", &minimum, &maximum, []string{"fork"}, nil, 10)
 	if err != nil || len(filtered) != 0 {
 		t.Fatalf("filtered=%v err=%v", filtered, err)
 	}

@@ -200,6 +200,168 @@ export namespace importjob {
 
 }
 
+export namespace profile {
+
+	export class PracticeSource {
+	    id: string;
+	    kind: string;
+	    minimumRating: number;
+	    maximumRating: number;
+	    hasRatingRange: boolean;
+	    maximumPlies: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PracticeSource(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.minimumRating = source["minimumRating"];
+	        this.maximumRating = source["maximumRating"];
+	        this.hasRatingRange = source["hasRatingRange"];
+	        this.maximumPlies = source["maximumPlies"];
+	    }
+	}
+	export class PracticeFilters {
+	    sources: PracticeSource[];
+	    themes: string[];
+	    maximumSolutionPlies: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PracticeFilters(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sources = this.convertValues(source["sources"], PracticeSource);
+	        this.themes = source["themes"];
+	        this.maximumSolutionPlies = source["maximumSolutionPlies"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+	export class RatingPoint {
+	    rating: number;
+	    recordedAt: number;
+
+	    static createFrom(source: any = {}) {
+	        return new RatingPoint(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rating = source["rating"];
+	        this.recordedAt = source["recordedAt"];
+	    }
+	}
+	export class RecentSession {
+	    sessionId: string;
+	    mode: string;
+	    status: string;
+	    updatedAt: number;
+	    total: number;
+	    completed: number;
+	    firstTry: number;
+	    usedHint: number;
+	    revealed: number;
+
+	    static createFrom(source: any = {}) {
+	        return new RecentSession(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.mode = source["mode"];
+	        this.status = source["status"];
+	        this.updatedAt = source["updatedAt"];
+	        this.total = source["total"];
+	        this.completed = source["completed"];
+	        this.firstTry = source["firstTry"];
+	        this.usedHint = source["usedHint"];
+	        this.revealed = source["revealed"];
+	    }
+	}
+	export class ThemePerformance {
+	    theme: string;
+	    attempts: number;
+	    accuracy: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ThemePerformance(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.theme = source["theme"];
+	        this.attempts = source["attempts"];
+	        this.accuracy = source["accuracy"];
+	    }
+	}
+	export class Summary {
+	    learnerRating: number;
+	    ratingTrend: RatingPoint[];
+	    firstAttemptAccuracy: number;
+	    hintRate: number;
+	    themePerformance: ThemePerformance[];
+	    dueReviews: number;
+	    recentSessions: RecentSession[];
+
+	    static createFrom(source: any = {}) {
+	        return new Summary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.learnerRating = source["learnerRating"];
+	        this.ratingTrend = this.convertValues(source["ratingTrend"], RatingPoint);
+	        this.firstAttemptAccuracy = source["firstAttemptAccuracy"];
+	        this.hintRate = source["hintRate"];
+	        this.themePerformance = this.convertValues(source["themePerformance"], ThemePerformance);
+	        this.dueReviews = source["dueReviews"];
+	        this.recentSessions = this.convertValues(source["recentSessions"], RecentSession);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace puzzles {
 
 	export class Rejection {
@@ -257,6 +419,26 @@ export namespace puzzles {
 
 export namespace training {
 
+	export class PracticeRequest {
+	    sourceId: string;
+	    minimumRating?: number;
+	    maximumRating?: number;
+	    themes: string[];
+	    maximumSolutionPlies?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PracticeRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.minimumRating = source["minimumRating"];
+	        this.maximumRating = source["maximumRating"];
+	        this.themes = source["themes"];
+	        this.maximumSolutionPlies = source["maximumSolutionPlies"];
+	    }
+	}
 	export class Profile {
 	    learnerRating: number;
 	    sessionSize: number;

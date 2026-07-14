@@ -14,10 +14,21 @@ export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
     updateProfile: async (_profile: Profile) => {},
     resumeSession: async () => null,
     startGuided: async () => emptySession,
+    startFreePractice: async () => emptySession,
     playMove: async () => ({ session: emptySession, correct: false, puzzleCompleted: false }),
     useHint: async () => ({ level: 1, text: 'Look for a forcing move.', canReveal: false }),
     revealSolution: async () => ({ session: emptySession, correct: true, puzzleCompleted: true }),
     pauseSession: async () => {},
+    getParentSummary: async () => ({
+      learnerRating: 1200,
+      ratingTrend: [],
+      firstAttemptAccuracy: 0,
+      hintRate: 0,
+      themePerformance: [],
+      dueReviews: 0,
+      recentSessions: []
+    }),
+    getPracticeFilters: async () => ({ sources: [], themes: [], maximumSolutionPlies: 1 }),
     startLichessImport: async () => 'job-1',
     cancelImport: async () => {},
     getImportResult: async (): Promise<ImportResult> => ({

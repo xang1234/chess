@@ -53,8 +53,18 @@ func (s *UserStore) UpdateProfile(ctx context.Context, profile Profile) error {
 	if profile.SessionSize != 5 && profile.SessionSize != 10 && profile.SessionSize != 15 {
 		return fmt.Errorf("unsupported session size %d", profile.SessionSize)
 	}
-	now := time.Now().Unix()
-	_, err := s.db.ExecContext(
+	now := time.Now().UnixMilli()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var previous float64
+	previousErr := tx.QueryRowContext(ctx, `SELECT learner_rating FROM profile WHERE id = 1`).Scan(&previous)
+	if previousErr != nil && !errors.Is(previousErr, sql.ErrNoRows) {
+		return previousErr
+	}
+	_, err = tx.ExecContext(
 		ctx,
 		`INSERT INTO profile(id, learner_rating, session_size, created_at, updated_at)
          VALUES (1, ?, ?, ?, ?)
@@ -67,7 +77,18 @@ func (s *UserStore) UpdateProfile(ctx context.Context, profile Profile) error {
 		now,
 		now,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if errors.Is(previousErr, sql.ErrNoRows) || previous != profile.LearnerRating {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO rating_history(rating, recorded_at) VALUES (?, ?)`,
+			profile.LearnerRating, now,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *UserStore) Profile(ctx context.Context) (Profile, error) {
@@ -452,7 +473,15 @@ func (s *UserStore) CompleteItem(
 			ctx,
 			`UPDATE profile SET learner_rating = ?, updated_at = ? WHERE id = 1`,
 			*effects.NewRating,
-			now.Unix(),
+			now.UnixMilli(),
+		); err != nil {
+			return storedSession{}, err
+		}
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO rating_history(rating, recorded_at) VALUES (?, ?)`,
+			*effects.NewRating,
+			now.UnixMilli(),
 		); err != nil {
 			return storedSession{}, err
 		}

@@ -68,7 +68,7 @@ func (*captureCatalog) RatedCandidates(context.Context, int, int, []string, int)
 	return nil, nil
 }
 
-func (*captureCatalog) FreePracticeCandidates(context.Context, string, *int, *int, []string, int) ([]domain.Puzzle, error) {
+func (*captureCatalog) FreePracticeCandidates(context.Context, string, *int, *int, []string, *int, int) ([]domain.Puzzle, error) {
 	return nil, nil
 }
 

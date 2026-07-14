@@ -7,12 +7,13 @@ import (
 
 func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 	tests := []struct {
-		schema string
-		table  string
+		schema     string
+		table      string
+		migrations int
 	}{
-		{schema: "puzzles", table: "puzzles"},
-		{schema: "user", table: "profile"},
-		{schema: "library", table: "library_metadata"},
+		{schema: "puzzles", table: "puzzles", migrations: 1},
+		{schema: "user", table: "profile", migrations: 2},
+		{schema: "library", table: "library_metadata", migrations: 1},
 	}
 
 	for _, tt := range tests {
@@ -51,8 +52,8 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 			if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&migrations); err != nil {
 				t.Fatal(err)
 			}
-			if migrations != 1 {
-				t.Fatalf("migrations=%d, want 1", migrations)
+			if migrations != tt.migrations {
+				t.Fatalf("migrations=%d, want %d", migrations, tt.migrations)
 			}
 		})
 	}

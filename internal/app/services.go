@@ -10,6 +10,7 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/importjob"
+	"chess-trainer/internal/profile"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
 	"chess-trainer/internal/training"
@@ -25,6 +26,7 @@ type Services struct {
 	ImportJobs  *importjob.Service
 	UserStore   *training.UserStore
 	Training    *training.Service
+	Profile     *profile.Service
 	closeOnce   sync.Once
 	closeResult error
 }
@@ -68,6 +70,7 @@ func Open(paths storage.Paths) (*Services, error) {
 		chessrules.Rules{},
 		rand.New(rand.NewSource(time.Now().UnixNano())),
 	)
+	services.Profile = profile.NewService(services.UserDB, services.PuzzlesDB, services.UserStore)
 	return services, nil
 }
 

@@ -14,13 +14,28 @@ import (
 )
 
 type Service struct {
-	catalog   CatalogPort
-	store     *UserStore
-	rules     chessrules.Rules
-	random    *rand.Rand
-	now       func() time.Time
-	scheduler Scheduler
+	catalog         CatalogPort
+	practiceCatalog PracticeCatalogPort
+	store           *UserStore
+	rules           chessrules.Rules
+	random          *rand.Rand
+	now             func() time.Time
+	scheduler       Scheduler
 }
+
+type PracticeCatalogPort interface {
+	FreePracticeCandidates(context.Context, string, *int, *int, []string, *int, int) ([]domain.Puzzle, error)
+}
+
+type PracticeRequest struct {
+	SourceID             string   `json:"sourceId"`
+	MinimumRating        *int     `json:"minimumRating,omitempty"`
+	MaximumRating        *int     `json:"maximumRating,omitempty"`
+	Themes               []string `json:"themes"`
+	MaximumSolutionPlies *int     `json:"maximumSolutionPlies,omitempty"`
+}
+
+const practiceCandidatePool = 200
 
 func NewService(
 	catalog CatalogPort,
@@ -28,13 +43,15 @@ func NewService(
 	rules chessrules.Rules,
 	random *rand.Rand,
 ) *Service {
+	practiceCatalog, _ := catalog.(PracticeCatalogPort)
 	return &Service{
-		catalog:   catalog,
-		store:     store,
-		rules:     rules,
-		random:    random,
-		now:       time.Now,
-		scheduler: Scheduler{Catalog: catalog, User: store},
+		catalog:         catalog,
+		practiceCatalog: practiceCatalog,
+		store:           store,
+		rules:           rules,
+		random:          random,
+		now:             time.Now,
+		scheduler:       Scheduler{Catalog: catalog, User: store},
 	}
 }
 
@@ -48,6 +65,63 @@ func (s *Service) StartGuided(ctx context.Context) (domain.SessionView, error) {
 		return domain.SessionView{}, err
 	}
 	session, err := s.store.CreateSession(ctx, "guided", items, s.now())
+	if err != nil {
+		return domain.SessionView{}, err
+	}
+	return s.view(ctx, session)
+}
+
+func (s *Service) StartFreePractice(ctx context.Context, request PracticeRequest) (domain.SessionView, error) {
+	if s.practiceCatalog == nil {
+		return domain.SessionView{}, errors.New("puzzle catalogue does not support free practice")
+	}
+	if request.SourceID == "" {
+		return domain.SessionView{}, errors.New("practice source is required")
+	}
+	if request.MinimumRating != nil && request.MaximumRating != nil &&
+		*request.MinimumRating > *request.MaximumRating {
+		return domain.SessionView{}, errors.New("minimum rating cannot exceed maximum rating")
+	}
+	if request.MaximumSolutionPlies != nil && *request.MaximumSolutionPlies <= 0 {
+		return domain.SessionView{}, errors.New("maximum solution length must be positive")
+	}
+	profile, err := s.store.Profile(ctx)
+	if err != nil {
+		return domain.SessionView{}, err
+	}
+	candidates, err := s.practiceCatalog.FreePracticeCandidates(
+		ctx,
+		request.SourceID,
+		request.MinimumRating,
+		request.MaximumRating,
+		request.Themes,
+		request.MaximumSolutionPlies,
+		max(profile.SessionSize, practiceCandidatePool),
+	)
+	if err != nil {
+		return domain.SessionView{}, err
+	}
+	if len(candidates) == 0 {
+		return domain.SessionView{}, errors.New("no puzzles match these practice filters")
+	}
+	if s.random != nil {
+		s.random.Shuffle(len(candidates), func(i, j int) {
+			candidates[i], candidates[j] = candidates[j], candidates[i]
+		})
+	}
+	if len(candidates) > profile.SessionSize {
+		candidates = candidates[:profile.SessionSize]
+	}
+	items := make([]ScheduledPuzzle, len(candidates))
+	for index, puzzle := range candidates {
+		items[index] = ScheduledPuzzle{
+			Puzzle:        puzzle,
+			SourceID:      request.SourceID,
+			Kind:          ScheduledNew,
+			UpdatesRating: false,
+		}
+	}
+	session, err := s.store.CreateSession(ctx, "practice", items, s.now())
 	if err != nil {
 		return domain.SessionView{}, err
 	}

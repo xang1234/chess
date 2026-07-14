@@ -2,12 +2,11 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 
 	appservices "chess-trainer/internal/app"
 	"chess-trainer/internal/domain"
 	"chess-trainer/internal/importjob"
+	"chess-trainer/internal/profile"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/training"
 
@@ -44,6 +43,10 @@ func (a *App) StartGuided() (domain.SessionView, error) {
 	return a.services.Training.StartGuided(a.ctx)
 }
 
+func (a *App) StartFreePractice(request training.PracticeRequest) (domain.SessionView, error) {
+	return a.services.Training.StartFreePractice(a.ctx, request)
+}
+
 func (a *App) ResumeSession() (*domain.SessionView, error) {
 	return a.services.Training.Resume(a.ctx)
 }
@@ -65,18 +68,19 @@ func (a *App) PauseSession(sessionID string) error {
 }
 
 func (a *App) GetProfile() (*training.Profile, error) {
-	profile, err := a.services.UserStore.Profile(a.ctx)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &profile, nil
+	return a.services.Profile.Get(a.ctx)
 }
 
-func (a *App) UpdateProfile(profile training.Profile) error {
-	return a.services.UserStore.UpdateProfile(a.ctx, profile)
+func (a *App) UpdateProfile(value training.Profile) error {
+	return a.services.Profile.UpdateSettings(a.ctx, value)
+}
+
+func (a *App) GetParentSummary() (profile.Summary, error) {
+	return a.services.Profile.Summary(a.ctx)
+}
+
+func (a *App) GetPracticeFilters() (profile.PracticeFilters, error) {
+	return a.services.Profile.PracticeFilters(a.ctx)
 }
 
 type wailsEmitter struct {

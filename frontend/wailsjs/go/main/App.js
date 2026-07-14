@@ -10,6 +10,14 @@ export function GetImportResult(arg1) {
   return window['go']['main']['App']['GetImportResult'](arg1);
 }
 
+export function GetParentSummary() {
+  return window['go']['main']['App']['GetParentSummary']();
+}
+
+export function GetPracticeFilters() {
+  return window['go']['main']['App']['GetPracticeFilters']();
+}
+
 export function GetProfile() {
   return window['go']['main']['App']['GetProfile']();
 }
@@ -28,6 +36,10 @@ export function ResumeSession() {
 
 export function RevealSolution(arg1) {
   return window['go']['main']['App']['RevealSolution'](arg1);
+}
+
+export function StartFreePractice(arg1) {
+  return window['go']['main']['App']['StartFreePractice'](arg1);
 }
 
 export function StartGuided() {
