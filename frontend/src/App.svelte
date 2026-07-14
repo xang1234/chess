@@ -3,6 +3,7 @@
   import HomeHub from './components/home/HomeHub.svelte'
   import ImportPanel from './components/import/ImportPanel.svelte'
   import InitialSetup from './components/parent/InitialSetup.svelte'
+  import PuzzleScreen from './components/puzzle/PuzzleScreen.svelte'
   import { getAPI, type SessionView } from './lib/api'
   import { screen } from './lib/navigation'
 
@@ -37,6 +38,11 @@
       error = cause instanceof Error ? cause.message : String(cause)
     }
   }
+
+  function leaveTraining(event: CustomEvent<{ completed: boolean }>): void {
+    if (event.detail.completed) activeSession = null
+    screen.set('home')
+  }
 </script>
 
 <svelte:head><title>Chess Trainer</title></svelte:head>
@@ -62,7 +68,7 @@
       <InitialSetup on:complete={() => screen.set('home')} />
     {:else if $screen === 'home'}
       <HomeHub
-        activeSession={activeSession !== null}
+        activeSession={activeSession !== null && activeSession.status !== 'completed'}
         on:training={openTraining}
         on:practice={() => screen.set('practice')}
         on:games={() => screen.set('games')}
@@ -70,6 +76,12 @@
       />
     {:else if $screen === 'import'}
       <ImportPanel />
+    {:else if $screen === 'puzzle' && activeSession}
+      <PuzzleScreen
+        session={activeSession}
+        on:change={(event) => { activeSession = event.detail }}
+        on:home={leaveTraining}
+      />
     {:else}
       <section class="panel placeholder-panel">
         <h2>{$screen === 'puzzle' ? 'Puzzle board' : $screen === 'practice' ? 'Free Practice' : $screen === 'games' ? 'Game Library' : 'Parent area'}</h2>

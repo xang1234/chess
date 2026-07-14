@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte'
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import App from './App.svelte'
 import { setAPIForTests } from './lib/api'
 import { fakeAPI } from './test-fakes'
@@ -21,4 +21,30 @@ test('shows Continue on the home hub when a session is active', async () => {
   await waitFor(() => {
     expect(screen.getByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
   })
+})
+
+test('opens the board-first puzzle screen from the home hub', async () => {
+  setAPIForTests(fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
+    startGuided: async () => ({
+      sessionId: 'session-1', mode: 'guided', status: 'active', currentIndex: 0, total: 1,
+      current: {
+        fingerprint: 'puzzle-1',
+        displayedFen: '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2',
+        currentFen: '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2',
+        solver: 'white',
+        currentPath: [],
+        puzzleNumber: 1,
+        puzzleTotal: 1,
+        hintLevel: 0,
+        incorrectMoves: 0,
+        canReveal: false
+      }
+    })
+  }))
+  render(App)
+
+  await fireEvent.click(await screen.findByRole('button', { name: "Start today's training" }))
+  await waitFor(() => expect(screen.getByText('Find the best move')).toBeInTheDocument())
+  expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
 })

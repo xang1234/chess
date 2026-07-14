@@ -18,14 +18,53 @@ export type Profile = {
   sessionSize: 5 | 10 | 15
 }
 
+export type PuzzleView = {
+  fingerprint: string
+  sourceFen?: string
+  displayedFen: string
+  currentFen: string
+  preludeUci?: string
+  solver: 'white' | 'black'
+  currentPath: number[]
+  puzzleNumber: number
+  puzzleTotal: number
+  hintLevel: number
+  incorrectMoves: number
+  canReveal: boolean
+}
+
+export type SessionSummary = {
+  total: number
+  firstTry: number
+  retried: number
+  usedHint: number
+  revealed: number
+  unavailable: number
+}
+
 export type SessionView = {
   sessionId: string
   mode: string
   status: string
   currentIndex: number
   total: number
-  current?: unknown
-  summary?: unknown
+  current?: PuzzleView
+  summary?: SessionSummary
+}
+
+export type MoveResult = {
+  session: SessionView
+  correct: boolean
+  puzzleCompleted: boolean
+  message?: string
+}
+
+export type HintResult = {
+  level: number
+  text: string
+  sourceSquare?: string
+  targetSquare?: string
+  canReveal: boolean
 }
 
 export type ImportProgress = {
@@ -52,9 +91,9 @@ export interface AppAPI {
   updateProfile(profile: Profile): Promise<void>
   resumeSession(): Promise<SessionView | null>
   startGuided(): Promise<SessionView>
-  playMove(sessionId: string, uci: string): Promise<unknown>
-  useHint(sessionId: string): Promise<unknown>
-  revealSolution(sessionId: string): Promise<unknown>
+  playMove(sessionId: string, uci: string): Promise<MoveResult>
+  useHint(sessionId: string): Promise<HintResult>
+  revealSolution(sessionId: string): Promise<MoveResult>
   pauseSession(sessionId: string): Promise<void>
   startLichessImport(path: string): Promise<string>
   cancelImport(jobId: string): Promise<void>
@@ -68,9 +107,9 @@ const productionAPI: AppAPI = {
   updateProfile: async (profile) => UpdateProfile(profile),
   resumeSession: async () => (await ResumeSession()) as SessionView | null,
   startGuided: async () => (await StartGuided()) as SessionView,
-  playMove: PlayMove,
-  useHint: UseHint,
-  revealSolution: RevealSolution,
+  playMove: async (sessionId, uci) => (await PlayMove(sessionId, uci)) as MoveResult,
+  useHint: async (sessionId) => (await UseHint(sessionId)) as HintResult,
+  revealSolution: async (sessionId) => (await RevealSolution(sessionId)) as MoveResult,
   pauseSession: PauseSession,
   startLichessImport: StartLichessImport,
   cancelImport: CancelImport,
@@ -87,9 +126,23 @@ const previewAPI: AppAPI = {
   startGuided: async () => ({
     sessionId: 'preview-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
   }),
-  playMove: async () => ({}),
-  useHint: async () => ({}),
-  revealSolution: async () => ({}),
+  playMove: async () => ({
+    session: {
+      sessionId: 'preview-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
+    },
+    correct: false,
+    puzzleCompleted: false,
+    message: 'Try again'
+  }),
+  useHint: async () => ({ level: 1, text: 'Look for a forcing move.', canReveal: false }),
+  revealSolution: async () => ({
+    session: {
+      sessionId: 'preview-session', mode: 'guided', status: 'complete', currentIndex: 10, total: 10,
+      summary: { total: 10, firstTry: 7, retried: 2, usedHint: 1, revealed: 0, unavailable: 0 }
+    },
+    correct: true,
+    puzzleCompleted: true
+  }),
   pauseSession: async () => {},
   startLichessImport: async () => 'preview-import',
   cancelImport: async () => {},
