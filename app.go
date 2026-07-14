@@ -2,26 +2,51 @@ package main
 
 import (
 	"context"
-	"fmt"
+
+	appservices "chess-trainer/internal/app"
+	"chess-trainer/internal/importjob"
+	"chess-trainer/internal/puzzles"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// App struct
 type App struct {
+	ctx      context.Context
+	services *appservices.Services
+}
+
+func NewApp(services *appservices.Services) *App {
+	return &App{services: services}
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	a.services.ImportJobs.SetEmitter(wailsEmitter{ctx: ctx})
+}
+
+func (a *App) StartLichessImport(path string) (string, error) {
+	return a.services.ImportJobs.Start(path)
+}
+
+func (a *App) CancelImport(jobID string) error {
+	return a.services.ImportJobs.Cancel(jobID)
+}
+
+func (a *App) GetImportResult(jobID string) (importjob.Result, error) {
+	return a.services.ImportJobs.Result(jobID)
+}
+
+type wailsEmitter struct {
 	ctx context.Context
 }
 
-// NewApp creates a new App application struct
-func NewApp() *App {
-	return &App{}
+func (e wailsEmitter) Progress(jobID string, progress puzzles.Progress) {
+	runtime.EventsEmit(e.ctx, "import:progress", struct {
+		JobID string `json:"jobId"`
+		puzzles.Progress
+	}{JobID: jobID, Progress: progress})
 }
 
-// startup is called when the app starts. The context is saved
-// so we can call the runtime methods
-func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-}
-
-// Greet returns a greeting for the given name
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
+func (e wailsEmitter) Finished(result importjob.Result) {
+	runtime.EventsEmit(e.ctx, "import:finished", result)
 }
