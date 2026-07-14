@@ -18,7 +18,7 @@ func TestOpenCreatesAndClosesAllStores(t *testing.T) {
 			t.Fatalf("database %q: %v", path, err)
 		}
 	}
-	if services.Catalog == nil || services.ImportJobs == nil {
+	if services.Catalog == nil || services.ImportJobs == nil || services.Training == nil {
 		t.Fatal("core services were not composed")
 	}
 	if err := services.Close(); err != nil {

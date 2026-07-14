@@ -10,6 +10,30 @@ export function GetImportResult(arg1) {
   return window['go']['main']['App']['GetImportResult'](arg1);
 }
 
+export function PauseSession(arg1) {
+  return window['go']['main']['App']['PauseSession'](arg1);
+}
+
+export function PlayMove(arg1, arg2) {
+  return window['go']['main']['App']['PlayMove'](arg1, arg2);
+}
+
+export function ResumeSession() {
+  return window['go']['main']['App']['ResumeSession']();
+}
+
+export function RevealSolution(arg1) {
+  return window['go']['main']['App']['RevealSolution'](arg1);
+}
+
+export function StartGuided() {
+  return window['go']['main']['App']['StartGuided']();
+}
+
 export function StartLichessImport(arg1) {
   return window['go']['main']['App']['StartLichessImport'](arg1);
+}
+
+export function UseHint(arg1) {
+  return window['go']['main']['App']['UseHint'](arg1);
 }

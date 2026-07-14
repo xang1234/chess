@@ -4,6 +4,7 @@ import (
 	"context"
 
 	appservices "chess-trainer/internal/app"
+	"chess-trainer/internal/domain"
 	"chess-trainer/internal/importjob"
 	"chess-trainer/internal/puzzles"
 
@@ -16,7 +17,7 @@ type App struct {
 }
 
 func NewApp(services *appservices.Services) *App {
-	return &App{services: services}
+	return &App{ctx: context.Background(), services: services}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -34,6 +35,30 @@ func (a *App) CancelImport(jobID string) error {
 
 func (a *App) GetImportResult(jobID string) (importjob.Result, error) {
 	return a.services.ImportJobs.Result(jobID)
+}
+
+func (a *App) StartGuided() (domain.SessionView, error) {
+	return a.services.Training.StartGuided(a.ctx)
+}
+
+func (a *App) ResumeSession() (*domain.SessionView, error) {
+	return a.services.Training.Resume(a.ctx)
+}
+
+func (a *App) PlayMove(sessionID, uci string) (domain.MoveResult, error) {
+	return a.services.Training.PlayMove(a.ctx, sessionID, uci)
+}
+
+func (a *App) UseHint(sessionID string) (domain.HintResult, error) {
+	return a.services.Training.UseHint(a.ctx, sessionID)
+}
+
+func (a *App) RevealSolution(sessionID string) (domain.MoveResult, error) {
+	return a.services.Training.Reveal(a.ctx, sessionID)
+}
+
+func (a *App) PauseSession(sessionID string) error {
+	return a.services.Training.Pause(a.ctx, sessionID)
 }
 
 type wailsEmitter struct {

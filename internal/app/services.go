@@ -4,12 +4,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/rand"
 	"sync"
+	"time"
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/importjob"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
+	"chess-trainer/internal/training"
 )
 
 type Services struct {
@@ -20,6 +23,8 @@ type Services struct {
 	Catalog     *puzzles.SQLiteCatalog
 	Importer    *puzzles.LichessImporter
 	ImportJobs  *importjob.Service
+	UserStore   *training.UserStore
+	Training    *training.Service
 	closeOnce   sync.Once
 	closeResult error
 }
@@ -56,6 +61,13 @@ func Open(paths storage.Paths) (*Services, error) {
 		},
 	}
 	services.ImportJobs = importjob.NewService(services.Importer, nil)
+	services.UserStore = training.NewUserStore(services.UserDB)
+	services.Training = training.NewService(
+		services.Catalog,
+		services.UserStore,
+		chessrules.Rules{},
+		rand.New(rand.NewSource(time.Now().UnixNano())),
+	)
 	return services, nil
 }
 
