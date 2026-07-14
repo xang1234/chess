@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	appservices "chess-trainer/internal/app"
 	"chess-trainer/internal/domain"
 	"chess-trainer/internal/importjob"
 	"chess-trainer/internal/puzzles"
+	"chess-trainer/internal/training"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -59,6 +62,21 @@ func (a *App) RevealSolution(sessionID string) (domain.MoveResult, error) {
 
 func (a *App) PauseSession(sessionID string) error {
 	return a.services.Training.Pause(a.ctx, sessionID)
+}
+
+func (a *App) GetProfile() (*training.Profile, error) {
+	profile, err := a.services.UserStore.Profile(a.ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+func (a *App) UpdateProfile(profile training.Profile) error {
+	return a.services.UserStore.UpdateProfile(a.ctx, profile)
 }
 
 type wailsEmitter struct {

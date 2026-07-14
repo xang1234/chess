@@ -254,3 +254,22 @@ export namespace puzzles {
 	}
 
 }
+
+export namespace training {
+
+	export class Profile {
+	    learnerRating: number;
+	    sessionSize: number;
+
+	    static createFrom(source: any = {}) {
+	        return new Profile(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.learnerRating = source["learnerRating"];
+	        this.sessionSize = source["sessionSize"];
+	    }
+	}
+
+}

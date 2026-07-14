@@ -1,0 +1,17 @@
+:root {
+  --ivory-50: #fffdf7;
+  --ivory-100: #f7f0df;
+  --ivory-200: #eadfc7;
+  --forest-500: #2d7659;
+  --forest-600: #205c45;
+  --forest-700: #174535;
+  --amber-400: #efb444;
+  --amber-500: #d99620;
+  --ink-900: #1c2d26;
+  --ink-700: #42564d;
+  --red-600: #a63d32;
+  --white: #ffffff;
+  --shadow-soft: 0 18px 48px rgba(54, 47, 31, 0.12);
+  --radius-large: 24px;
+  --radius-medium: 14px;
+}

@@ -10,6 +10,10 @@ export function GetImportResult(arg1) {
   return window['go']['main']['App']['GetImportResult'](arg1);
 }
 
+export function GetProfile() {
+  return window['go']['main']['App']['GetProfile']();
+}
+
 export function PauseSession(arg1) {
   return window['go']['main']['App']['PauseSession'](arg1);
 }
@@ -32,6 +36,10 @@ export function StartGuided() {
 
 export function StartLichessImport(arg1) {
   return window['go']['main']['App']['StartLichessImport'](arg1);
+}
+
+export function UpdateProfile(arg1) {
+  return window['go']['main']['App']['UpdateProfile'](arg1);
 }
 
 export function UseHint(arg1) {
