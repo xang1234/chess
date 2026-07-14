@@ -40,4 +40,5 @@ CREATE TABLE IF NOT EXISTS import_staging (
   PRIMARY KEY (import_id, ordinal)
 );
 CREATE INDEX IF NOT EXISTS idx_puzzle_sources_rating ON puzzle_sources(source_id, rating);
+CREATE INDEX IF NOT EXISTS idx_puzzle_sources_rating_global ON puzzle_sources(rating, fingerprint);
 CREATE INDEX IF NOT EXISTS idx_puzzle_themes_theme ON puzzle_themes(source_id, theme, fingerprint);
