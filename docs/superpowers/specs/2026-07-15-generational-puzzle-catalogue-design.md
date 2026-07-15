@@ -60,13 +60,13 @@ The existing merge could be tuned with more indexes and temporary tables, but it
 - Normalized solution tree.
 - Solution ply count used by indexed filters.
 
-The fingerprint remains the SHA-256 digest of displayed FEN plus normalized solution tree.
+The fingerprint remains the SHA-256 digest of the existing JSON payload: trimmed displayed FEN, solver color, and the recursively normalized solution tree.
 
 ### PuzzleOccurrence
 
 `PuzzleOccurrence` owns data supplied by one source generation:
 
-- Generation ID and logical source ID.
+- Logical source ID and kind. Generation ID is persistence identity stamped by the generation writer; it is not exposed to import adapters or training consumers.
 - Source-local external ID.
 - Optional source FEN and presentation prelude.
 - Rating, popularity, and play count.
@@ -78,9 +78,9 @@ Source FEN and prelude are occurrence data because two sources can reach the sam
 
 ### TrainingPuzzle
 
-`TrainingPuzzle` is the source-aware projection consumed by scheduling and solving. It contains one `PuzzleCore` and exactly one `PuzzleOccurrence`. It is addressed by `PuzzleKey{Fingerprint, SourceID}` rather than by fingerprint alone.
+`TrainingPuzzle` is the source-aware projection consumed by scheduling and solving. It contains one `PuzzleCore` and exactly one active `PuzzleOccurrence`. It is addressed by `PuzzleKey{Fingerprint, SourceID}` rather than by fingerprint alone.
 
-Rated and free-practice candidate queries return `TrainingPuzzle` values. Session items continue to persist fingerprint and source ID. Move, hint, reveal, resume, and completion paths must retrieve the exact occurrence selected for the session.
+Rated and free-practice candidate queries return `TrainingPuzzle` values. Global rated candidates choose at most one active occurrence per fingerprint before applying the result limit, using lexical source ID as the deterministic tie-break; source-scoped practice is already unique per fingerprint. Session items persist fingerprint and source ID and snapshot the selected occurrence's session-visible fields. Move, hint, reveal, resume, and completion paths validate the exact active fingerprint/source key and use its stable core, while stored source presentation, themes, and rating remain authoritative for that queued session. This avoids pinning obsolete generations while preventing a same-source reimport from rewriting an in-progress session.
 
 ## SQLite Schema
 
@@ -91,7 +91,7 @@ The recreated catalogue contains these logical tables:
 - `source_id TEXT PRIMARY KEY`
 - `kind TEXT NOT NULL`
 
-This table is the stable identity of a configured source. Import path, checksum, and timestamps belong to a generation, not to the logical source.
+This table is the stable identity of a configured source. Its kind is immutable: reusing a source ID with a different kind is an error. Import path, checksum, and timestamps belong to a generation, not to the logical source.
 
 ### `source_generations`
 
@@ -147,27 +147,28 @@ Indexes cover active-generation rating queries, active-generation theme queries,
 
 The import coordinator accepts a typed request containing `Kind`, `SourceID`, and `Path`. Lichess is the first registered adapter, but the coordinator does not hard-code it.
 
-Only one puzzle-catalogue import may run at a time. A second start request returns a typed busy error containing the active job ID. Job state remains queryable through a result snapshot even if an event listener misses progress or completion.
+Only one puzzle-catalogue import may run at a time. A second start request returns a typed busy error containing the active job ID. Job state remains queryable through a result snapshot even if an event listener misses progress or completion. The coordinator also owns a single writer gate and a cancellable maintenance worker: imports hold the gate for their lifetime, cleanup takes it for one bounded batch at a time, and a newly reserved import stops further cleanup batches.
 
 The writer performs these steps:
 
-1. Create a `building` generation before reading source rows.
+1. In one transaction, validate/insert the immutable source identity, capture the prior head, and create a `building` generation before reading source rows.
 2. Stream and validate the source without creating a decompressed file.
 3. Write cores, occurrences, and occurrence themes in bounded transactions.
 4. Count rejected records and repeated generation-local fingerprints while retaining at most 100 rejection examples.
 5. Finish the checksum and seal the generation.
 6. In one short transaction, compare the expected previous head and switch `source_heads` to the sealed generation.
-7. Emit the terminal job snapshot and schedule bounded cleanup.
+7. Emit the terminal job snapshot and trigger the bounded cleanup worker.
 
-The compare-and-swap condition prevents an obsolete writer from replacing a newer head even if job exclusion is later relaxed. Activation never deletes live rows or rebuilds global indexes.
+The compare-and-swap condition prevents an obsolete writer from replacing a newer head even if job exclusion is later relaxed. Activation never deletes live rows or rebuilds global indexes. Service shutdown first prevents new jobs, cancels active import and maintenance contexts, waits for their registered goroutines, and only then permits SQLite handles to close.
 
-The puzzle store exposes separate handles for reads and writes against the same WAL-mode database. The writer handle has exactly one connection and serializes import, activation, and cleanup work. The reader handle has a small bounded pool so training queries can continue against the prior source head while the writer commits batches. Connection-scoped foreign-key and busy-timeout pragmas are configured for every connection rather than only for the first connection opened. Cleanup runs only when no import is writing.
+The puzzle store exposes separate handles for reads and writes against the same WAL-mode database. The writer handle has exactly one connection and serializes import, activation, and cleanup work. The reader handle has a small bounded pool so training queries can continue against the prior source head while the writer commits batches. Every public catalogue read uses one SQL statement or one read transaction so activation and cleanup cannot mix rows from different snapshots. Connection-scoped foreign-key and busy-timeout pragmas are configured for every connection rather than only for the first connection opened. Cleanup runs only when no import is writing.
 
 ## Failure and Crash Semantics
 
 - Parse, validation, disk, or database failures leave the existing head unchanged.
 - Cancellation marks the generation abandoned and returns promptly; physical deletion is asynchronous.
 - Startup marks every leftover `building` generation abandoned because no import goroutine survives process restart.
+- Startup acquires a data-root single-instance lock before recovery, so a second live process cannot abandon the first process's import.
 - Cleanup deletes occurrence/theme rows in bounded batches, yielding between transactions.
 - Cleanup removes a core only when no occurrence in any generation references it.
 - Sealed generations not referenced by a source head are safe to clean.
@@ -183,9 +184,9 @@ The puzzle store exposes separate handles for reads and writes against the same 
 - Rating at the time the puzzle was scheduled.
 - Normalized source themes as JSON.
 
-The same snapshot columns are stored on every queued `session_item`. Only the current item has an attempt row, so later attempts must copy the metadata selected when the session was scheduled rather than consulting a possibly reimported catalogue.
+The same reporting snapshot columns are stored on every queued `session_item`, together with source FEN and presentation prelude used by the puzzle view. Only the current item has an attempt row, so later attempts must copy the metadata selected when the session was scheduled rather than consulting a possibly reimported catalogue. Attempt rows do not need source FEN or prelude because those fields are not used for historical reporting.
 
-The new columns are nullable for schema compatibility. Before a recognized legacy puzzle catalogue is deleted, startup performs a one-time cross-store backfill for legacy attempts and queued session items whose snapshot is null. It reads source kind, rating, and themes from the matching legacy fingerprint/source rows. A valid legacy catalogue therefore retains its existing historical theme attribution through recreation. If a legacy row has no matching occurrence, its snapshot remains null and reporting omits unknown themes instead of inventing attribution from a future replacement catalogue.
+The new columns are nullable for schema compatibility. Before a recognized legacy puzzle catalogue is deleted, startup performs a one-time cross-store backfill for legacy attempts and queued session items whose snapshot is null. It reads source kind, rating, themes, source FEN, and prelude from the matching legacy fingerprint/source rows, storing presentation fields only on session items. A valid legacy catalogue therefore retains its existing historical theme attribution and queued presentation through recreation. If a legacy row has no matching occurrence, its snapshot remains null and reporting omits unknown themes instead of inventing attribution from a future replacement catalogue.
 
 Review state also records a preferred source ID. Existing rows receive a null preferred source and choose a deterministic active occurrence when next scheduled. New or updated review rows retain the occurrence used by the attempt. If that source no longer contains the fingerprint, scheduling may choose another active occurrence for the same core; if none exists, the review remains dormant until the fingerprint returns.
 
@@ -193,7 +194,7 @@ Parent theme metrics read attempt snapshots from `user.sqlite`; they no longer r
 
 ## Legacy Catalogue Recreation and Startup
 
-The application opens and migrates `user.sqlite` before replacing the puzzle catalogue. If the puzzle store has the recognized legacy schema, it backfills null attempt and session-item snapshots, closes the legacy handle, and only then recreates `puzzles.sqlite`.
+The application acquires a data-root single-instance lock, then opens and migrates `user.sqlite` before replacing the puzzle catalogue. If the puzzle store has the exactly recognized legacy schema and migration set, it backfills null attempt and session-item snapshots, closes the legacy handle, and only then recreates `puzzles.sqlite`.
 
 Puzzle-store startup performs a cheap schema/version probe. A known legacy puzzle schema is closed, its database and WAL/SHM sidecars are removed, and a fresh generational catalogue is created. This behavior is authorized only for `puzzles.sqlite`; no user or game-library database is rebuilt by this path.
 
@@ -268,6 +269,6 @@ Implementation follows red-green-refactor. Every behavior change begins with a f
 - Activation performs no source-wide delete, catalogue-wide merge, or global index rebuild.
 - Additional puzzle sources can retain independent metadata for a shared canonical fingerprint.
 - Attempts and parent theme history remain stable after source reimport or complete puzzle-catalogue recreation.
-- Queued session items retain the source metadata selected at scheduling time, even when their attempts start after a restart or source reimport.
+- Queued session items retain source kind, rating, themes, source FEN, and prelude selected at scheduling time, even when their attempts start after a restart or same-source reimport.
 - Normal startup does not scan the complete puzzle catalogue.
 - `go test ./...`, the serial frontend test suite, the frontend production build, and the race suite pass; explicit performance tests run separately from the race suite.
