@@ -292,6 +292,51 @@ INSERT INTO future_catalogue_state(value) VALUES ('preserve replacement');
 	}
 }
 
+func TestRemoveRecognizedLegacyPreservesExactLegacyPathReplacement(t *testing.T) {
+	fixtures := []struct {
+		name string
+		sql  string
+	}{
+		{name: "v1", sql: legacyPuzzlesV1Fixture},
+		{name: "v2", sql: legacyPuzzlesV2Fixture},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "puzzles.sqlite")
+			createMarkedLegacyCrashSQLiteFixture(t, path, fixture.sql, "validated-"+fixture.name)
+
+			pending, err := prepareRecognizedLegacyRemoval(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			validatedBackup := filepath.Join(root, "validated-legacy.sqlite")
+			for _, suffix := range []string{"", "-wal", "-shm"} {
+				if err := os.Rename(path+suffix, validatedBackup+suffix); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantValidated := snapshotPreservedPuzzleFiles(t, validatedBackup)
+
+			createMarkedLegacyCrashSQLiteFixture(t, path, fixture.sql, "replacement-"+fixture.name)
+			wantReplacement := snapshotPreservedPuzzleFiles(t, path)
+			if wantReplacement.database == wantValidated.database {
+				t.Fatal("test setup produced byte-identical validated and replacement databases")
+			}
+			if wantReplacement.wal == wantValidated.wal {
+				t.Fatal("test setup produced byte-identical validated and replacement WALs")
+			}
+
+			if err := pending.remove(); err == nil {
+				t.Fatal("validated legacy removal deleted an exact-legacy path replacement")
+			}
+			assertPuzzleFilesPreserved(t, path, wantReplacement)
+			assertPuzzleFilesPreserved(t, validatedBackup, wantValidated)
+		})
+	}
+}
+
 func TestBackfillLegacySnapshotsMatchesFingerprintAndSource(t *testing.T) {
 	legacy := openPopulatedLegacyDatabase(t, func(t *testing.T, tx *sql.Tx) {
 		insertLegacyPuzzle(t, tx, "shared", "source-a", "kind-a", 1100, "fen-shared", "prelude-shared", "zeta", "alpha")
@@ -791,6 +836,61 @@ func createCrashSQLiteFixture(t *testing.T, path, fixture string) {
 	for candidate, contents := range files {
 		if err := os.WriteFile(candidate, contents, 0o600); err != nil {
 			t.Fatalf("restore crash SQLite file %s: %v", candidate, err)
+		}
+	}
+}
+
+func createMarkedLegacyCrashSQLiteFixture(t *testing.T, path, fixture, marker string) {
+	t.Helper()
+	db := createSQLiteFixture(t, path, fixture)
+	if _, err := db.Exec(`INSERT INTO sources(
+		source_id, kind, imported_at, source_path, checksum
+	) VALUES (?, 'test', 1, '/main', 'main')`, "main-"+marker); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dsn, err := puzzleStoreDSN(path, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err = sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA wal_autocheckpoint=0`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sources(
+		source_id, kind, imported_at, source_path, checksum
+	) VALUES (?, 'test', 1, '/wal', 'wal')`, "wal-"+marker); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+
+	files := make(map[string][]byte, 3)
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		contents, err := os.ReadFile(candidate)
+		if err != nil {
+			db.Close()
+			t.Fatalf("capture marked live SQLite file %s: %v", candidate, err)
+		}
+		files[candidate] = contents
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for candidate, contents := range files {
+		if err := os.WriteFile(candidate, contents, 0o600); err != nil {
+			t.Fatalf("restore marked crash SQLite file %s: %v", candidate, err)
 		}
 	}
 }

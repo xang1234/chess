@@ -117,10 +117,15 @@ func closePuzzleProbe(path string, db *sql.DB, probeErr error) error {
 }
 
 type recognizedLegacyRemoval struct {
-	path string
+	path     string
+	identity puzzleStoreFileIdentity
 }
 
 func prepareRecognizedLegacyRemoval(path string) (*recognizedLegacyRemoval, error) {
+	beforeValidation, err := capturePuzzleStoreFileIdentity(path)
+	if err != nil {
+		return nil, err
+	}
 	state, db, err := probePuzzleStoreOpen(path)
 	err = closePuzzleProbe(path, db, err)
 	if err != nil {
@@ -129,13 +134,31 @@ func prepareRecognizedLegacyRemoval(path string) (*recognizedLegacyRemoval, erro
 	if !state.Exists || !state.Legacy {
 		return nil, fmt.Errorf("refuse to remove puzzle database %s: not a recognized legacy catalogue", path)
 	}
-	return &recognizedLegacyRemoval{path: path}, nil
+	afterValidation, err := capturePuzzleStoreFileIdentity(path)
+	if err != nil {
+		return nil, err
+	}
+	if !samePuzzleStoreFileIdentity(beforeValidation, afterValidation) {
+		return nil, fmt.Errorf("refuse to remove puzzle database %s: file identity changed during validation", path)
+	}
+	return &recognizedLegacyRemoval{path: path, identity: afterValidation}, nil
 }
 
 func (r *recognizedLegacyRemoval) remove() error {
 	quarantine, err := quarantinePuzzleStore(r.path)
 	if err != nil {
 		return err
+	}
+	quarantinedIdentity, identityErr := capturePuzzleStoreFileIdentity(quarantine.path)
+	if identityErr == nil && !samePuzzleStoreFileIdentity(r.identity, quarantinedIdentity) {
+		identityErr = fmt.Errorf("quarantined database files do not match the validated files")
+	}
+	if identityErr != nil {
+		restoreErr := quarantine.restore()
+		return errors.Join(
+			fmt.Errorf("refuse to remove puzzle database %s after path replacement: %w", r.path, identityErr),
+			restoreErr,
+		)
 	}
 
 	state, probeErr := ProbePuzzleStore(quarantine.path)
@@ -150,6 +173,43 @@ func (r *recognizedLegacyRemoval) remove() error {
 		)
 	}
 	return quarantine.discard()
+}
+
+// puzzleStoreFileIdentity excludes the SHM file because it is transient
+// coordination state that SQLite may rebuild during a read-only probe. The
+// database and WAL are the data-bearing files bound to the validation result.
+type puzzleStoreFileIdentity struct {
+	database os.FileInfo
+	wal      os.FileInfo
+}
+
+func capturePuzzleStoreFileIdentity(path string) (puzzleStoreFileIdentity, error) {
+	database, err := os.Stat(path)
+	if err != nil {
+		return puzzleStoreFileIdentity{}, fmt.Errorf("capture puzzle database identity %s: %w", path, err)
+	}
+	wal, err := os.Stat(path + "-wal")
+	if errors.Is(err, os.ErrNotExist) {
+		wal = nil
+	} else if err != nil {
+		return puzzleStoreFileIdentity{}, fmt.Errorf("capture puzzle WAL identity %s: %w", path+"-wal", err)
+	}
+	return puzzleStoreFileIdentity{database: database, wal: wal}, nil
+}
+
+func samePuzzleStoreFileIdentity(left, right puzzleStoreFileIdentity) bool {
+	return sameFileIdentity(left.database, right.database) &&
+		sameFileIdentity(left.wal, right.wal)
+}
+
+func sameFileIdentity(left, right os.FileInfo) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return os.SameFile(left, right) &&
+		left.Size() == right.Size() &&
+		left.Mode() == right.Mode() &&
+		left.ModTime().Equal(right.ModTime())
 }
 
 type quarantinedPuzzleStore struct {
