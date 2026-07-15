@@ -2,6 +2,7 @@ package backup
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -139,6 +140,141 @@ func TestServiceRejectsCorruptBackupWithoutTouchingLiveData(t *testing.T) {
 	var rating float64
 	if err := userDB.QueryRow(`SELECT learner_rating FROM profile WHERE id = 1`).Scan(&rating); err != nil || rating != 1400 {
 		t.Fatalf("live rating=%v err=%v", rating, err)
+	}
+}
+
+func TestReplaceDatabasesRetainsPreRestoreWhenRollbackCannotRestoreDatabase(t *testing.T) {
+	paths := storage.PathsAt(filepath.Join(t.TempDir(), "data"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.UserDB, []byte("original user database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.LibraryDB, []byte("original library database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	extracted, err := os.MkdirTemp(paths.Root, ".rollback-fault-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(extracted) })
+	installedLibrary := filepath.Join(extracted, "library.sqlite")
+	if err := os.Mkdir(installedLibrary, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installedLibrary, "blocker"), []byte("keep directory non-empty"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(paths.LibraryDB, 0o700) })
+
+	service := NewService(paths, nil)
+	service.now = func() time.Time { return time.Date(2026, 7, 15, 10, 30, 0, 0, time.UTC) }
+	preRestore := filepath.Join(paths.BackupsDir, "pre-restore-"+service.now().Format("20060102-150405"))
+	err = service.replaceDatabases(extracted, Manifest{Files: map[string]string{
+		"library.sqlite": "unused",
+		"user.sqlite":    "unused",
+	}})
+	if err == nil {
+		t.Fatal("replaceDatabases() succeeded despite injected install and rollback failures")
+	}
+	if !strings.Contains(err.Error(), preRestore) {
+		t.Errorf("replaceDatabases() error %q does not identify retained pre-restore directory %q", err, preRestore)
+	}
+	preserved, readErr := os.ReadFile(filepath.Join(preRestore, "library.sqlite"))
+	if readErr != nil {
+		t.Fatalf("preserved library database is unavailable: %v", readErr)
+	}
+	if string(preserved) != "original library database" {
+		t.Fatalf("preserved library database = %q", preserved)
+	}
+	restoredUser, readErr := os.ReadFile(paths.UserDB)
+	if readErr != nil || string(restoredUser) != "original user database" {
+		t.Fatalf("restored user database = %q, err=%v", restoredUser, readErr)
+	}
+}
+
+func TestServiceCreateRejectsManagedDatabaseDestinations(t *testing.T) {
+	tests := []struct {
+		name        string
+		destination func(storage.Paths) string
+	}{
+		{name: "user", destination: func(paths storage.Paths) string { return paths.UserDB }},
+		{name: "library", destination: func(paths storage.Paths) string { return paths.LibraryDB }},
+		{name: "puzzles", destination: func(paths storage.Paths) string { return paths.PuzzlesDB }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			paths := managedDatabaseFixture(t)
+			destination := test.destination(paths)
+			assertManagedDestinationRejected(t, paths, destination, destination)
+		})
+	}
+}
+
+func TestServiceCreateRejectsManagedDatabaseDestinationAliases(t *testing.T) {
+	t.Run("dot-dot", func(t *testing.T) {
+		paths := managedDatabaseFixture(t)
+		destination := paths.BackupsDir + string(os.PathSeparator) + ".." + string(os.PathSeparator) + "user.sqlite"
+		assertManagedDestinationRejected(t, paths, destination, paths.UserDB)
+	})
+
+	t.Run("symlinked-parent", func(t *testing.T) {
+		paths := managedDatabaseFixture(t)
+		aliasRoot := filepath.Join(t.TempDir(), "data-alias")
+		if err := os.Symlink(paths.Root, aliasRoot); err != nil {
+			t.Fatal(err)
+		}
+		assertManagedDestinationRejected(t, paths, filepath.Join(aliasRoot, "user.sqlite"), paths.UserDB)
+	})
+
+	t.Run("symlinked-file", func(t *testing.T) {
+		paths := managedDatabaseFixture(t)
+		alias := filepath.Join(t.TempDir(), "user-alias.sqlite")
+		if err := os.Symlink(paths.UserDB, alias); err != nil {
+			t.Fatal(err)
+		}
+		assertManagedDestinationRejected(t, paths, alias, paths.UserDB)
+		info, err := os.Lstat(alias)
+		if err != nil {
+			t.Fatalf("destination alias was removed: %v", err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatal("destination alias was replaced")
+		}
+	})
+}
+
+func managedDatabaseFixture(t *testing.T) storage.Paths {
+	t.Helper()
+	paths := storage.PathsAt(filepath.Join(t.TempDir(), "data"))
+	userDB, libraryDB := openBackupStores(t, paths)
+	if err := errorsJoin(userDB.Close(), libraryDB.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.PuzzlesDB, []byte("managed puzzles database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
+
+func assertManagedDestinationRejected(t *testing.T, paths storage.Paths, destination, managed string) {
+	t.Helper()
+	before, err := os.ReadFile(managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(paths, nil)
+	if err := service.Create(context.Background(), destination, true); err == nil {
+		t.Errorf("Create() accepted managed database destination %q", destination)
+	}
+	after, err := os.ReadFile(managed)
+	if err != nil {
+		t.Fatalf("managed database became unreadable: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("Create() replaced the managed database")
 	}
 }
 

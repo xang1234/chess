@@ -49,6 +49,9 @@ func (s *Service) Create(ctx context.Context, destination string, includeLibrary
 	if err := s.paths.Ensure(); err != nil {
 		return err
 	}
+	if err := s.validateDestination(destination); err != nil {
+		return err
+	}
 	temporary, err := os.MkdirTemp(s.paths.Root, ".backup-export-")
 	if err != nil {
 		return err
@@ -75,6 +78,42 @@ func (s *Service) Create(ctx context.Context, destination string, includeLibrary
 		manifest.Files[name] = digest
 	}
 	return writeArchive(destination, temporary, manifest)
+}
+
+func (s *Service) validateDestination(destination string) error {
+	canonicalDestination, err := canonicalPath(destination)
+	if err != nil {
+		return fmt.Errorf("resolve backup destination: %w", err)
+	}
+	for _, managed := range []string{s.paths.UserDB, s.paths.LibraryDB, s.paths.PuzzlesDB} {
+		canonicalManaged, err := canonicalPath(managed)
+		if err != nil {
+			return fmt.Errorf("resolve managed database path: %w", err)
+		}
+		if canonicalDestination == canonicalManaged {
+			return fmt.Errorf("backup destination %q resolves to managed database %q", destination, managed)
+		}
+	}
+	return nil
+}
+
+func canonicalPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err == nil {
+		return resolved, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(absolute))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(absolute)), nil
 }
 
 func (s *Service) Restore(ctx context.Context, source string) error {
@@ -329,13 +368,24 @@ func (s *Service) replaceDatabases(extracted string, manifest Manifest) error {
 	rollback := func(cause error) error {
 		var rollbackErrors []error
 		for _, name := range installed {
-			rollbackErrors = append(rollbackErrors, os.Remove(livePaths[name]))
+			if err := os.Remove(livePaths[name]); err != nil {
+				rollbackErrors = append(rollbackErrors, err)
+			}
 		}
 		for index := len(moved) - 1; index >= 0; index-- {
 			value := moved[index]
-			rollbackErrors = append(rollbackErrors, os.Rename(value.backup, value.live))
+			if err := os.Rename(value.backup, value.live); err != nil {
+				rollbackErrors = append(rollbackErrors, err)
+			}
 		}
-		rollbackErrors = append(rollbackErrors, os.RemoveAll(preRestore))
+		if len(rollbackErrors) == 0 {
+			if err := os.RemoveAll(preRestore); err != nil {
+				rollbackErrors = append(rollbackErrors, err)
+			}
+		}
+		if len(rollbackErrors) > 0 {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("pre-restore data retained at %s", preRestore))
+		}
 		return errors.Join(append([]error{cause}, rollbackErrors...)...)
 	}
 	for _, name := range sortedKeys(manifest.Files) {
