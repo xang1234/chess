@@ -97,6 +97,24 @@ func TestOpenGenerationPuzzleStoreCreatesExactSchema(t *testing.T) {
 	assertGenerationSchemaConstraints(t, store.Writer)
 }
 
+func TestProbeRecognizesExactCurrentV3(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "puzzles.sqlite")
+	openTestGenerationPuzzleStore(t, path)
+
+	state, err := ProbePuzzleStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Exists || state.Legacy || state.Format != CurrentPuzzleSchemaVersion {
+		t.Fatalf("ProbePuzzleStore() = %+v, want existing current v%d", state, CurrentPuzzleSchemaVersion)
+	}
+
+	if legacy, err := OpenLegacyPuzzleReadOnly(path); err == nil {
+		legacy.Close()
+		t.Fatal("OpenLegacyPuzzleReadOnly() accepted the current catalogue")
+	}
+}
+
 func TestOpenGenerationPuzzleStoreRejectsExistingEmptyFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "puzzles.sqlite")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {

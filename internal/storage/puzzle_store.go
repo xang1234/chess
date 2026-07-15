@@ -15,6 +15,8 @@ import (
 //go:embed puzzle_schema_v3.sql
 var puzzleSchemaV3 string
 
+const CurrentPuzzleSchemaVersion = 3
+
 type PuzzleStore struct {
 	Reader *sql.DB
 	Writer *sql.DB
@@ -140,12 +142,13 @@ func validateGenerationPuzzleSchema(db *sql.DB) error {
 	).Scan(&count, &minimum, &maximum); err != nil {
 		return fmt.Errorf("validate generation puzzle schema: %w", err)
 	}
-	if count != 1 || minimum != 3 || maximum != 3 {
+	if count != 1 || minimum != CurrentPuzzleSchemaVersion || maximum != CurrentPuzzleSchemaVersion {
 		return fmt.Errorf(
-			"validate generation puzzle schema: migrations are count=%d range=%d..%d, want only version 3",
+			"validate generation puzzle schema: migrations are count=%d range=%d..%d, want only version %d",
 			count,
 			minimum,
 			maximum,
+			CurrentPuzzleSchemaVersion,
 		)
 	}
 	return nil

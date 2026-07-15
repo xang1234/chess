@@ -14,7 +14,7 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 		migrations int
 	}{
 		{schema: "puzzles", table: "puzzles", migrations: 2},
-		{schema: "user", table: "profile", migrations: 2},
+		{schema: "user", table: "profile", migrations: 3},
 		{schema: "library", table: "library_metadata", migrations: 1},
 	}
 
@@ -58,6 +58,81 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 				t.Fatalf("migrations=%d, want %d", migrations, tt.migrations)
 			}
 		})
+	}
+}
+
+func TestUserMigration003AddsNullableSnapshotColumns(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "user.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := Migrate(db, "user"); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]map[string]string{
+		"session_items": {
+			"source_kind":          "TEXT",
+			"rating_snapshot":      "INTEGER",
+			"themes_json":          "TEXT",
+			"source_fen_snapshot":  "TEXT",
+			"prelude_uci_snapshot": "TEXT",
+		},
+		"attempts": {
+			"source_kind":     "TEXT",
+			"rating_snapshot": "INTEGER",
+			"themes_json":     "TEXT",
+		},
+		"review_state": {
+			"preferred_source_id": "TEXT",
+		},
+	}
+
+	for table, columns := range want {
+		rows, err := db.Query(`PRAGMA table_info("` + table + `")`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := make(map[string]bool, len(columns))
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var name, columnType string
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			wantType, ok := columns[name]
+			if !ok {
+				continue
+			}
+			found[name] = true
+			if columnType != wantType || notNull != 0 || defaultValue != nil || primaryKey != 0 {
+				rows.Close()
+				t.Fatalf(
+					"%s.%s signature = type %q notnull %d default %v pk %d, want %q nullable without default",
+					table,
+					name,
+					columnType,
+					notNull,
+					defaultValue,
+					primaryKey,
+					wantType,
+				)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		for name := range columns {
+			if !found[name] {
+				t.Errorf("%s.%s is missing", table, name)
+			}
+		}
 	}
 }
 
