@@ -154,6 +154,46 @@ type blockingFirstTerminalEmitter struct {
 	finished  chan Result
 }
 
+type startedNextJob struct {
+	jobID string
+	err   error
+}
+
+type staleCleanupOrderingEmitter struct {
+	mu              sync.Mutex
+	terminalCount   int
+	service         *Service
+	importer        *blockingImporter
+	nextRequest     ImportRequest
+	nextJob         chan startedNextJob
+	nextImport      chan startedImport
+	terminalStarted chan Result
+	releaseTerminal <-chan struct{}
+	finished        chan Result
+}
+
+func (e *staleCleanupOrderingEmitter) Progress(string, puzzles.Progress) {}
+
+func (e *staleCleanupOrderingEmitter) Finished(result Result) {
+	e.mu.Lock()
+	e.terminalCount++
+	terminalNumber := e.terminalCount
+	e.mu.Unlock()
+
+	switch terminalNumber {
+	case 1:
+		jobID, err := e.service.Start(context.Background(), e.nextRequest)
+		e.nextJob <- startedNextJob{jobID: jobID, err: err}
+		if err == nil {
+			e.nextImport <- <-e.importer.started
+		}
+	case 2:
+		e.terminalStarted <- result
+		<-e.releaseTerminal
+	}
+	e.finished <- result
+}
+
 func (e *blockingFirstTerminalEmitter) Progress(jobID string, progress puzzles.Progress) {
 	e.progress <- emittedProgress{jobID: jobID, snapshot: progress}
 }
@@ -413,6 +453,69 @@ func TestTerminalEventPrecedesLaterJobProgress(t *testing.T) {
 	if secondFinished.JobID != secondID {
 		t.Fatalf("second emitted terminal job = %q, want %q", secondFinished.JobID, secondID)
 	}
+}
+
+func TestStaleCleanupWaitsForLaterTerminalEvent(t *testing.T) {
+	releaseTerminal := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseEmitter := func() { releaseOnce.Do(func() { close(releaseTerminal) }) }
+	importer := newBlockingImporter()
+	maintenance := newBlockingMaintenance()
+	emitter := &staleCleanupOrderingEmitter{
+		importer: importer,
+		nextRequest: ImportRequest{
+			Kind: KindLichess, SourceID: "second", Path: "/second",
+		},
+		nextJob:         make(chan startedNextJob, 1),
+		nextImport:      make(chan startedImport, 1),
+		terminalStarted: make(chan Result, 1),
+		releaseTerminal: releaseTerminal,
+		finished:        make(chan Result, 2),
+	}
+	service := NewService(map[Kind]Importer{KindLichess: importer}, maintenance, emitter)
+	emitter.service = service
+	t.Cleanup(service.Close)
+	t.Cleanup(releaseEmitter)
+
+	firstID, err := service.Start(context.Background(), ImportRequest{
+		Kind: KindLichess, SourceID: "first", Path: "/first",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCall := receive(t, importer.started)
+	firstCall.finish <- importOutcome{}
+
+	nextJob := receive(t, emitter.nextJob)
+	if nextJob.err != nil {
+		t.Fatalf("start second job from first terminal callback: %v", nextJob.err)
+	}
+	secondCall := receive(t, emitter.nextImport)
+	firstFinished := receive(t, emitter.finished)
+	if firstFinished.JobID != firstID {
+		t.Fatalf("first terminal job = %q, want %q", firstFinished.JobID, firstID)
+	}
+
+	secondCall.finish <- importOutcome{}
+	secondTerminal := receive(t, emitter.terminalStarted)
+	if secondTerminal.JobID != nextJob.jobID {
+		t.Fatalf("blocked terminal job = %q, want %q", secondTerminal.JobID, nextJob.jobID)
+	}
+	// Ensure a delayed job-one cleanup wake is pending only after job two has
+	// cleared active state and entered its still-blocked terminal callback.
+	select {
+	case service.cleanupRequest <- struct{}{}:
+	default:
+	}
+	assertNoReceive(t, maintenance.started, "stale cleanup began before the later terminal event returned")
+
+	releaseEmitter()
+	finished := receive(t, emitter.finished)
+	if finished.JobID != nextJob.jobID {
+		t.Fatalf("second terminal job = %q, want %q", finished.JobID, nextJob.jobID)
+	}
+	firstCleanup := receive(t, maintenance.started)
+	firstCleanup.finish <- cleanupOutcome{}
 }
 
 func TestCompletedResultRemainsQueryableAfterLaterJob(t *testing.T) {

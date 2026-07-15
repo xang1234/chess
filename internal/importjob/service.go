@@ -268,16 +268,20 @@ func (s *Service) cleanupUntilDone() {
 			return
 		}
 
-		// The permitted nested order is writer then mu. Start only takes mu, so an
-		// import can reserve the active slot while a cleanup batch is in progress.
+		// Cleanup admission joins the event sequence before rechecking state. This
+		// prevents a stale request from crossing a later job's terminal callback.
+		// Start only takes mu, so it can still reserve the active slot during a batch.
 		s.writer.Lock()
+		s.eventMu.Lock()
 		s.mu.Lock()
 		if s.closing || s.activeJobID != "" {
 			s.mu.Unlock()
+			s.eventMu.Unlock()
 			s.writer.Unlock()
 			return
 		}
 		s.mu.Unlock()
+		s.eventMu.Unlock()
 
 		more, err := s.maintenance.CleanupBatch(s.cleanupCtx, cleanupBatchSize)
 		s.writer.Unlock()
