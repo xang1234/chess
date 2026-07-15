@@ -6,6 +6,10 @@ export function CancelImport(arg1) {
   return window['go']['main']['App']['CancelImport'](arg1);
 }
 
+export function CreateBackup(arg1) {
+  return window['go']['main']['App']['CreateBackup'](arg1);
+}
+
 export function GetImportResult(arg1) {
   return window['go']['main']['App']['GetImportResult'](arg1);
 }
@@ -22,12 +26,28 @@ export function GetProfile() {
   return window['go']['main']['App']['GetProfile']();
 }
 
+export function GetRecoveryState() {
+  return window['go']['main']['App']['GetRecoveryState']();
+}
+
+export function OpenDataFolder() {
+  return window['go']['main']['App']['OpenDataFolder']();
+}
+
 export function PauseSession(arg1) {
   return window['go']['main']['App']['PauseSession'](arg1);
 }
 
 export function PlayMove(arg1, arg2) {
   return window['go']['main']['App']['PlayMove'](arg1, arg2);
+}
+
+export function Quit() {
+  return window['go']['main']['App']['Quit']();
+}
+
+export function RestoreBackup(arg1) {
+  return window['go']['main']['App']['RestoreBackup'](arg1);
 }
 
 export function ResumeSession() {

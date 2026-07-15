@@ -1,14 +1,24 @@
 package storage
 
-import "syscall"
+import (
+	"math"
+	"syscall"
+)
 
-const importSafetyMargin = 512 * 1024 * 1024
+const (
+	importExpansionReserve = 40
+	importSafetyMargin     = 1024 * 1024 * 1024
+)
 
 func RequiredImportBytes(compressedSize int64) uint64 {
 	if compressedSize < 0 {
 		compressedSize = 0
 	}
-	return uint64(compressedSize)*10 + importSafetyMargin
+	size := uint64(compressedSize)
+	if size > (math.MaxUint64-importSafetyMargin)/importExpansionReserve {
+		return math.MaxUint64
+	}
+	return size*importExpansionReserve + importSafetyMargin
 }
 
 func AvailableBytes(path string) (uint64, error) {

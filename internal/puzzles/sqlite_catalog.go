@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -16,6 +15,24 @@ import (
 
 const stagingBatchSize = 1000
 
+var secondaryCatalogIndexes = []struct {
+	name string
+	sql  string
+}{
+	{
+		name: "idx_puzzle_sources_rating",
+		sql:  `CREATE INDEX idx_puzzle_sources_rating ON puzzle_sources(source_id, rating)`,
+	},
+	{
+		name: "idx_puzzle_sources_rating_global",
+		sql:  `CREATE INDEX idx_puzzle_sources_rating_global ON puzzle_sources(rating, fingerprint)`,
+	},
+	{
+		name: "idx_puzzle_themes_theme",
+		sql:  `CREATE INDEX idx_puzzle_themes_theme ON puzzle_themes(source_id, theme, fingerprint)`,
+	},
+}
+
 type SQLiteCatalog struct {
 	db *sql.DB
 }
@@ -23,8 +40,21 @@ type SQLiteCatalog struct {
 var _ Catalog = (*SQLiteCatalog)(nil)
 
 type stagedRow struct {
-	ordinal int64
-	puzzle  []byte
+	ordinal       int64
+	fingerprint   string
+	sourceFEN     string
+	preludeUCI    string
+	displayedFEN  string
+	solver        string
+	solution      string
+	solutionPlies int
+	externalID    string
+	rating        *int
+	popularity    *int
+	playCount     *int
+	sourceURL     string
+	metadata      string
+	themes        string
 }
 
 type sqliteStagedImport struct {
@@ -64,12 +94,37 @@ func (s *sqliteStagedImport) Add(ctx context.Context, puzzle domain.Puzzle) erro
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	encoded, err := json.Marshal(puzzle)
+	solution, err := json.Marshal(puzzle.Solution)
+	if err != nil {
+		return err
+	}
+	themes, err := json.Marshal(puzzle.Themes)
+	if err != nil {
+		return err
+	}
+	ref := sourceReference(puzzle.Sources, s.source.ID)
+	metadata, err := sourceMetadataJSON(ref)
 	if err != nil {
 		return err
 	}
 	s.next++
-	s.buffer = append(s.buffer, stagedRow{ordinal: s.next, puzzle: encoded})
+	s.buffer = append(s.buffer, stagedRow{
+		ordinal:       s.next,
+		fingerprint:   puzzle.Fingerprint,
+		sourceFEN:     puzzle.SourceFEN,
+		preludeUCI:    puzzle.PreludeUCI,
+		displayedFEN:  puzzle.DisplayedFEN,
+		solver:        string(puzzle.Solver),
+		solution:      string(solution),
+		solutionPlies: solutionDepth(puzzle.Solution),
+		externalID:    ref.ExternalID,
+		rating:        puzzle.Rating,
+		popularity:    puzzle.Popularity,
+		playCount:     puzzle.PlayCount,
+		sourceURL:     ref.URL,
+		metadata:      metadata,
+		themes:        string(themes),
+	})
 	if len(s.buffer) == stagingBatchSize {
 		return s.flush(ctx)
 	}
@@ -96,13 +151,38 @@ func (s *sqliteStagedImport) flush(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
+	statement, err := tx.PrepareContext(
+		ctx,
+		`INSERT INTO import_staging(
+           import_id, ordinal, puzzle_json, fingerprint, source_fen, prelude_uci,
+           displayed_fen, solver, solution_json, solution_plies, external_id,
+           rating, popularity, play_count, source_url, metadata_json, themes_json
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
 	for _, row := range s.buffer {
-		if _, err := tx.ExecContext(
+		if _, err := statement.ExecContext(
 			ctx,
-			`INSERT INTO import_staging(import_id, ordinal, puzzle_json) VALUES (?, ?, ?)`,
 			s.importID,
 			row.ordinal,
-			string(row.puzzle),
+			"{}",
+			row.fingerprint,
+			nullIfEmpty(row.sourceFEN),
+			nullIfEmpty(row.preludeUCI),
+			row.displayedFEN,
+			row.solver,
+			row.solution,
+			row.solutionPlies,
+			nullIfEmpty(row.externalID),
+			nullableInt(row.rating),
+			nullableInt(row.popularity),
+			nullableInt(row.playCount),
+			nullIfEmpty(row.sourceURL),
+			row.metadata,
+			row.themes,
 		); err != nil {
 			return err
 		}
@@ -146,6 +226,13 @@ func (s *sqliteStagedImport) Commit(ctx context.Context) (ImportReport, error) {
 		return ImportReport{}, err
 	}
 	defer tx.Rollback()
+	if err := dropSecondaryCatalogIndexes(ctx, tx); err != nil {
+		return ImportReport{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX idx_import_staging_fingerprint
+        ON import_staging(import_id, fingerprint, ordinal DESC)`); err != nil {
+		return ImportReport{}, err
+	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sources WHERE source_id = ?`, s.source.ID); err != nil {
 		return ImportReport{}, err
@@ -173,35 +260,102 @@ func (s *sqliteStagedImport) Commit(ctx context.Context) (ImportReport, error) {
 		return ImportReport{}, err
 	}
 
-	rows, err := tx.QueryContext(
-		ctx,
-		`SELECT puzzle_json FROM import_staging WHERE import_id = ? ORDER BY ordinal`,
-		s.importID,
-	)
-	if err != nil {
-		return ImportReport{}, err
-	}
 	report := s.report
-	for rows.Next() {
-		var encoded string
-		if err := rows.Scan(&encoded); err != nil {
-			rows.Close()
-			return ImportReport{}, err
-		}
-		var puzzle domain.Puzzle
-		if err := json.Unmarshal([]byte(encoded), &puzzle); err != nil {
-			rows.Close()
-			return ImportReport{}, err
-		}
-		if err := insertStagedPuzzle(ctx, tx, s.source.ID, puzzle, &report); err != nil {
-			rows.Close()
-			return ImportReport{}, err
-		}
-	}
-	if err := rows.Close(); err != nil {
+	var stagedCount int64
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM import_staging WHERE import_id = ?`,
+		s.importID,
+	).Scan(&stagedCount); err != nil {
 		return ImportReport{}, err
 	}
-	if err := rows.Err(); err != nil {
+	var acceptedCount int64
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+         FROM (
+           SELECT DISTINCT staged.fingerprint
+           FROM import_staging staged
+           WHERE staged.import_id = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM puzzles existing
+               WHERE existing.fingerprint = staged.fingerprint
+             )
+         )`,
+		s.importID,
+	).Scan(&acceptedCount); err != nil {
+		return ImportReport{}, err
+	}
+	report.Accepted += acceptedCount
+	report.Duplicates += stagedCount - acceptedCount
+
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO puzzles(
+           fingerprint, source_fen, prelude_uci, displayed_fen, solver,
+           solution_json, solution_plies
+         )
+         SELECT staged.fingerprint, staged.source_fen, staged.prelude_uci,
+                staged.displayed_fen, staged.solver, staged.solution_json,
+                staged.solution_plies
+         FROM import_staging staged
+         WHERE staged.import_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM import_staging newer
+             WHERE newer.import_id = staged.import_id
+               AND newer.fingerprint = staged.fingerprint
+               AND newer.ordinal > staged.ordinal
+           )`,
+		s.importID,
+	); err != nil {
+		return ImportReport{}, err
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO puzzle_sources(
+           fingerprint, source_id, external_id, rating, popularity, play_count,
+           source_url, metadata_json
+         )
+         SELECT staged.fingerprint, ?, staged.external_id, staged.rating,
+                staged.popularity, staged.play_count, staged.source_url,
+                staged.metadata_json
+         FROM import_staging staged
+         WHERE staged.import_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM import_staging newer
+             WHERE newer.import_id = staged.import_id
+               AND newer.fingerprint = staged.fingerprint
+               AND newer.ordinal > staged.ordinal
+           )
+         ON CONFLICT(fingerprint, source_id) DO UPDATE SET
+           external_id=excluded.external_id,
+           rating=excluded.rating,
+           popularity=excluded.popularity,
+           play_count=excluded.play_count,
+           source_url=excluded.source_url,
+           metadata_json=excluded.metadata_json`,
+		s.source.ID,
+		s.importID,
+	); err != nil {
+		return ImportReport{}, err
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO puzzle_themes(fingerprint, source_id, theme)
+         SELECT staged.fingerprint, ?, trim(CAST(theme.value AS TEXT))
+         FROM import_staging staged,
+              json_each(COALESCE(staged.themes_json, '[]')) theme
+         WHERE staged.import_id = ?
+           AND trim(CAST(theme.value AS TEXT)) <> ''
+           AND NOT EXISTS (
+             SELECT 1 FROM import_staging newer
+             WHERE newer.import_id = staged.import_id
+               AND newer.fingerprint = staged.fingerprint
+               AND newer.ordinal > staged.ordinal
+           )`,
+		s.source.ID,
+		s.importID,
+	); err != nil {
 		return ImportReport{}, err
 	}
 	if _, err := tx.ExecContext(
@@ -209,6 +363,12 @@ func (s *sqliteStagedImport) Commit(ctx context.Context) (ImportReport, error) {
 		`DELETE FROM import_staging WHERE import_id = ?`,
 		s.importID,
 	); err != nil {
+		return ImportReport{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `DROP INDEX idx_import_staging_fingerprint`); err != nil {
+		return ImportReport{}, err
+	}
+	if err := createSecondaryCatalogIndexes(ctx, tx); err != nil {
 		return ImportReport{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -220,98 +380,18 @@ func (s *sqliteStagedImport) Commit(ctx context.Context) (ImportReport, error) {
 	return report, nil
 }
 
-func insertStagedPuzzle(
-	ctx context.Context,
-	tx *sql.Tx,
-	sourceID string,
-	puzzle domain.Puzzle,
-	report *ImportReport,
-) error {
-	if puzzle.Fingerprint == "" {
-		return errors.New("puzzle fingerprint is required")
-	}
-	plies := solutionDepth(puzzle.Solution)
-	if plies == 0 {
-		return fmt.Errorf("puzzle %s has an empty solution", puzzle.Fingerprint)
-	}
-	solution, err := json.Marshal(puzzle.Solution)
-	if err != nil {
-		return err
-	}
-	result, err := tx.ExecContext(
-		ctx,
-		`INSERT OR IGNORE INTO puzzles(
-           fingerprint, source_fen, prelude_uci, displayed_fen, solver, solution_json, solution_plies
-         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		puzzle.Fingerprint,
-		nullIfEmpty(puzzle.SourceFEN),
-		nullIfEmpty(puzzle.PreludeUCI),
-		puzzle.DisplayedFEN,
-		string(puzzle.Solver),
-		string(solution),
-		plies,
-	)
-	if err != nil {
-		return err
-	}
-	inserted, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if inserted == 0 {
-		report.Duplicates++
-	} else {
-		report.Accepted++
-	}
-
-	ref := sourceReference(puzzle.Sources, sourceID)
-	metadata, err := sourceMetadataJSON(ref)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(
-		ctx,
-		`INSERT INTO puzzle_sources(
-           fingerprint, source_id, external_id, rating, popularity, play_count, source_url, metadata_json
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(fingerprint, source_id) DO UPDATE SET
-           external_id=excluded.external_id,
-           rating=excluded.rating,
-           popularity=excluded.popularity,
-           play_count=excluded.play_count,
-           source_url=excluded.source_url,
-           metadata_json=excluded.metadata_json`,
-		puzzle.Fingerprint,
-		sourceID,
-		nullIfEmpty(ref.ExternalID),
-		puzzle.Rating,
-		puzzle.Popularity,
-		puzzle.PlayCount,
-		nullIfEmpty(ref.URL),
-		metadata,
-	); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(
-		ctx,
-		`DELETE FROM puzzle_themes WHERE fingerprint = ? AND source_id = ?`,
-		puzzle.Fingerprint,
-		sourceID,
-	); err != nil {
-		return err
-	}
-	for _, theme := range puzzle.Themes {
-		theme = strings.TrimSpace(theme)
-		if theme == "" {
-			continue
+func dropSecondaryCatalogIndexes(ctx context.Context, tx *sql.Tx) error {
+	for _, index := range secondaryCatalogIndexes {
+		if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS `+index.name); err != nil {
+			return err
 		}
-		if _, err := tx.ExecContext(
-			ctx,
-			`INSERT OR IGNORE INTO puzzle_themes(fingerprint, source_id, theme) VALUES (?, ?, ?)`,
-			puzzle.Fingerprint,
-			sourceID,
-			theme,
-		); err != nil {
+	}
+	return nil
+}
+
+func createSecondaryCatalogIndexes(ctx context.Context, tx *sql.Tx) error {
+	for _, index := range secondaryCatalogIndexes {
+		if _, err := tx.ExecContext(ctx, index.sql); err != nil {
 			return err
 		}
 	}
@@ -355,6 +435,13 @@ func nullIfEmpty(value string) any {
 		return nil
 	}
 	return value
+}
+
+func nullableInt(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func (c *SQLiteCatalog) Get(ctx context.Context, fingerprint string) (domain.Puzzle, error) {

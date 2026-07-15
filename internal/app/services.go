@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"chess-trainer/internal/backup"
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/importjob"
 	"chess-trainer/internal/profile"
@@ -27,11 +28,15 @@ type Services struct {
 	UserStore   *training.UserStore
 	Training    *training.Service
 	Profile     *profile.Service
+	Backup      *backup.Service
 	closeOnce   sync.Once
 	closeResult error
 }
 
 func Open(paths storage.Paths) (*Services, error) {
+	if err := storage.CheckExistingIntegrity(paths); err != nil {
+		return nil, err
+	}
 	if err := paths.Ensure(); err != nil {
 		return nil, err
 	}
@@ -71,6 +76,7 @@ func Open(paths storage.Paths) (*Services, error) {
 		rand.New(rand.NewSource(time.Now().UnixNano())),
 	)
 	services.Profile = profile.NewService(services.UserDB, services.PuzzlesDB, services.UserStore)
+	services.Backup = backup.NewService(paths, services.Close)
 	return services, nil
 }
 

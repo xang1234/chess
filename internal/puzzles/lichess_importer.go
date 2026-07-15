@@ -224,16 +224,9 @@ func (i LichessImporter) normalizeRecord(
 		return domain.Puzzle{}, errors.New("Moves must contain a setup move and at least one solution move")
 	}
 
-	displayedFEN, err := i.Rules.ApplyUCI(sourceFEN, moves[0])
+	displayedFEN, err := i.Rules.ApplyUCILine(sourceFEN, moves)
 	if err != nil {
-		return domain.Puzzle{}, fmt.Errorf("apply setup move %q: %w", moves[0], err)
-	}
-	position := displayedFEN
-	for _, move := range moves[1:] {
-		position, err = i.Rules.ApplyUCI(position, move)
-		if err != nil {
-			return domain.Puzzle{}, fmt.Errorf("apply solution move %q: %w", move, err)
-		}
+		return domain.Puzzle{}, fmt.Errorf("validate move line: %w", err)
 	}
 	solver, err := solverFromFEN(displayedFEN)
 	if err != nil {

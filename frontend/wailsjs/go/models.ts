@@ -200,6 +200,27 @@ export namespace importjob {
 
 }
 
+export namespace main {
+
+	export class RecoveryState {
+	    required: boolean;
+	    path?: string;
+	    detail?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RecoveryState(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.required = source["required"];
+	        this.path = source["path"];
+	        this.detail = source["detail"];
+	    }
+	}
+
+}
+
 export namespace profile {
 
 	export class PracticeSource {

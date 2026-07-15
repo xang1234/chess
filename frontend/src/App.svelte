@@ -4,17 +4,25 @@
   import ImportPanel from './components/import/ImportPanel.svelte'
   import InitialSetup from './components/parent/InitialSetup.svelte'
   import ParentDashboard from './components/parent/ParentDashboard.svelte'
+  import RecoveryPanel from './components/parent/RecoveryPanel.svelte'
   import FreePractice from './components/practice/FreePractice.svelte'
   import PuzzleScreen from './components/puzzle/PuzzleScreen.svelte'
-  import { getAPI, type SessionView } from './lib/api'
+  import { getAPI, type RecoveryState, type SessionView } from './lib/api'
   import { screen } from './lib/navigation'
 
   let loading = true
   let activeSession: SessionView | null = null
+  let recoveryState: RecoveryState | null = null
   let error = ''
 
   onMount(async () => {
     try {
+      const recovery = await getAPI().getRecoveryState()
+      if (recovery.required) {
+        recoveryState = recovery
+        screen.set('recovery')
+        return
+      }
       const profile = await getAPI().getProfile()
       if (!profile) {
         screen.set('setup')
@@ -56,15 +64,24 @@
 
 <div class="app-shell">
   <header class="app-header">
-    <button class="brand" type="button" on:click={() => screen.set('home')} aria-label="Chess Trainer home">
-      <span class="brand-mark" aria-hidden="true">♞</span>
-      <h1>Chess Trainer</h1>
-    </button>
+    {#if $screen === 'recovery'}
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">♞</span>
+        <h1>Chess Trainer</h1>
+      </div>
+    {:else}
+      <button class="brand" type="button" on:click={() => screen.set('home')} aria-label="Chess Trainer home">
+        <span class="brand-mark" aria-hidden="true">♞</span>
+        <h1>Chess Trainer</h1>
+      </button>
+    {/if}
   </header>
 
   <main class="app-main">
     {#if loading}
       <p class="loading" aria-live="polite">Opening your chess room…</p>
+    {:else if $screen === 'recovery' && recoveryState}
+      <RecoveryPanel state={recoveryState} />
     {:else if error}
       <section class="panel" role="alert">
         <h2>Something needs attention</h2>

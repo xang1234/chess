@@ -48,3 +48,17 @@ test('opens the board-first puzzle screen from the home hub', async () => {
   await waitFor(() => expect(screen.getByText('Find the best move')).toBeInTheDocument())
   expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
 })
+
+test('opens only the recovery surface when startup integrity fails', async () => {
+  setAPIForTests(fakeAPI({
+    getRecoveryState: async () => ({
+      required: true,
+      path: '/data/user.sqlite',
+      detail: 'database disk image is malformed'
+    })
+  }))
+  render(App)
+
+  await waitFor(() => expect(screen.getByText('Your chess data needs recovery')).toBeInTheDocument())
+  expect(screen.queryByRole('button', { name: 'Chess Trainer home' })).not.toBeInTheDocument()
+})

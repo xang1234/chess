@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
   import { getAPI, type ParentSummary, type Profile } from '../../lib/api'
+  import BackupPanel from './BackupPanel.svelte'
 
   const dispatch = createEventDispatcher<{ import: void }>()
   let profile: Profile | null = null
@@ -162,6 +163,8 @@
         <p class="muted">No completed sessions yet.</p>
       {/if}
     </article>
+
+    <BackupPanel />
   {/if}
 
   {#if error}<p class="error" role="alert">{error}</p>{/if}

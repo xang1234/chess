@@ -3,9 +3,12 @@
 import {importjob} from '../models';
 import {profile} from '../models';
 import {training} from '../models';
+import {main} from '../models';
 import {domain} from '../models';
 
 export function CancelImport(arg1:string):Promise<void>;
+
+export function CreateBackup(arg1:boolean):Promise<string>;
 
 export function GetImportResult(arg1:string):Promise<importjob.Result>;
 
@@ -15,9 +18,17 @@ export function GetPracticeFilters():Promise<profile.PracticeFilters>;
 
 export function GetProfile():Promise<training.Profile>;
 
+export function GetRecoveryState():Promise<main.RecoveryState>;
+
+export function OpenDataFolder():Promise<void>;
+
 export function PauseSession(arg1:string):Promise<void>;
 
 export function PlayMove(arg1:string,arg2:string):Promise<domain.MoveResult>;
+
+export function Quit():Promise<void>;
+
+export function RestoreBackup(arg1:string):Promise<void>;
 
 export function ResumeSession():Promise<domain.SessionView>;
 

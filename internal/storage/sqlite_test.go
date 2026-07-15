@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -11,7 +13,7 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 		table      string
 		migrations int
 	}{
-		{schema: "puzzles", table: "puzzles", migrations: 1},
+		{schema: "puzzles", table: "puzzles", migrations: 2},
 		{schema: "user", table: "profile", migrations: 2},
 		{schema: "library", table: "library_metadata", migrations: 1},
 	}
@@ -56,5 +58,46 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 				t.Fatalf("migrations=%d, want %d", migrations, tt.migrations)
 			}
 		})
+	}
+}
+
+func TestCheckExistingIntegrityRejectsCorruptionWithoutCreatingStores(t *testing.T) {
+	paths := PathsAt(filepath.Join(t.TempDir(), "data"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.UserDB, []byte("not a sqlite database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := CheckExistingIntegrity(paths)
+	var integrityErr *IntegrityError
+	if !errors.As(err, &integrityErr) || integrityErr.Path != paths.UserDB || integrityErr.Detail == "" {
+		t.Fatalf("CheckExistingIntegrity() err=%v", err)
+	}
+	for _, path := range []string{paths.PuzzlesDB, paths.LibraryDB} {
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("integrity check created %s: %v", path, statErr)
+		}
+	}
+}
+
+func TestCheckExistingIntegrityAcceptsValidDatabase(t *testing.T) {
+	paths := PathsAt(filepath.Join(t.TempDir(), "data"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := Open(paths.UserDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(db, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckExistingIntegrity(paths); err != nil {
+		t.Fatal(err)
 	}
 }

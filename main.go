@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"log"
 
 	appservices "chess-trainer/internal/app"
@@ -23,12 +24,19 @@ func main() {
 		return
 	}
 	services, err := appservices.Open(paths)
+	var app *App
 	if err != nil {
-		log.Printf("open application services: %v", err)
-		return
+		var integrityErr *storage.IntegrityError
+		if !errors.As(err, &integrityErr) {
+			log.Printf("open application services: %v", err)
+			return
+		}
+		log.Printf("opening recovery mode: %v", integrityErr)
+		app = NewRecoveryApp(paths, integrityErr)
+	} else {
+		defer services.Close()
+		app = NewApp(services)
 	}
-	defer services.Close()
-	app := NewApp(services)
 
 	err = wails.Run(&options.App{
 		Title:  "Chess Trainer",
@@ -40,8 +48,10 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
 		OnShutdown: func(context.Context) {
-			if err := services.Close(); err != nil {
-				log.Printf("close application services: %v", err)
+			if services != nil {
+				if err := services.Close(); err != nil {
+					log.Printf("close application services: %v", err)
+				}
 			}
 		},
 		Bind: []interface{}{

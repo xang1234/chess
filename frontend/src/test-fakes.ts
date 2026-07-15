@@ -29,6 +29,11 @@ export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
       recentSessions: []
     }),
     getPracticeFilters: async () => ({ sources: [], themes: [], maximumSolutionPlies: 1 }),
+    getRecoveryState: async () => ({ required: false }),
+    createBackup: async () => '/tmp/Chess Trainer Backup.zip',
+    restoreBackup: async () => {},
+    openDataFolder: async () => {},
+    quit: async () => {},
     startLichessImport: async () => 'job-1',
     cancelImport: async () => {},
     getImportResult: async (): Promise<ImportResult> => ({

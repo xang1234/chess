@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -111,6 +112,48 @@ func TestSQLiteCatalogAtomicSourceReplacement(t *testing.T) {
 	}
 }
 
+func TestSQLiteCatalogFailedCommitRestoresPreviousDataAndIndexes(t *testing.T) {
+	catalog, db := openTestCatalog(t)
+	defer db.Close()
+	ctx := context.Background()
+	source := Source{ID: "lichess", Kind: "lichess", Path: "/a.csv.zst", ImportedAt: time.Unix(100, 0)}
+	stagePuzzles(t, catalog, source, testPuzzle("A", 1200, "fork"))
+
+	staged, err := catalog.BeginImport(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := testPuzzle("B", 1300, "pin")
+	invalid.Solution = nil
+	if err := staged.Add(ctx, invalid); err != nil {
+		t.Fatal(err)
+	}
+	staged.SetChecksum("fedcba9876543210")
+	if _, err := staged.Commit(ctx); err == nil {
+		t.Fatal("Commit() unexpectedly accepted an empty solution")
+	}
+
+	if _, err := catalog.Get(ctx, "A"); err != nil {
+		t.Fatalf("previous puzzle disappeared after rollback: %v", err)
+	}
+	if _, err := catalog.Get(ctx, "B"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("invalid puzzle survived rollback: %v", err)
+	}
+	for _, index := range secondaryCatalogIndexes {
+		var count int
+		if err := db.QueryRowContext(
+			ctx,
+			`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?`,
+			index.name,
+		).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("index %s count=%d after rollback", index.name, count)
+		}
+	}
+}
+
 func TestSQLiteCatalogCandidateFilters(t *testing.T) {
 	catalog, db := openTestCatalog(t)
 	defer db.Close()
@@ -142,5 +185,65 @@ func TestSQLiteCatalogCandidateFilters(t *testing.T) {
 	filtered, err := catalog.FreePracticeCandidates(ctx, "lichess", &minimum, &maximum, []string{"fork"}, nil, 10)
 	if err != nil || len(filtered) != 0 {
 		t.Fatalf("filtered=%v err=%v", filtered, err)
+	}
+}
+
+func TestSQLiteCatalogSetCommitCountsDuplicatesAndKeepsLastSourceRecord(t *testing.T) {
+	catalog, db := openTestCatalog(t)
+	defer db.Close()
+	source := Source{ID: "lichess", Kind: "lichess", Path: "/a.csv.zst", ImportedAt: time.Unix(100, 0)}
+	first := testPuzzle("same", 1200, "fork")
+	last := testPuzzle("same", 1450, "pin")
+	last.Sources[0].ExternalID = "last-record"
+
+	report := stagePuzzles(t, catalog, source, first, last)
+	if report.Accepted != 1 || report.Duplicates != 1 {
+		t.Fatalf("report=%+v, want one accepted and one duplicate", report)
+	}
+	puzzle, err := catalog.Get(context.Background(), "same")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if puzzle.Rating == nil || *puzzle.Rating != 1450 {
+		t.Fatalf("rating=%v, want last record rating 1450", puzzle.Rating)
+	}
+	if len(puzzle.Themes) != 1 || puzzle.Themes[0] != "pin" {
+		t.Fatalf("themes=%v, want last record themes", puzzle.Themes)
+	}
+	if len(puzzle.Sources) != 1 || puzzle.Sources[0].ExternalID != "last-record" {
+		t.Fatalf("sources=%+v, want last record metadata", puzzle.Sources)
+	}
+}
+
+func TestSQLiteCatalogSetCommitHandlesTwentyThousandRowsWithinFiveSeconds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping bulk catalogue commit probe in short mode")
+	}
+	catalog, db := openTestCatalog(t)
+	defer db.Close()
+	ctx := context.Background()
+	staged, err := catalog.BeginImport(ctx, Source{
+		ID: "lichess", Kind: "lichess", Path: "/bulk.csv.zst", ImportedAt: time.Unix(100, 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const count = 20_000
+	for index := 0; index < count; index++ {
+		if err := staged.Add(ctx, testPuzzle(fmt.Sprintf("bulk-%05d", index), 1200, "fork")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	staged.SetChecksum("0123456789abcdef")
+	started := time.Now()
+	report, err := staged.Commit(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Accepted != count {
+		t.Fatalf("accepted=%d, want %d", report.Accepted, count)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("set-based commit took %v, want <= 5s", elapsed)
 	}
 }

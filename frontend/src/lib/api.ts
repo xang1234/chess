@@ -1,18 +1,23 @@
 import {
   CancelImport,
+  CreateBackup,
   GetImportResult,
   GetParentSummary,
   GetPracticeFilters,
   GetProfile,
+  GetRecoveryState,
+  OpenDataFolder,
   PauseSession,
   PlayMove,
   ResumeSession,
   RevealSolution,
+  RestoreBackup,
   StartFreePractice,
   StartGuided,
   StartLichessImport,
   UpdateProfile,
-  UseHint
+  UseHint,
+  Quit
 } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 
@@ -116,6 +121,12 @@ export type ParentSummary = {
   recentSessions: RecentSession[]
 }
 
+export type RecoveryState = {
+  required: boolean
+  path?: string
+  detail?: string
+}
+
 export type ImportProgress = {
   jobId: string
   rowsRead: number
@@ -147,6 +158,11 @@ export interface AppAPI {
   pauseSession(sessionId: string): Promise<void>
   getParentSummary(): Promise<ParentSummary>
   getPracticeFilters(): Promise<PracticeFilters>
+  getRecoveryState(): Promise<RecoveryState>
+  createBackup(includeLibrary: boolean): Promise<string>
+  restoreBackup(path: string): Promise<void>
+  openDataFolder(): Promise<void>
+  quit(): Promise<void>
   startLichessImport(path: string): Promise<string>
   cancelImport(jobId: string): Promise<void>
   getImportResult(jobId: string): Promise<ImportResult>
@@ -166,6 +182,11 @@ const productionAPI: AppAPI = {
   pauseSession: PauseSession,
   getParentSummary: async () => (await GetParentSummary()) as ParentSummary,
   getPracticeFilters: async () => (await GetPracticeFilters()) as PracticeFilters,
+  getRecoveryState: async () => (await GetRecoveryState()) as RecoveryState,
+  createBackup: CreateBackup,
+  restoreBackup: RestoreBackup,
+  openDataFolder: async () => OpenDataFolder(),
+  quit: async () => Quit(),
   startLichessImport: StartLichessImport,
   cancelImport: CancelImport,
   getImportResult: async (jobId) => (await GetImportResult(jobId)) as ImportResult,
@@ -219,6 +240,11 @@ const previewAPI: AppAPI = {
     themes: ['fork', 'mate', 'pin'],
     maximumSolutionPlies: 12
   }),
+  getRecoveryState: async () => ({ required: false }),
+  createBackup: async () => '/Users/preview/Chess Trainer Backup.zip',
+  restoreBackup: async () => {},
+  openDataFolder: async () => {},
+  quit: async () => {},
   startLichessImport: async () => 'preview-import',
   cancelImport: async () => {},
   getImportResult: async (jobId) => ({
