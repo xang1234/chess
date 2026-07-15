@@ -55,7 +55,7 @@ Expected: PASS; the opt-in real dataset test skips.
 Run:
 
 ```bash
-(cd frontend && npm test -- --run --maxWorkers=1 --minWorkers=1)
+(cd frontend && npm test -- --run --single-thread)
 (cd frontend && npm run check)
 (cd frontend && npm run build)
 ```
@@ -1103,7 +1103,7 @@ perl -pi -e 's/[ \t]+$//' frontend/wailsjs/go/models.ts
 perl -0pi -e 's/\s+\z/\n/' frontend/wailsjs/go/models.ts
 chmod 0644 frontend/wailsjs/runtime/package.json frontend/wailsjs/runtime/runtime.d.ts frontend/wailsjs/runtime/runtime.js
 git diff --check
-(cd frontend && npm test -- --run --maxWorkers=1 --minWorkers=1)
+(cd frontend && npm test -- --run --single-thread)
 (cd frontend && npm run check)
 (cd frontend && npm run build)
 ```
@@ -1236,7 +1236,7 @@ Expected: both PASS; no performance-tagged test runs.
 Run:
 
 ```bash
-(cd frontend && npm test -- --run --maxWorkers=1 --minWorkers=1)
+(cd frontend && npm test -- --run --single-thread)
 (cd frontend && npm run check)
 (cd frontend && npm run build)
 (cd frontend && npm run test:e2e)
