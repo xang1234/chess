@@ -104,7 +104,15 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) StartLichessImport(path string) (string, error) {
-	return a.services.ImportJobs.Start(path)
+	return a.StartPuzzleImport(importjob.ImportRequest{
+		Kind:     importjob.KindLichess,
+		SourceID: "lichess",
+		Path:     path,
+	})
+}
+
+func (a *App) StartPuzzleImport(request importjob.ImportRequest) (string, error) {
+	return a.services.ImportJobs.Start(a.ctx, request)
 }
 
 func (a *App) CancelImport(jobID string) error {

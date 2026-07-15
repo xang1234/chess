@@ -67,7 +67,9 @@ func Open(paths storage.Paths) (*Services, error) {
 			return storage.AvailableBytes(paths.Root)
 		},
 	}
-	services.ImportJobs = importjob.NewService(services.Importer, nil)
+	services.ImportJobs = importjob.NewService(map[importjob.Kind]importjob.Importer{
+		importjob.KindLichess: services.Importer,
+	}, nil, nil)
 	services.UserStore = training.NewUserStore(services.UserDB)
 	services.Training = training.NewService(
 		services.Catalog,
@@ -94,6 +96,9 @@ func openStore(path string, schema string) (*sql.DB, error) {
 
 func (s *Services) Close() error {
 	s.closeOnce.Do(func() {
+		if s.ImportJobs != nil {
+			s.ImportJobs.Close()
+		}
 		var closeErrors []error
 		for _, db := range []*sql.DB{s.LibraryDB, s.UserDB, s.PuzzlesDB} {
 			if db != nil {

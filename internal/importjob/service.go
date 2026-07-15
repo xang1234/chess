@@ -12,6 +12,26 @@ import (
 	"github.com/google/uuid"
 )
 
+const cleanupBatchSize = 1_000
+
+type Kind string
+
+const KindLichess Kind = "lichess"
+
+type ImportRequest struct {
+	Kind     Kind   `json:"kind"`
+	SourceID string `json:"sourceId"`
+	Path     string `json:"path"`
+}
+
+type BusyError struct {
+	ActiveJobID string `json:"activeJobId"`
+}
+
+func (e BusyError) Error() string {
+	return fmt.Sprintf("puzzle import %q is already running", e.ActiveJobID)
+}
+
 type Status string
 
 const (
@@ -22,10 +42,12 @@ const (
 )
 
 type Result struct {
-	JobID  string               `json:"jobId"`
-	Status Status               `json:"status"`
-	Report puzzles.ImportReport `json:"report"`
-	Error  string               `json:"error,omitempty"`
+	JobID    string               `json:"jobId"`
+	Request  ImportRequest        `json:"request"`
+	Status   Status               `json:"status"`
+	Progress puzzles.Progress     `json:"progress"`
+	Report   puzzles.ImportReport `json:"report"`
+	Error    string               `json:"error,omitempty"`
 }
 
 type Emitter interface {
@@ -37,24 +59,55 @@ type Importer interface {
 	Import(context.Context, string, string, puzzles.ProgressSink) (puzzles.ImportReport, error)
 }
 
+type Maintenance interface {
+	CleanupBatch(context.Context, int) (bool, error)
+}
+
 type jobState struct {
 	cancel context.CancelFunc
 	result Result
 }
 
 type Service struct {
-	mu       sync.Mutex
-	importer Importer
-	emitter  Emitter
-	jobs     map[string]*jobState
+	// When locks nest: writer precedes eventMu or mu, and eventMu precedes mu.
+	// No path holds mu while waiting for either outer gate.
+	mu             sync.Mutex
+	eventMu        sync.Mutex
+	writer         sync.Mutex
+	importers      map[Kind]Importer
+	maintenance    Maintenance
+	emitter        Emitter
+	jobs           map[string]*jobState
+	activeJobID    string
+	closing        bool
+	cleanupCtx     context.Context
+	cancelCleanup  context.CancelFunc
+	cleanupRequest chan struct{}
+	wg             sync.WaitGroup
 }
 
-func NewService(importer Importer, emitter Emitter) *Service {
-	return &Service{
-		importer: importer,
-		emitter:  emitter,
-		jobs:     make(map[string]*jobState),
+func NewService(
+	importers map[Kind]Importer,
+	maintenance Maintenance,
+	emitter Emitter,
+) *Service {
+	ownedImporters := make(map[Kind]Importer, len(importers))
+	for kind, importer := range importers {
+		ownedImporters[kind] = importer
 	}
+	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+	service := &Service{
+		importers:      ownedImporters,
+		maintenance:    maintenance,
+		emitter:        emitter,
+		jobs:           make(map[string]*jobState),
+		cleanupCtx:     cleanupCtx,
+		cancelCleanup:  cancelCleanup,
+		cleanupRequest: make(chan struct{}, 1),
+	}
+	service.wg.Add(1)
+	go service.cleanupWorker()
+	return service
 }
 
 func (s *Service) SetEmitter(emitter Emitter) {
@@ -63,56 +116,174 @@ func (s *Service) SetEmitter(emitter Emitter) {
 	s.emitter = emitter
 }
 
-func (s *Service) Start(path string) (string, error) {
-	if s.importer == nil {
-		return "", errors.New("importer is not configured")
+func (s *Service) Start(ctx context.Context, request ImportRequest) (string, error) {
+	if strings.TrimSpace(string(request.Kind)) == "" {
+		return "", errors.New("import kind is required")
 	}
-	if strings.TrimSpace(path) == "" {
+	if strings.TrimSpace(request.SourceID) == "" {
+		return "", errors.New("import source ID is required")
+	}
+	if strings.TrimSpace(request.Path) == "" {
 		return "", errors.New("import path is required")
 	}
+	importer, exists := s.importers[request.Kind]
+	if !exists || importer == nil {
+		return "", fmt.Errorf("importer for kind %q is not configured", request.Kind)
+	}
+
 	jobID := uuid.NewString()
-	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		return "", errors.New("import job service is closed")
+	}
+	if s.activeJobID != "" {
+		activeJobID := s.activeJobID
+		s.mu.Unlock()
+		return "", &BusyError{ActiveJobID: activeJobID}
+	}
+	jobCtx, cancel := context.WithCancel(ctx)
+	s.activeJobID = jobID
 	s.jobs[jobID] = &jobState{
 		cancel: cancel,
-		result: Result{JobID: jobID, Status: Running},
+		result: Result{JobID: jobID, Request: request, Status: Running},
 	}
+	// Add and the closing check share mu so Close cannot begin Wait concurrently.
+	s.wg.Add(1)
 	s.mu.Unlock()
 
-	go s.run(ctx, jobID, path)
+	go func() {
+		defer s.wg.Done()
+		defer cancel()
+		s.run(jobCtx, jobID, request, importer)
+	}()
 	return jobID, nil
 }
 
-func (s *Service) run(ctx context.Context, jobID string, path string) {
-	report, err := s.importer.Import(ctx, "lichess", path, func(progress puzzles.Progress) {
-		s.mu.Lock()
-		emitter := s.emitter
-		s.mu.Unlock()
-		if emitter != nil {
-			emitter.Progress(jobID, progress)
-		}
+func (s *Service) run(
+	ctx context.Context,
+	jobID string,
+	request ImportRequest,
+	importer Importer,
+) {
+	// Import and cleanup writes share this gate. Never wait for it while holding mu.
+	s.writer.Lock()
+	report, err := importer.Import(ctx, request.SourceID, request.Path, func(progress puzzles.Progress) {
+		s.recordProgress(jobID, progress)
 	})
-	result := Result{JobID: jobID, Report: report}
-	switch {
-	case errors.Is(err, context.Canceled):
-		result.Status = Cancelled
-	case err != nil:
-		result.Status = Failed
-		result.Error = err.Error()
-	default:
-		result.Status = Succeeded
-	}
+	s.writer.Unlock()
 
+	s.finish(jobID, ctx, report, err)
+}
+
+func (s *Service) recordProgress(jobID string, progress puzzles.Progress) {
+	// Sequence state mutation with delivery so concurrent callbacks cannot expose
+	// a newer snapshot before an older one or overtake a terminal event.
+	s.eventMu.Lock()
+	defer s.eventMu.Unlock()
 	s.mu.Lock()
 	state, exists := s.jobs[jobID]
-	if exists {
-		state.result = result
-		state.cancel = nil
+	if !exists || state.result.Status != Running {
+		s.mu.Unlock()
+		return
 	}
+	state.result.Progress.RowsRead = max(state.result.Progress.RowsRead, progress.RowsRead)
+	state.result.Progress.BytesRead = max(state.result.Progress.BytesRead, progress.BytesRead)
+	snapshot := state.result.Progress
 	emitter := s.emitter
 	s.mu.Unlock()
+
+	if emitter != nil {
+		emitter.Progress(jobID, snapshot)
+	}
+}
+
+func (s *Service) finish(
+	jobID string,
+	ctx context.Context,
+	report puzzles.ImportReport,
+	err error,
+) {
+	status := Succeeded
+	errorText := ""
+	switch {
+	case errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled):
+		status = Cancelled
+	case err != nil:
+		status = Failed
+		errorText = err.Error()
+	}
+
+	s.eventMu.Lock()
+	s.mu.Lock()
+	state, exists := s.jobs[jobID]
+	if !exists || state.result.Status != Running {
+		s.mu.Unlock()
+		s.eventMu.Unlock()
+		return
+	}
+	state.result.Status = status
+	state.result.Report = cloneReport(report)
+	state.result.Error = errorText
+	state.cancel = nil
+	if s.activeJobID == jobID {
+		s.activeJobID = ""
+	}
+	result := cloneResult(state.result)
+	emitter := s.emitter
+	s.mu.Unlock()
+
 	if emitter != nil {
 		emitter.Finished(result)
+	}
+	s.eventMu.Unlock()
+	s.requestCleanup()
+}
+
+func (s *Service) requestCleanup() {
+	if s.maintenance == nil {
+		return
+	}
+	select {
+	case s.cleanupRequest <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Service) cleanupWorker() {
+	defer s.wg.Done()
+	for {
+		select {
+		case <-s.cleanupCtx.Done():
+			return
+		case <-s.cleanupRequest:
+			s.cleanupUntilDone()
+		}
+	}
+}
+
+func (s *Service) cleanupUntilDone() {
+	for {
+		if s.cleanupCtx.Err() != nil {
+			return
+		}
+
+		// The permitted nested order is writer then mu. Start only takes mu, so an
+		// import can reserve the active slot while a cleanup batch is in progress.
+		s.writer.Lock()
+		s.mu.Lock()
+		if s.closing || s.activeJobID != "" {
+			s.mu.Unlock()
+			s.writer.Unlock()
+			return
+		}
+		s.mu.Unlock()
+
+		more, err := s.maintenance.CleanupBatch(s.cleanupCtx, cleanupBatchSize)
+		s.writer.Unlock()
+		if err != nil || !more {
+			return
+		}
 	}
 }
 
@@ -138,5 +309,31 @@ func (s *Service) Result(jobID string) (Result, error) {
 	if !exists {
 		return Result{}, fmt.Errorf("unknown import job %q", jobID)
 	}
-	return state.result, nil
+	return cloneResult(state.result), nil
+}
+
+func (s *Service) Close() {
+	s.mu.Lock()
+	s.closing = true
+	var cancelActive context.CancelFunc
+	if state, exists := s.jobs[s.activeJobID]; exists {
+		cancelActive = state.cancel
+	}
+	s.mu.Unlock()
+
+	if cancelActive != nil {
+		cancelActive()
+	}
+	s.cancelCleanup()
+	s.wg.Wait()
+}
+
+func cloneResult(result Result) Result {
+	result.Report = cloneReport(result.Report)
+	return result
+}
+
+func cloneReport(report puzzles.ImportReport) puzzles.ImportReport {
+	report.Examples = append([]puzzles.Rejection(nil), report.Examples...)
+	return report
 }
