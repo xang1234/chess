@@ -2,6 +2,7 @@ package puzzles
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -32,6 +33,17 @@ type GenerationSource struct {
 	Kind      string
 	Path      string
 	StartedAt time.Time
+}
+
+type GenerationalSQLiteCatalog struct {
+	readDB  *sql.DB
+	writeDB *sql.DB
+}
+
+var _ GenerationCatalog = (*GenerationalSQLiteCatalog)(nil)
+
+func NewGenerationalSQLiteCatalog(readDB, writeDB *sql.DB) *GenerationalSQLiteCatalog {
+	return &GenerationalSQLiteCatalog{readDB: readDB, writeDB: writeDB}
 }
 
 type GenerationImport interface {
