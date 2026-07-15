@@ -10,7 +10,7 @@ import (
 	"chess-trainer/internal/domain"
 )
 
-func (c *GenerationalSQLiteCatalog) Get(ctx context.Context, key PuzzleKey) (TrainingPuzzle, error) {
+func (c *SQLiteCatalog) Get(ctx context.Context, key PuzzleKey) (TrainingPuzzle, error) {
 	tx, err := c.readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return TrainingPuzzle{}, fmt.Errorf("begin puzzle read: %w", err)
@@ -26,7 +26,7 @@ func (c *GenerationalSQLiteCatalog) Get(ctx context.Context, key PuzzleKey) (Tra
 	return puzzle, nil
 }
 
-func (c *GenerationalSQLiteCatalog) Resolve(
+func (c *SQLiteCatalog) Resolve(
 	ctx context.Context,
 	fingerprint string,
 	preferredSourceID string,
@@ -69,7 +69,7 @@ func (c *GenerationalSQLiteCatalog) Resolve(
 	return puzzle, nil
 }
 
-func (c *GenerationalSQLiteCatalog) RatedCandidates(
+func (c *SQLiteCatalog) RatedCandidates(
 	ctx context.Context,
 	minimum int,
 	maximum int,
@@ -115,7 +115,7 @@ func (c *GenerationalSQLiteCatalog) RatedCandidates(
 	return c.readCandidates(ctx, query.String(), args...)
 }
 
-func (c *GenerationalSQLiteCatalog) FreePracticeCandidates(
+func (c *SQLiteCatalog) FreePracticeCandidates(
 	ctx context.Context,
 	sourceID string,
 	minimum *int,
@@ -175,7 +175,7 @@ func generationPlaceholders(count int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
 }
 
-func (c *GenerationalSQLiteCatalog) readCandidates(
+func (c *SQLiteCatalog) readCandidates(
 	ctx context.Context,
 	query string,
 	args ...any,
@@ -219,7 +219,7 @@ func (c *GenerationalSQLiteCatalog) readCandidates(
 	return puzzles, nil
 }
 
-func (c *GenerationalSQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSummary, error) {
+func (c *SQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSummary, error) {
 	tx, err := c.readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin active source summary read: %w", err)
@@ -277,7 +277,7 @@ func (c *GenerationalSQLiteCatalog) ActiveSourceSummaries(ctx context.Context) (
 	return summaries, nil
 }
 
-func (c *GenerationalSQLiteCatalog) ActiveThemes(ctx context.Context) ([]string, error) {
+func (c *SQLiteCatalog) ActiveThemes(ctx context.Context) ([]string, error) {
 	tx, err := c.readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin active theme read: %w", err)

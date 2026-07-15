@@ -40,6 +40,8 @@ export function StartGuided():Promise<domain.SessionView>;
 
 export function StartLichessImport(arg1:string):Promise<string>;
 
+export function StartPuzzleImport(arg1:importjob.ImportRequest):Promise<string>;
+
 export function UpdateProfile(arg1:training.Profile):Promise<void>;
 
 export function UseHint(arg1:string):Promise<domain.HintResult>;

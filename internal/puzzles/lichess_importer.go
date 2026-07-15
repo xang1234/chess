@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -43,10 +41,13 @@ type Progress struct {
 type ProgressSink func(Progress)
 
 type LichessImporter struct {
-	Catalog        Catalog
-	Rules          chessrules.Rules
-	AvailableBytes func(string) (uint64, error)
+	Catalog          CatalogWriter
+	Rules            chessrules.Rules
+	CatalogDirectory string
+	AvailableBytes   func(string) (uint64, error)
 }
+
+const abandonImportTimeout = 5 * time.Second
 
 type countingReader struct {
 	reader io.Reader
@@ -73,7 +74,10 @@ func (i LichessImporter) Import(
 	if availableBytes == nil {
 		availableBytes = storage.AvailableBytes
 	}
-	available, err := availableBytes(filepath.Dir(path))
+	if strings.TrimSpace(i.CatalogDirectory) == "" {
+		return ImportReport{}, errors.New("puzzle catalogue directory is required")
+	}
+	available, err := availableBytes(i.CatalogDirectory)
 	if err != nil {
 		return ImportReport{}, err
 	}
@@ -92,18 +96,23 @@ func (i LichessImporter) Import(
 	}
 	defer file.Close()
 
-	staged, err := i.Catalog.BeginImport(ctx, Source{
-		ID:         sourceID,
-		Kind:       "lichess",
-		Path:       path,
-		ImportedAt: time.Now(),
+	generation, err := i.Catalog.BeginImport(ctx, Source{
+		ID:        sourceID,
+		Kind:      "lichess",
+		Path:      path,
+		StartedAt: time.Now(),
 	})
 	if err != nil {
 		return ImportReport{}, err
 	}
-	abort := func(cause error) (ImportReport, error) {
-		if abortErr := staged.Abort(context.Background()); abortErr != nil {
-			cause = errors.Join(cause, fmt.Errorf("abort import: %w", abortErr))
+	sealed := false
+	abandon := func(cause error) (ImportReport, error) {
+		if !sealed {
+			cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), abandonImportTimeout)
+			defer cancel()
+			if abandonErr := generation.Abandon(cleanupContext); abandonErr != nil {
+				cause = errors.Join(cause, fmt.Errorf("abandon import: %w", abandonErr))
+			}
 		}
 		return ImportReport{}, cause
 	}
@@ -117,7 +126,7 @@ func (i LichessImporter) Import(
 		zstd.WithDecoderLowmem(true),
 	)
 	if err != nil {
-		return abort(err)
+		return abandon(err)
 	}
 	defer decoder.Close()
 
@@ -126,17 +135,17 @@ func (i LichessImporter) Import(
 	reader.FieldsPerRecord = -1
 	header, err := reader.Read()
 	if err != nil {
-		return abort(fmt.Errorf("read Lichess header: %w", err))
+		return abandon(fmt.Errorf("read Lichess header: %w", err))
 	}
 	columns, err := lichessColumnIndexes(header)
 	if err != nil {
-		return abort(err)
+		return abandon(err)
 	}
 
 	var rowsRead int64
 	for {
 		if err := ctx.Err(); err != nil {
-			return abort(err)
+			return abandon(err)
 		}
 		record, readErr := reader.Read()
 		if errors.Is(readErr, io.EOF) {
@@ -146,17 +155,17 @@ func (i LichessImporter) Import(
 		ordinal := rowsRead + 1
 		if readErr != nil {
 			if len(record) == 0 {
-				return abort(fmt.Errorf("read CSV row %d: %w", ordinal, readErr))
+				return abandon(fmt.Errorf("read CSV row %d: %w", ordinal, readErr))
 			}
-			staged.Reject(Rejection{Ordinal: ordinal, Reason: readErr.Error()})
+			generation.Reject(Rejection{Ordinal: ordinal, Reason: readErr.Error()})
 			continue
 		}
 
-		puzzle, err := i.normalizeRecord(sourceID, record, columns)
+		puzzle, err := i.normalizeRecord(sourceID, ordinal, record, columns)
 		if err != nil {
-			staged.Reject(Rejection{Ordinal: ordinal, Reason: err.Error()})
-		} else if err := staged.Add(ctx, puzzle); err != nil {
-			return abort(err)
+			generation.Reject(Rejection{Ordinal: ordinal, Reason: err.Error()})
+		} else if err := generation.Add(ctx, puzzle); err != nil {
+			return abandon(err)
 		}
 		if progress != nil && rowsRead%10_000 == 0 {
 			progress(Progress{RowsRead: rowsRead, BytesRead: counter.read})
@@ -165,15 +174,18 @@ func (i LichessImporter) Import(
 
 	decoder.Close()
 	if _, err := io.Copy(io.Discard, compressed); err != nil {
-		return abort(fmt.Errorf("finish source checksum: %w", err))
+		return abandon(fmt.Errorf("finish source checksum: %w", err))
 	}
 	if progress != nil {
 		progress(Progress{RowsRead: rowsRead, BytesRead: counter.read})
 	}
-	staged.SetChecksum(hex.EncodeToString(hash.Sum(nil)))
-	report, err := staged.Commit(ctx)
+	report, err := generation.Seal(ctx, hex.EncodeToString(hash.Sum(nil)))
 	if err != nil {
-		return abort(err)
+		return abandon(err)
+	}
+	sealed = true
+	if err := generation.Activate(ctx); err != nil {
+		return report, err
 	}
 	return report, nil
 }
@@ -197,9 +209,10 @@ func lichessColumnIndexes(header []string) (map[string]int, error) {
 
 func (i LichessImporter) normalizeRecord(
 	sourceID string,
+	ordinal int64,
 	record []string,
 	columns map[string]int,
-) (domain.Puzzle, error) {
+) (TrainingPuzzle, error) {
 	value := func(name string) (string, error) {
 		index := columns[name]
 		if index >= len(record) {
@@ -209,58 +222,57 @@ func (i LichessImporter) normalizeRecord(
 	}
 	puzzleID, err := value("PuzzleId")
 	if err != nil || puzzleID == "" {
-		return domain.Puzzle{}, errors.New("PuzzleId is required")
+		return TrainingPuzzle{}, errors.New("PuzzleId is required")
 	}
 	sourceFEN, err := value("FEN")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	movesField, err := value("Moves")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	moves := strings.Fields(movesField)
 	if len(moves) < 2 {
-		return domain.Puzzle{}, errors.New("Moves must contain a setup move and at least one solution move")
+		return TrainingPuzzle{}, errors.New("Moves must contain a setup move and at least one solution move")
 	}
 
 	displayedFEN, err := i.Rules.ApplyUCILine(sourceFEN, moves)
 	if err != nil {
-		return domain.Puzzle{}, fmt.Errorf("validate move line: %w", err)
+		return TrainingPuzzle{}, fmt.Errorf("validate move line: %w", err)
 	}
 	solver, err := solverFromFEN(displayedFEN)
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	rating, err := nullableInteger(record, columns, "Rating")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	ratingDeviation, err := nullableInteger(record, columns, "RatingDeviation")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	popularity, err := nullableInteger(record, columns, "Popularity")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	playCount, err := nullableInteger(record, columns, "NbPlays")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	themesField, err := value("Themes")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
-	themes := strings.Fields(themesField)
-	sort.Strings(themes)
+	themes := domain.NormalizeThemes(strings.Fields(themesField))
 	gameURL, err := value("GameUrl")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	openingTags, err := value("OpeningTags")
 	if err != nil {
-		return domain.Puzzle{}, err
+		return TrainingPuzzle{}, err
 	}
 	metadata := map[string]any{}
 	if ratingDeviation != nil {
@@ -270,29 +282,34 @@ func (i LichessImporter) normalizeRecord(
 		metadata["openingTags"] = strings.Fields(openingTags)
 	}
 
-	puzzle := domain.Puzzle{
-		SourceFEN:    sourceFEN,
-		PreludeUCI:   strings.ToLower(moves[0]),
-		DisplayedFEN: displayedFEN,
-		Solver:       solver,
-		Solution:     moveLine(moves[1:]),
-		Rating:       rating,
-		Themes:       themes,
-		Popularity:   popularity,
-		PlayCount:    playCount,
-		Sources: []domain.SourceRef{{
+	core := PuzzleCore{
+		DisplayedFEN:  displayedFEN,
+		Solver:        solver,
+		Solution:      moveLine(moves[1:]),
+		SolutionPlies: len(moves) - 1,
+	}
+	core.Fingerprint, err = CoreFingerprint(core)
+	if err != nil {
+		return TrainingPuzzle{}, err
+	}
+	return TrainingPuzzle{
+		Core: core,
+		Occurrence: PuzzleOccurrence{
 			SourceID:    sourceID,
+			SourceKind:  "lichess",
 			ExternalID:  puzzleID,
+			SourceFEN:   sourceFEN,
+			PreludeUCI:  strings.ToLower(moves[0]),
+			Rating:      rating,
+			Popularity:  popularity,
+			PlayCount:   playCount,
 			URL:         gameURL,
 			Attribution: "Lichess puzzle database (CC0)",
 			Metadata:    metadata,
-		}},
-	}
-	puzzle.Fingerprint, err = Fingerprint(puzzle)
-	if err != nil {
-		return domain.Puzzle{}, err
-	}
-	return puzzle, nil
+			Themes:      themes,
+			Ordinal:     ordinal,
+		},
+	}, nil
 }
 
 func nullableInteger(record []string, columns map[string]int, name string) (*int, error) {

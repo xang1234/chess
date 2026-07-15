@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
 	"chess-trainer/internal/training"
 )
 
-func openProfileStores(t *testing.T) (*sql.DB, *sql.DB) {
+func openProfileStore(t *testing.T) *sql.DB {
 	t.Helper()
 	root := t.TempDir()
 	userDB, err := storage.Open(filepath.Join(root, "user.sqlite"))
@@ -22,49 +23,33 @@ func openProfileStores(t *testing.T) (*sql.DB, *sql.DB) {
 	if err := storage.Migrate(userDB, "user"); err != nil {
 		t.Fatal(err)
 	}
-	puzzleDB, err := storage.Open(filepath.Join(root, "puzzles.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.Migrate(puzzleDB, "puzzles"); err != nil {
-		t.Fatal(err)
-	}
 	t.Cleanup(func() {
 		userDB.Close()
-		puzzleDB.Close()
 	})
-	return userDB, puzzleDB
+	return userDB
 }
 
-func seedProfileCatalogue(t *testing.T, db *sql.DB) {
-	t.Helper()
-	if _, err := db.Exec(`INSERT INTO sources(source_id, kind, imported_at, source_path, checksum)
-		VALUES ('lichess', 'lichess', 1, '/puzzles.csv.zst', 'abc')`); err != nil {
-		t.Fatal(err)
-	}
-	for _, puzzle := range []struct {
-		fingerprint string
-		rating      int
-		theme       string
-		plies       int
-	}{
-		{"fork-puzzle", 1000, "fork", 3},
-		{"pin-puzzle", 2000, "pin", 5},
-	} {
-		if _, err := db.Exec(`INSERT INTO puzzles(
-			fingerprint, displayed_fen, solver, solution_json, solution_plies
-		) VALUES (?, '7k/5Q2/6K1/8/8/8/8/8 w - - 0 1', 'white', '[{"uci":"f7f8"}]', ?)`,
-			puzzle.fingerprint, puzzle.plies); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`INSERT INTO puzzle_sources(fingerprint, source_id, rating)
-			VALUES (?, 'lichess', ?)`, puzzle.fingerprint, puzzle.rating); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(`INSERT INTO puzzle_themes(fingerprint, source_id, theme)
-			VALUES (?, 'lichess', ?)`, puzzle.fingerprint, puzzle.theme); err != nil {
-			t.Fatal(err)
-		}
+type profileTestCatalog struct {
+	summaries []puzzles.SourceSummary
+	themes    []string
+}
+
+func (c *profileTestCatalog) ActiveSourceSummaries(context.Context) ([]puzzles.SourceSummary, error) {
+	return append([]puzzles.SourceSummary(nil), c.summaries...), nil
+}
+
+func (c *profileTestCatalog) ActiveThemes(context.Context) ([]string, error) {
+	return append([]string(nil), c.themes...), nil
+}
+
+func seedProfileCatalogue() *profileTestCatalog {
+	minimum, maximum := 1000, 2000
+	return &profileTestCatalog{
+		summaries: []puzzles.SourceSummary{{
+			SourceID: "lichess", Kind: "lichess", MinimumRating: &minimum,
+			MaximumRating: &maximum, MaximumSolutionPlies: 5,
+		}},
+		themes: []string{"fork", "pin"},
 	}
 }
 
@@ -101,18 +86,19 @@ func seedProgress(t *testing.T, db *sql.DB, now time.Time) {
 		incorrect   int
 		hints       int
 		firstTry    int
+		themesJSON  string
 	}{
-		{"attempt-1", "session-a", "fork-puzzle", 0, 0, 1},
-		{"attempt-2", "session-b", "fork-puzzle", 1, 0, 0},
-		{"attempt-3", "session-c", "pin-puzzle", 0, 1, 0},
+		{"attempt-1", "session-a", "fork-puzzle", 0, 0, 1, `["fork"]`},
+		{"attempt-2", "session-b", "fork-puzzle", 1, 0, 0, `["fork"]`},
+		{"attempt-3", "session-c", "pin-puzzle", 0, 1, 0, `["pin"]`},
 	}
 	for index, attempt := range attempts {
 		if _, err := db.Exec(`INSERT INTO attempts(
 			attempt_id, session_id, fingerprint, source_id, started_at, completed_at,
-			incorrect_moves, hints_used, solution_revealed, first_try, duration_ms
-		) VALUES (?, ?, ?, 'lichess', ?, ?, ?, ?, 0, ?, 1000)`,
+			incorrect_moves, hints_used, solution_revealed, first_try, duration_ms, themes_json
+		) VALUES (?, ?, ?, 'lichess', ?, ?, ?, ?, 0, ?, 1000, ?)`,
 			attempt.id, attempt.session, attempt.fingerprint, index+1, index+1,
-			attempt.incorrect, attempt.hints, attempt.firstTry); err != nil {
+			attempt.incorrect, attempt.hints, attempt.firstTry, attempt.themesJSON); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -126,11 +112,11 @@ func seedProgress(t *testing.T, db *sql.DB, now time.Time) {
 }
 
 func TestServiceSummarisesProgressWithSQLAggregates(t *testing.T) {
-	userDB, puzzleDB := openProfileStores(t)
-	seedProfileCatalogue(t, puzzleDB)
+	userDB := openProfileStore(t)
+	catalog := seedProfileCatalogue()
 	now := time.Unix(1000, 0)
 	seedProgress(t, userDB, now)
-	service := NewService(userDB, puzzleDB, training.NewUserStore(userDB))
+	service := NewService(userDB, catalog, training.NewUserStore(userDB))
 	service.now = func() time.Time { return now }
 
 	summary, err := service.Summary(context.Background())
@@ -158,9 +144,9 @@ func TestServiceSummarisesProgressWithSQLAggregates(t *testing.T) {
 }
 
 func TestServiceValidatesSettingsAgainstActiveLichessRange(t *testing.T) {
-	userDB, puzzleDB := openProfileStores(t)
-	seedProfileCatalogue(t, puzzleDB)
-	service := NewService(userDB, puzzleDB, training.NewUserStore(userDB))
+	userDB := openProfileStore(t)
+	catalog := seedProfileCatalogue()
+	service := NewService(userDB, catalog, training.NewUserStore(userDB))
 
 	if err := service.UpdateSettings(context.Background(), training.Profile{
 		LearnerRating: 1500,

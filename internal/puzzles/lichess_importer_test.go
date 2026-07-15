@@ -12,64 +12,53 @@ import (
 	"testing"
 	"time"
 
-	"chess-trainer/internal/domain"
-
 	"github.com/klauspost/compress/zstd"
 )
 
-type captureStagedImport struct {
-	puzzles  []domain.Puzzle
-	report   ImportReport
-	checksum string
-	aborted  int
-	commits  int
+type captureGenerationImport struct {
+	puzzles     []TrainingPuzzle
+	report      ImportReport
+	checksum    string
+	abandoned   int
+	seals       int
+	activations int
 }
 
-func (s *captureStagedImport) Add(_ context.Context, puzzle domain.Puzzle) error {
+func (s *captureGenerationImport) Add(_ context.Context, puzzle TrainingPuzzle) error {
 	s.puzzles = append(s.puzzles, puzzle)
 	return nil
 }
 
-func (s *captureStagedImport) Reject(rejection Rejection) {
+func (s *captureGenerationImport) Reject(rejection Rejection) {
 	s.report.Rejected++
 	s.report.Examples = append(s.report.Examples, rejection)
 }
 
-func (s *captureStagedImport) SetChecksum(checksum string) {
+func (s *captureGenerationImport) Seal(_ context.Context, checksum string) (ImportReport, error) {
+	s.seals++
 	s.checksum = checksum
-}
-
-func (s *captureStagedImport) Commit(context.Context) (ImportReport, error) {
-	s.commits++
 	s.report.Accepted = int64(len(s.puzzles))
 	return s.report, nil
 }
 
-func (s *captureStagedImport) Abort(context.Context) error {
-	s.aborted++
+func (s *captureGenerationImport) Activate(context.Context) error {
+	s.activations++
+	return nil
+}
+
+func (s *captureGenerationImport) Abandon(context.Context) error {
+	s.abandoned++
 	return nil
 }
 
 type captureCatalog struct {
-	staged      StagedImport
+	generation  GenerationImport
 	beginCalled int
 }
 
-func (c *captureCatalog) BeginImport(context.Context, Source) (StagedImport, error) {
+func (c *captureCatalog) BeginImport(context.Context, Source) (GenerationImport, error) {
 	c.beginCalled++
-	return c.staged, nil
-}
-
-func (*captureCatalog) Get(context.Context, string) (domain.Puzzle, error) {
-	return domain.Puzzle{}, nil
-}
-
-func (*captureCatalog) RatedCandidates(context.Context, int, int, []string, int) ([]domain.Puzzle, error) {
-	return nil, nil
-}
-
-func (*captureCatalog) FreePracticeCandidates(context.Context, string, *int, *int, []string, *int, int) ([]domain.Puzzle, error) {
-	return nil, nil
+	return c.generation, nil
 }
 
 func writeZstandardFixture(t *testing.T, contents string) string {
@@ -104,9 +93,9 @@ func TestLichessImporterNormalizesSetupMove(t *testing.T) {
 mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https://lichess.org/example,
 bad,not-a-fen,a1a2,1500,60,10,2,short,,
 `)
-	staged := &captureStagedImport{}
-	catalog := &captureCatalog{staged: staged}
-	importer := LichessImporter{Catalog: catalog}
+	generation := &captureGenerationImport{}
+	catalog := &captureCatalog{generation: generation}
+	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
 
 	report, err := importer.Import(context.Background(), "lichess", path, nil)
 	if err != nil {
@@ -115,31 +104,31 @@ bad,not-a-fen,a1a2,1500,60,10,2,short,,
 	if report.Accepted != 1 || report.Rejected != 1 {
 		t.Fatalf("report=%+v", report)
 	}
-	if len(staged.puzzles) != 1 {
-		t.Fatalf("captured %d puzzles", len(staged.puzzles))
+	if len(generation.puzzles) != 1 {
+		t.Fatalf("captured %d puzzles", len(generation.puzzles))
 	}
-	puzzle := staged.puzzles[0]
-	fields := strings.Fields(puzzle.DisplayedFEN)
+	puzzle := generation.puzzles[0]
+	fields := strings.Fields(puzzle.Core.DisplayedFEN)
 	if len(fields) < 2 || fields[1] != "w" {
-		t.Fatalf("DisplayedFEN=%q", puzzle.DisplayedFEN)
+		t.Fatalf("DisplayedFEN=%q", puzzle.Core.DisplayedFEN)
 	}
-	if puzzle.PreludeUCI != "h7h8" {
-		t.Fatalf("PreludeUCI=%q", puzzle.PreludeUCI)
+	if puzzle.Occurrence.PreludeUCI != "h7h8" {
+		t.Fatalf("PreludeUCI=%q", puzzle.Occurrence.PreludeUCI)
 	}
-	if len(puzzle.Solution) != 1 || puzzle.Solution[0].UCI != "f7f8" {
-		t.Fatalf("Solution=%+v", puzzle.Solution)
+	if len(puzzle.Core.Solution) != 1 || puzzle.Core.Solution[0].UCI != "f7f8" {
+		t.Fatalf("Solution=%+v", puzzle.Core.Solution)
 	}
-	if puzzle.Rating == nil || *puzzle.Rating != 1200 {
-		t.Fatalf("Rating=%v", puzzle.Rating)
+	if puzzle.Occurrence.Rating == nil || *puzzle.Occurrence.Rating != 1200 {
+		t.Fatalf("Rating=%v", puzzle.Occurrence.Rating)
 	}
-	if len(puzzle.Themes) != 2 || puzzle.Themes[0] != "mate" || puzzle.Themes[1] != "mateIn1" {
-		t.Fatalf("Themes=%v", puzzle.Themes)
+	if len(puzzle.Occurrence.Themes) != 2 || puzzle.Occurrence.Themes[0] != "mate" || puzzle.Occurrence.Themes[1] != "mateIn1" {
+		t.Fatalf("Themes=%v", puzzle.Occurrence.Themes)
 	}
-	if len(puzzle.Fingerprint) != 64 {
-		t.Fatalf("Fingerprint=%q", puzzle.Fingerprint)
+	if len(puzzle.Core.Fingerprint) != 64 {
+		t.Fatalf("Fingerprint=%q", puzzle.Core.Fingerprint)
 	}
-	if len(staged.checksum) != 64 {
-		t.Fatalf("checksum=%q", staged.checksum)
+	if len(generation.checksum) != 64 {
+		t.Fatalf("checksum=%q", generation.checksum)
 	}
 }
 
@@ -154,9 +143,9 @@ func TestLichessImporterCancellationAbortsStaging(t *testing.T) {
 		)
 	}
 	path := writeZstandardFixture(t, fixture.String())
-	staged := &captureStagedImport{}
-	catalog := &captureCatalog{staged: staged}
-	importer := LichessImporter{Catalog: catalog}
+	generation := &captureGenerationImport{}
+	catalog := &captureCatalog{generation: generation}
+	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	_, err := importer.Import(ctx, "lichess", path, func(progress Progress) {
@@ -167,23 +156,23 @@ func TestLichessImporterCancellationAbortsStaging(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Import() err=%v, want context.Canceled", err)
 	}
-	if staged.aborted != 1 || staged.commits != 0 {
-		t.Fatalf("aborted=%d commits=%d", staged.aborted, staged.commits)
+	if generation.abandoned != 1 || generation.seals != 0 || generation.activations != 0 {
+		t.Fatalf("abandoned=%d seals=%d activations=%d", generation.abandoned, generation.seals, generation.activations)
 	}
 }
 
 func TestLichessImporterRejectsMissingHeader(t *testing.T) {
 	path := writeZstandardFixture(t, "PuzzleId,Moves\nmate1,h7h8 f7f8\n")
-	staged := &captureStagedImport{}
-	catalog := &captureCatalog{staged: staged}
-	importer := LichessImporter{Catalog: catalog}
+	generation := &captureGenerationImport{}
+	catalog := &captureCatalog{generation: generation}
+	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
 
 	_, err := importer.Import(context.Background(), "lichess", path, nil)
 	if err == nil || !strings.Contains(err.Error(), "missing required Lichess column") {
 		t.Fatalf("Import() err=%v", err)
 	}
-	if staged.aborted != 1 || staged.commits != 0 {
-		t.Fatalf("aborted=%d commits=%d", staged.aborted, staged.commits)
+	if generation.abandoned != 1 || generation.seals != 0 || generation.activations != 0 {
+		t.Fatalf("abandoned=%d seals=%d activations=%d", generation.abandoned, generation.seals, generation.activations)
 	}
 }
 
@@ -198,24 +187,25 @@ mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https
 	if err := os.WriteFile(path, contents[:len(contents)/2], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	staged := &captureStagedImport{}
-	catalog := &captureCatalog{staged: staged}
-	importer := LichessImporter{Catalog: catalog}
+	generation := &captureGenerationImport{}
+	catalog := &captureCatalog{generation: generation}
+	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
 
 	if _, err := importer.Import(context.Background(), "lichess", path, nil); err == nil {
 		t.Fatal("Import() unexpectedly succeeded")
 	}
-	if staged.aborted != 1 || staged.commits != 0 {
-		t.Fatalf("aborted=%d commits=%d", staged.aborted, staged.commits)
+	if generation.abandoned != 1 || generation.seals != 0 || generation.activations != 0 {
+		t.Fatalf("abandoned=%d seals=%d activations=%d", generation.abandoned, generation.seals, generation.activations)
 	}
 }
 
 func TestLichessImporterChecksDiskBeforeStaging(t *testing.T) {
 	path := writeZstandardFixture(t, "unused")
-	staged := &captureStagedImport{}
-	catalog := &captureCatalog{staged: staged}
+	generation := &captureGenerationImport{}
+	catalog := &captureCatalog{generation: generation}
 	importer := LichessImporter{
-		Catalog: catalog,
+		Catalog:          catalog,
+		CatalogDirectory: filepath.Dir(path),
 		AvailableBytes: func(string) (uint64, error) {
 			return 0, nil
 		},
@@ -229,21 +219,21 @@ func TestLichessImporterChecksDiskBeforeStaging(t *testing.T) {
 	}
 }
 
-type discardStagedImport struct {
+type discardGenerationImport struct {
 	accepted int64
 }
 
-func (s *discardStagedImport) Add(context.Context, domain.Puzzle) error {
+func (s *discardGenerationImport) Add(context.Context, TrainingPuzzle) error {
 	s.accepted++
 	return nil
 }
 
-func (*discardStagedImport) Reject(Rejection)   {}
-func (*discardStagedImport) SetChecksum(string) {}
-func (s *discardStagedImport) Commit(context.Context) (ImportReport, error) {
+func (*discardGenerationImport) Reject(Rejection) {}
+func (s *discardGenerationImport) Seal(context.Context, string) (ImportReport, error) {
 	return ImportReport{Accepted: s.accepted}, nil
 }
-func (*discardStagedImport) Abort(context.Context) error { return nil }
+func (*discardGenerationImport) Activate(context.Context) error { return nil }
+func (*discardGenerationImport) Abandon(context.Context) error  { return nil }
 
 func writeGeneratedLichessFixture(t *testing.T, count int) string {
 	t.Helper()
@@ -264,9 +254,9 @@ func TestLichessImporterStreamingAllocations(t *testing.T) {
 		t.Skip("skipping 100,000-row streaming allocation probe in short mode")
 	}
 	path := writeGeneratedLichessFixture(t, 100_000)
-	staged := &discardStagedImport{}
-	catalog := &captureCatalog{staged: staged}
-	importer := LichessImporter{Catalog: catalog}
+	generation := &discardGenerationImport{}
+	catalog := &captureCatalog{generation: generation}
+	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
 
 	runtime.GC()
 	var memory runtime.MemStats

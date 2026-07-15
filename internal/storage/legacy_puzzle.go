@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"chess-trainer/internal/domain"
 )
@@ -53,6 +54,55 @@ func OpenLegacyPuzzleReadOnly(path string) (*sql.DB, error) {
 		)
 	}
 	return db, nil
+}
+
+// LegacyPuzzleRecreation binds the read-only database used for snapshot
+// backfill to the exact database and WAL files that may later be removed.
+// Close is the non-destructive path; CloseAndRemove is valid only while this
+// handle still owns that binding.
+type LegacyPuzzleRecreation struct {
+	mu      sync.Mutex
+	db      *sql.DB
+	removal *recognizedLegacyRemoval
+	closed  bool
+}
+
+func OpenLegacyPuzzleRecreation(path string) (*LegacyPuzzleRecreation, error) {
+	db, removal, err := openRecognizedLegacyRemoval(path)
+	if err != nil {
+		return nil, err
+	}
+	return &LegacyPuzzleRecreation{db: db, removal: removal}, nil
+}
+
+func (r *LegacyPuzzleRecreation) ReadOnlyDB() *sql.DB {
+	return r.db
+}
+
+func (r *LegacyPuzzleRecreation) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+	return r.db.Close()
+}
+
+func (r *LegacyPuzzleRecreation) CloseAndRemove() error {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return errors.New("legacy puzzle recreation handle is already closed")
+	}
+	r.closed = true
+	closeErr := r.db.Close()
+	removal := r.removal
+	r.mu.Unlock()
+	if closeErr != nil {
+		return closeErr
+	}
+	return removal.remove()
 }
 
 func RemoveRecognizedLegacyPuzzleStore(path string) error {
@@ -122,26 +172,37 @@ type recognizedLegacyRemoval struct {
 }
 
 func prepareRecognizedLegacyRemoval(path string) (*recognizedLegacyRemoval, error) {
+	db, removal, err := openRecognizedLegacyRemoval(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Close(); err != nil {
+		return nil, fmt.Errorf("close puzzle database probe %s: %w", path, err)
+	}
+	return removal, nil
+}
+
+func openRecognizedLegacyRemoval(path string) (*sql.DB, *recognizedLegacyRemoval, error) {
 	beforeValidation, err := capturePuzzleStoreFileIdentity(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	state, db, err := probePuzzleStoreOpen(path)
-	err = closePuzzleProbe(path, db, err)
+	db, err := OpenLegacyPuzzleReadOnly(path)
 	if err != nil {
-		return nil, err
-	}
-	if !state.Exists || !state.Legacy {
-		return nil, fmt.Errorf("refuse to remove puzzle database %s: not a recognized legacy catalogue", path)
+		return nil, nil, err
 	}
 	afterValidation, err := capturePuzzleStoreFileIdentity(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, closePuzzleProbe(path, db, err)
 	}
 	if !samePuzzleStoreFileIdentity(beforeValidation, afterValidation) {
-		return nil, fmt.Errorf("refuse to remove puzzle database %s: file identity changed during validation", path)
+		return nil, nil, closePuzzleProbe(
+			path,
+			db,
+			fmt.Errorf("refuse to remove puzzle database %s: file identity changed during validation", path),
+		)
 	}
-	return &recognizedLegacyRemoval{path: path, identity: afterValidation}, nil
+	return db, &recognizedLegacyRemoval{path: path, identity: afterValidation}, nil
 }
 
 func (r *recognizedLegacyRemoval) remove() error {

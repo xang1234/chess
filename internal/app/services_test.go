@@ -56,7 +56,7 @@ func TestServicesCloseWaitsForImportJobsBeforeDatabases(t *testing.T) {
 	if err := paths.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	db, err := openStore(paths.PuzzlesDB, "puzzles")
+	puzzleStore, err := storage.OpenPuzzleStore(paths.PuzzlesDB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestServicesCloseWaitsForImportJobsBeforeDatabases(t *testing.T) {
 	jobs := importjob.NewService(map[importjob.Kind]importjob.Importer{
 		importjob.KindLichess: importer,
 	}, nil, nil)
-	services := &Services{PuzzlesDB: db, ImportJobs: jobs}
+	services := &Services{PuzzleStore: puzzleStore, ImportJobs: jobs}
 	_, err = jobs.Start(context.Background(), importjob.ImportRequest{
 		Kind: importjob.KindLichess, SourceID: "lichess", Path: "/puzzles",
 	})
@@ -85,7 +85,7 @@ func TestServicesCloseWaitsForImportJobsBeforeDatabases(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Services.Close did not cancel the active import")
 	}
-	if err := db.Ping(); err != nil {
+	if err := puzzleStore.Writer.Ping(); err != nil {
 		t.Fatalf("database closed before import exited: %v", err)
 	}
 	select {
@@ -103,7 +103,7 @@ func TestServicesCloseWaitsForImportJobsBeforeDatabases(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Services.Close did not return after import exited")
 	}
-	if err := db.Ping(); err == nil {
+	if err := puzzleStore.Writer.Ping(); err == nil {
 		t.Fatal("database remained open after Services.Close")
 	}
 }

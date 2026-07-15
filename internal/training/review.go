@@ -21,6 +21,7 @@ var reviewIntervals = []time.Duration{
 
 type ReviewState struct {
 	Fingerprint       string    `json:"fingerprint"`
+	PreferredSourceID string    `json:"preferredSourceId"`
 	DueAt             time.Time `json:"dueAt"`
 	IntervalIndex     int       `json:"intervalIndex"`
 	SuccessfulReviews int       `json:"successfulReviews"`

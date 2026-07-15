@@ -20,14 +20,6 @@ func normalizeNodes(nodes []domain.MoveNode) []domain.MoveNode {
 	return out
 }
 
-func Fingerprint(p domain.Puzzle) (string, error) {
-	return CoreFingerprint(PuzzleCore{
-		DisplayedFEN: p.DisplayedFEN,
-		Solver:       p.Solver,
-		Solution:     p.Solution,
-	})
-}
-
 func CoreFingerprint(p PuzzleCore) (string, error) {
 	payload := struct {
 		FEN      string            `json:"fen"`

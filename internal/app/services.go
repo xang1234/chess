@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,25 +20,23 @@ import (
 )
 
 type Services struct {
-	Paths       storage.Paths
-	PuzzlesDB   *sql.DB
-	UserDB      *sql.DB
-	LibraryDB   *sql.DB
-	Catalog     *puzzles.SQLiteCatalog
-	Importer    *puzzles.LichessImporter
-	ImportJobs  *importjob.Service
-	UserStore   *training.UserStore
-	Training    *training.Service
-	Profile     *profile.Service
-	Backup      *backup.Service
-	closeOnce   sync.Once
-	closeResult error
+	Paths        storage.Paths
+	PuzzleStore  *storage.PuzzleStore
+	DataRootLock *storage.DataRootLock
+	UserDB       *sql.DB
+	LibraryDB    *sql.DB
+	Catalog      *puzzles.SQLiteCatalog
+	Importer     *puzzles.LichessImporter
+	ImportJobs   *importjob.Service
+	UserStore    *training.UserStore
+	Training     *training.Service
+	Profile      *profile.Service
+	Backup       *backup.Service
+	closeOnce    sync.Once
+	closeResult  error
 }
 
 func Open(paths storage.Paths) (*Services, error) {
-	if err := storage.CheckExistingIntegrity(paths); err != nil {
-		return nil, err
-	}
 	if err := paths.Ensure(); err != nil {
 		return nil, err
 	}
@@ -46,12 +46,29 @@ func Open(paths storage.Paths) (*Services, error) {
 	}
 
 	var err error
-	services.PuzzlesDB, err = openStore(paths.PuzzlesDB, "puzzles")
+	services.DataRootLock, err = storage.AcquireDataRootLock(paths.Root)
 	if err != nil {
+		return nil, err
+	}
+	if err := storage.CheckDurableIntegrity(paths); err != nil {
 		return closeOnError(err)
 	}
 	services.UserDB, err = openStore(paths.UserDB, "user")
 	if err != nil {
+		return closeOnError(err)
+	}
+	if err := preparePuzzleStore(context.Background(), paths.PuzzlesDB, services.UserDB); err != nil {
+		return closeOnError(err)
+	}
+	services.PuzzleStore, err = storage.OpenPuzzleStore(paths.PuzzlesDB)
+	if err != nil {
+		return closeOnError(err)
+	}
+	services.Catalog = puzzles.NewSQLiteCatalog(
+		services.PuzzleStore.Reader,
+		services.PuzzleStore.Writer,
+	)
+	if err := services.Catalog.RecoverStartup(context.Background()); err != nil {
 		return closeOnError(err)
 	}
 	services.LibraryDB, err = openStore(paths.LibraryDB, "library")
@@ -59,17 +76,15 @@ func Open(paths storage.Paths) (*Services, error) {
 		return closeOnError(err)
 	}
 
-	services.Catalog = puzzles.NewSQLiteCatalog(services.PuzzlesDB)
 	services.Importer = &puzzles.LichessImporter{
-		Catalog: services.Catalog,
-		Rules:   chessrules.Rules{},
-		AvailableBytes: func(string) (uint64, error) {
-			return storage.AvailableBytes(paths.Root)
-		},
+		Catalog:          services.Catalog,
+		Rules:            chessrules.Rules{},
+		CatalogDirectory: filepath.Dir(paths.PuzzlesDB),
+		AvailableBytes:   storage.AvailableBytes,
 	}
 	services.ImportJobs = importjob.NewService(map[importjob.Kind]importjob.Importer{
 		importjob.KindLichess: services.Importer,
-	}, nil, nil)
+	}, services.Catalog, nil)
 	services.UserStore = training.NewUserStore(services.UserDB)
 	services.Training = training.NewService(
 		services.Catalog,
@@ -77,9 +92,28 @@ func Open(paths storage.Paths) (*Services, error) {
 		chessrules.Rules{},
 		rand.New(rand.NewSource(time.Now().UnixNano())),
 	)
-	services.Profile = profile.NewService(services.UserDB, services.PuzzlesDB, services.UserStore)
+	services.Profile = profile.NewService(services.UserDB, services.Catalog, services.UserStore)
 	services.Backup = backup.NewService(paths, services.Close)
+	services.ImportJobs.RequestCleanup()
 	return services, nil
+}
+
+func preparePuzzleStore(ctx context.Context, path string, userDB *sql.DB) error {
+	state, err := storage.ProbePuzzleStore(path)
+	if err != nil {
+		return err
+	}
+	if !state.Exists || !state.Legacy {
+		return nil
+	}
+	legacy, err := storage.OpenLegacyPuzzleRecreation(path)
+	if err != nil {
+		return err
+	}
+	if err := storage.BackfillLegacyPuzzleSnapshots(ctx, userDB, legacy.ReadOnlyDB()); err != nil {
+		return errors.Join(err, legacy.Close())
+	}
+	return legacy.CloseAndRemove()
 }
 
 func openStore(path string, schema string) (*sql.DB, error) {
@@ -100,10 +134,16 @@ func (s *Services) Close() error {
 			s.ImportJobs.Close()
 		}
 		var closeErrors []error
-		for _, db := range []*sql.DB{s.LibraryDB, s.UserDB, s.PuzzlesDB} {
+		if s.PuzzleStore != nil {
+			closeErrors = append(closeErrors, s.PuzzleStore.Close())
+		}
+		for _, db := range []*sql.DB{s.LibraryDB, s.UserDB} {
 			if db != nil {
 				closeErrors = append(closeErrors, db.Close())
 			}
+		}
+		if s.DataRootLock != nil {
+			closeErrors = append(closeErrors, s.DataRootLock.Close())
 		}
 		s.closeResult = errors.Join(closeErrors...)
 	})

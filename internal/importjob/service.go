@@ -173,7 +173,7 @@ func (s *Service) run(
 	})
 	s.writer.Unlock()
 
-	s.finish(jobID, ctx, report, err)
+	s.finish(jobID, report, err)
 }
 
 func (s *Service) recordProgress(jobID string, progress puzzles.Progress) {
@@ -200,14 +200,13 @@ func (s *Service) recordProgress(jobID string, progress puzzles.Progress) {
 
 func (s *Service) finish(
 	jobID string,
-	ctx context.Context,
 	report puzzles.ImportReport,
 	err error,
 ) {
 	status := Succeeded
 	errorText := ""
 	switch {
-	case errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled):
+	case errors.Is(err, context.Canceled):
 		status = Cancelled
 	case err != nil:
 		status = Failed
@@ -248,6 +247,12 @@ func (s *Service) requestCleanup() {
 	case s.cleanupRequest <- struct{}{}:
 	default:
 	}
+}
+
+// RequestCleanup schedules one maintenance pass. The worker continues with
+// further bounded batches only while no import is reserved.
+func (s *Service) RequestCleanup() {
+	s.requestCleanup()
 }
 
 func (s *Service) cleanupWorker() {

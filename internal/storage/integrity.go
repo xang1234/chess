@@ -16,8 +16,8 @@ func (e *IntegrityError) Error() string {
 	return fmt.Sprintf("database integrity check failed for %s: %s", e.Path, e.Detail)
 }
 
-func CheckExistingIntegrity(paths Paths) error {
-	for _, path := range []string{paths.UserDB, paths.PuzzlesDB, paths.LibraryDB} {
+func CheckDurableIntegrity(paths Paths) error {
+	for _, path := range []string{paths.UserDB, paths.LibraryDB} {
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {

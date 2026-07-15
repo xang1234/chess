@@ -79,6 +79,22 @@ func (i scriptedImporter) Import(
 	return i.report, nil
 }
 
+type activatedThenNilImporter struct {
+	activated chan struct{}
+	release   chan struct{}
+}
+
+func (i activatedThenNilImporter) Import(
+	context.Context,
+	string,
+	string,
+	puzzles.ProgressSink,
+) (puzzles.ImportReport, error) {
+	close(i.activated)
+	<-i.release
+	return puzzles.ImportReport{Accepted: 1}, nil
+}
+
 type cleanupOutcome struct {
 	more bool
 	err  error
@@ -584,6 +600,32 @@ func TestJobReachesExactlyOneTerminalState(t *testing.T) {
 	result, err := service.Result(jobID)
 	if err != nil || result.Status != Cancelled {
 		t.Fatalf("Result() = %+v, %v", result, err)
+	}
+}
+
+func TestSuccessfulImportRemainsSucceededWhenContextCancelledAfterActivation(t *testing.T) {
+	importer := activatedThenNilImporter{
+		activated: make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+	emitter := newRecordingEmitter()
+	service := NewService(map[Kind]Importer{KindLichess: importer}, nil, emitter)
+	t.Cleanup(service.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	jobID, err := service.Start(ctx, ImportRequest{
+		Kind: KindLichess, SourceID: "lichess", Path: "/activated",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-importer.activated
+	cancel()
+	close(importer.release)
+
+	finished := receive(t, emitter.finished)
+	if finished.JobID != jobID || finished.Status != Succeeded || finished.Report.Accepted != 1 {
+		t.Fatalf("finished after successful activation = %+v", finished)
 	}
 }
 

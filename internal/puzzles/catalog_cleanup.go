@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-func (c *GenerationalSQLiteCatalog) RecoverStartup(ctx context.Context) error {
+func (c *SQLiteCatalog) RecoverStartup(ctx context.Context) error {
 	if _, err := c.writeDB.ExecContext(
 		ctx,
 		`UPDATE source_generations
@@ -19,7 +19,7 @@ func (c *GenerationalSQLiteCatalog) RecoverStartup(ctx context.Context) error {
 	return nil
 }
 
-func (c *GenerationalSQLiteCatalog) CleanupBatch(ctx context.Context, limit int) (bool, error) {
+func (c *SQLiteCatalog) CleanupBatch(ctx context.Context, limit int) (bool, error) {
 	if limit <= 0 {
 		return false, errors.New("cleanup limit must be positive")
 	}

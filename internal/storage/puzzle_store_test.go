@@ -121,7 +121,7 @@ func TestOpenGenerationPuzzleStoreRejectsExistingEmptyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := OpenGenerationPuzzleStore(path)
+	store, err := OpenPuzzleStore(path)
 	if err == nil {
 		store.Close()
 		t.Fatal("OpenGenerationPuzzleStore() accepted an existing empty file")
@@ -251,7 +251,7 @@ func TestPuzzleStoreReadsDuringRealUncommittedWrite(t *testing.T) {
 
 func openTestGenerationPuzzleStore(t *testing.T, path string) *PuzzleStore {
 	t.Helper()
-	store, err := OpenGenerationPuzzleStore(path)
+	store, err := OpenPuzzleStore(path)
 	if err != nil {
 		t.Fatal(err)
 	}

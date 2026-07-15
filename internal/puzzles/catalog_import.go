@@ -45,8 +45,8 @@ type generationRow struct {
 }
 
 type sqliteGenerationImport struct {
-	catalog         *GenerationalSQLiteCatalog
-	source          GenerationSource
+	catalog         *SQLiteCatalog
+	source          Source
 	generationID    string
 	hadExpectedHead bool
 	expectedHead    string
@@ -57,11 +57,11 @@ type sqliteGenerationImport struct {
 
 var _ GenerationImport = (*sqliteGenerationImport)(nil)
 
-func (c *GenerationalSQLiteCatalog) BeginImport(
+func (c *SQLiteCatalog) BeginImport(
 	ctx context.Context,
-	source GenerationSource,
+	source Source,
 ) (GenerationImport, error) {
-	if err := validateGenerationSource(source); err != nil {
+	if err := validateSource(source); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -140,7 +140,7 @@ func (c *GenerationalSQLiteCatalog) BeginImport(
 	}, nil
 }
 
-func validateGenerationSource(source GenerationSource) error {
+func validateSource(source Source) error {
 	switch {
 	case strings.TrimSpace(source.ID) == "":
 		return errors.New("source ID is required")

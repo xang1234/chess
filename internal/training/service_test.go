@@ -15,61 +15,64 @@ import (
 	"chess-trainer/internal/storage"
 )
 
-func openTrainingStores(t *testing.T, root string) (*sql.DB, *sql.DB, *puzzles.SQLiteCatalog) {
+func openTrainingStores(t *testing.T, root string) (*storage.PuzzleStore, *sql.DB, *puzzles.SQLiteCatalog) {
 	t.Helper()
-	puzzleDB, err := storage.Open(filepath.Join(root, "puzzles.sqlite"))
+	puzzleStore, err := storage.OpenPuzzleStore(filepath.Join(root, "puzzles.sqlite"))
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.Migrate(puzzleDB, "puzzles"); err != nil {
-		puzzleDB.Close()
 		t.Fatal(err)
 	}
 	userDB, err := storage.Open(filepath.Join(root, "user.sqlite"))
 	if err != nil {
-		puzzleDB.Close()
+		puzzleStore.Close()
 		t.Fatal(err)
 	}
 	if err := storage.Migrate(userDB, "user"); err != nil {
-		puzzleDB.Close()
+		puzzleStore.Close()
 		userDB.Close()
 		t.Fatal(err)
 	}
-	return puzzleDB, userDB, puzzles.NewSQLiteCatalog(puzzleDB)
+	return puzzleStore, userDB, puzzles.NewSQLiteCatalog(puzzleStore.Reader, puzzleStore.Writer)
 }
 
-func importTrainingPuzzles(t *testing.T, catalog *puzzles.SQLiteCatalog, values ...domain.Puzzle) {
+func importTrainingPuzzles(t *testing.T, catalog *puzzles.SQLiteCatalog, values ...puzzles.TrainingPuzzle) {
 	t.Helper()
-	staged, err := catalog.BeginImport(context.Background(), puzzles.Source{
-		ID: "lichess", Kind: "lichess", Path: "/fixture.csv.zst", ImportedAt: time.Unix(1, 0),
+	importing, err := catalog.BeginImport(context.Background(), puzzles.Source{
+		ID: "lichess", Kind: "lichess", Path: "/fixture.csv.zst", StartedAt: time.Unix(1, 0),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for index := range values {
-		values[index].Sources = []domain.SourceRef{{SourceID: "lichess"}}
-		values[index].Themes = []string{"development"}
-		values[index].Fingerprint, err = puzzles.Fingerprint(values[index])
+		values[index].Occurrence.SourceID = "lichess"
+		values[index].Occurrence.SourceKind = "lichess"
+		values[index].Occurrence.Themes = []string{"development"}
+		values[index].Occurrence.Ordinal = int64(index + 1)
+		values[index].Core.Fingerprint, err = puzzles.CoreFingerprint(values[index].Core)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := staged.Add(context.Background(), values[index]); err != nil {
+		if err := importing.Add(context.Background(), values[index]); err != nil {
 			t.Fatal(err)
 		}
 	}
-	staged.SetChecksum("abc123")
-	if _, err := staged.Commit(context.Background()); err != nil {
+	if _, err := importing.Seal(context.Background(), "abc123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := importing.Activate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func trainingPuzzle(line ...string) domain.Puzzle {
+func trainingPuzzle(line ...string) puzzles.TrainingPuzzle {
 	rating := 1500
-	return domain.Puzzle{
-		DisplayedFEN: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-		Solver:       domain.White,
-		Solution:     testMoveLine(line),
-		Rating:       &rating,
+	return puzzles.TrainingPuzzle{
+		Core: puzzles.PuzzleCore{
+			DisplayedFEN:  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+			Solver:        domain.White,
+			Solution:      testMoveLine(line),
+			SolutionPlies: len(line),
+		},
+		Occurrence: puzzles.PuzzleOccurrence{Rating: &rating},
 	}
 }
 
@@ -82,7 +85,7 @@ func testMoveLine(moves []string) []domain.MoveNode {
 
 func TestServiceResumesAfterEveryMove(t *testing.T) {
 	root := t.TempDir()
-	puzzleDB, userDB, catalog := openTrainingStores(t, root)
+	puzzleStore, userDB, catalog := openTrainingStores(t, root)
 	first := trainingPuzzle("e2e4", "e7e5", "g1f3")
 	second := trainingPuzzle("d2d4", "d7d5", "c1f4")
 	importTrainingPuzzles(t, catalog, first, second)
@@ -99,7 +102,7 @@ func TestServiceResumesAfterEveryMove(t *testing.T) {
 	if started.Current == nil {
 		t.Fatal("session has no current puzzle")
 	}
-	firstFingerprint, _ := puzzles.Fingerprint(first)
+	firstFingerprint, _ := puzzles.CoreFingerprint(first.Core)
 	move := "d2d4"
 	if started.Current.Fingerprint == firstFingerprint {
 		move = "e2e4"
@@ -115,12 +118,12 @@ func TestServiceResumesAfterEveryMove(t *testing.T) {
 	if err := userDB.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := puzzleDB.Close(); err != nil {
+	if err := puzzleStore.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	puzzleDB, userDB, catalog = openTrainingStores(t, root)
-	defer puzzleDB.Close()
+	puzzleStore, userDB, catalog = openTrainingStores(t, root)
+	defer puzzleStore.Close()
 	defer userDB.Close()
 	resumedService := NewService(
 		catalog,
@@ -144,7 +147,7 @@ func TestServiceResumesAfterEveryMove(t *testing.T) {
 
 func TestServicePersistsWrongMoveHintsRevealAndSummary(t *testing.T) {
 	root := t.TempDir()
-	puzzleDB, userDB, catalog := openTrainingStores(t, root)
+	puzzleStore, userDB, catalog := openTrainingStores(t, root)
 	puzzle := trainingPuzzle("e2e4", "e7e5", "g1f3")
 	importTrainingPuzzles(t, catalog, puzzle)
 	store := NewUserStore(userDB)
@@ -224,20 +227,23 @@ func TestServicePersistsWrongMoveHintsRevealAndSummary(t *testing.T) {
 	if err := userDB.QueryRow(`SELECT COUNT(*) FROM review_state`).Scan(&reviews); err != nil || reviews != 1 {
 		t.Fatalf("reviews=%d err=%v", reviews, err)
 	}
-	puzzleDB.Close()
+	puzzleStore.Close()
 }
 
 func TestServiceAcceptsAlternativeMateAndPauseResume(t *testing.T) {
 	root := t.TempDir()
-	puzzleDB, userDB, catalog := openTrainingStores(t, root)
-	defer puzzleDB.Close()
+	puzzleStore, userDB, catalog := openTrainingStores(t, root)
+	defer puzzleStore.Close()
 	defer userDB.Close()
 	rating := 1500
-	puzzle := domain.Puzzle{
-		DisplayedFEN: "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1",
-		Solver:       domain.White,
-		Solution:     []domain.MoveNode{{UCI: "f7f8"}},
-		Rating:       &rating,
+	puzzle := puzzles.TrainingPuzzle{
+		Core: puzzles.PuzzleCore{
+			DisplayedFEN:  "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1",
+			Solver:        domain.White,
+			Solution:      []domain.MoveNode{{UCI: "f7f8"}},
+			SolutionPlies: 1,
+		},
+		Occurrence: puzzles.PuzzleOccurrence{Rating: &rating},
 	}
 	importTrainingPuzzles(t, catalog, puzzle)
 	store := NewUserStore(userDB)
@@ -279,8 +285,8 @@ func TestServiceAcceptsAlternativeMateAndPauseResume(t *testing.T) {
 
 func TestResumeSkipsPuzzleRemovedBySourceReimport(t *testing.T) {
 	root := t.TempDir()
-	puzzleDB, userDB, catalog := openTrainingStores(t, root)
-	defer puzzleDB.Close()
+	puzzleStore, userDB, catalog := openTrainingStores(t, root)
+	defer puzzleStore.Close()
 	defer userDB.Close()
 	first := trainingPuzzle("e2e4")
 	second := trainingPuzzle("d2d4")
@@ -294,7 +300,7 @@ func TestResumeSkipsPuzzleRemovedBySourceReimport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstFingerprint, _ := puzzles.Fingerprint(first)
+	firstFingerprint, _ := puzzles.CoreFingerprint(first.Core)
 	move := "d2d4"
 	if started.Current.Fingerprint == firstFingerprint {
 		move = "e2e4"
@@ -328,8 +334,8 @@ func TestResumeSkipsPuzzleRemovedBySourceReimport(t *testing.T) {
 
 func TestFreePracticeFiltersPuzzlesAndNeverChangesLearnerRating(t *testing.T) {
 	root := t.TempDir()
-	puzzleDB, userDB, catalog := openTrainingStores(t, root)
-	defer puzzleDB.Close()
+	puzzleStore, userDB, catalog := openTrainingStores(t, root)
+	defer puzzleStore.Close()
 	defer userDB.Close()
 	short := trainingPuzzle("e2e4")
 	long := trainingPuzzle("d2d4", "d7d5", "c1f4")

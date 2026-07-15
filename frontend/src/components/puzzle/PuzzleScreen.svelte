@@ -101,11 +101,12 @@
     inputDisabled = true
     error = ''
     try {
-      hint = await getAPI().useHint(session.sessionId)
-      statusMessage = hint.text
+      const result = await getAPI().useHint(session.sessionId)
+      acceptSession(result.session)
+      hint = result.level > 0 ? result : null
+      statusMessage = result.text
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
-    } finally {
       inputDisabled = false
     }
   }

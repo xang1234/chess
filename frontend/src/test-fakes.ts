@@ -16,7 +16,12 @@ export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
     startGuided: async () => emptySession,
     startFreePractice: async () => emptySession,
     playMove: async () => ({ session: emptySession, correct: false, puzzleCompleted: false }),
-    useHint: async () => ({ level: 1, text: 'Look for a forcing move.', canReveal: false }),
+    useHint: async () => ({
+      session: emptySession,
+      level: 1,
+      text: 'Look for a forcing move.',
+      canReveal: false
+    }),
     revealSolution: async () => ({ session: emptySession, correct: true, puzzleCompleted: true }),
     pauseSession: async () => {},
     getParentSummary: async () => ({

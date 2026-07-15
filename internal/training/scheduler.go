@@ -9,19 +9,26 @@ import (
 	"sort"
 	"time"
 
-	"chess-trainer/internal/domain"
+	"chess-trainer/internal/puzzles"
 )
 
 const maximumReviewsPerSession = 4
 
-type CatalogPort interface {
-	Get(context.Context, string) (domain.Puzzle, error)
-	RatedCandidates(context.Context, int, int, []string, int) ([]domain.Puzzle, error)
+type TrainingCatalogPort interface {
+	Get(context.Context, puzzles.PuzzleKey) (puzzles.TrainingPuzzle, error)
+	Resolve(context.Context, string, string) (puzzles.TrainingPuzzle, error)
+	RatedCandidates(context.Context, int, int, []string, int) ([]puzzles.TrainingPuzzle, error)
+	FreePracticeCandidates(context.Context, string, *int, *int, []string, *int, int) ([]puzzles.TrainingPuzzle, error)
 }
 
 type UserPort interface {
-	DueReviews(context.Context, time.Time, int) ([]ReviewState, error)
+	DueReviews(context.Context, time.Time, *ReviewCursor, int) ([]ReviewState, error)
 	RecentFingerprints(context.Context, int) ([]string, error)
+}
+
+type ReviewCursor struct {
+	DueAt       time.Time
+	Fingerprint string
 }
 
 type Profile struct {
@@ -37,14 +44,13 @@ const (
 )
 
 type ScheduledPuzzle struct {
-	Puzzle        domain.Puzzle `json:"puzzle"`
-	SourceID      string        `json:"sourceId"`
-	Kind          ScheduledKind `json:"kind"`
-	UpdatesRating bool          `json:"updatesRating"`
+	Puzzle        puzzles.TrainingPuzzle `json:"puzzle"`
+	Kind          ScheduledKind          `json:"kind"`
+	UpdatesRating bool                   `json:"updatesRating"`
 }
 
 type Scheduler struct {
-	Catalog CatalogPort
+	Catalog TrainingCatalogPort
 	User    UserPort
 }
 
@@ -57,15 +63,9 @@ func (s Scheduler) BuildGuided(
 	if profile.SessionSize <= 0 {
 		return []ScheduledPuzzle{}, nil
 	}
-	due, err := s.User.DueReviews(ctx, now, maximumReviewsPerSession)
+	due, err := s.User.DueReviews(ctx, now, nil, maximumReviewsPerSession)
 	if err != nil {
 		return nil, err
-	}
-	sort.SliceStable(due, func(i, j int) bool {
-		return due[i].DueAt.Before(due[j].DueAt)
-	})
-	if len(due) > maximumReviewsPerSession {
-		due = due[:maximumReviewsPerSession]
 	}
 
 	recent, err := s.User.RecentFingerprints(ctx, 200)
@@ -77,24 +77,45 @@ func (s Scheduler) BuildGuided(
 		excluded[fingerprint] = struct{}{}
 	}
 	items := make([]ScheduledPuzzle, 0, profile.SessionSize)
-	for _, review := range due {
-		if len(items) == profile.SessionSize {
+	reviewTarget := min(profile.SessionSize, maximumReviewsPerSession)
+	var cursor *ReviewCursor
+	for len(items) < reviewTarget && len(due) > 0 {
+		sort.SliceStable(due, func(i, j int) bool {
+			if due[i].DueAt.Equal(due[j].DueAt) {
+				return due[i].Fingerprint < due[j].Fingerprint
+			}
+			return due[i].DueAt.Before(due[j].DueAt)
+		})
+		if cursor != nil && !reviewCursorLess(*cursor, reviewCursor(due[0])) {
+			return nil, errors.New("due review page did not advance")
+		}
+		for _, review := range due {
+			if len(items) == reviewTarget {
+				break
+			}
+			puzzle, err := s.Catalog.Resolve(ctx, review.Fingerprint, review.PreferredSourceID)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			excluded[puzzle.Core.Fingerprint] = struct{}{}
+			items = append(items, ScheduledPuzzle{
+				Puzzle:        puzzle,
+				Kind:          ScheduledReview,
+				UpdatesRating: false,
+			})
+		}
+		if len(items) == reviewTarget || len(due) < maximumReviewsPerSession {
 			break
 		}
-		puzzle, err := s.Catalog.Get(ctx, review.Fingerprint)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
+		next := reviewCursor(due[len(due)-1])
+		cursor = &next
+		due, err = s.User.DueReviews(ctx, now, cursor, maximumReviewsPerSession)
 		if err != nil {
 			return nil, err
 		}
-		excluded[puzzle.Fingerprint] = struct{}{}
-		items = append(items, ScheduledPuzzle{
-			Puzzle:        puzzle,
-			SourceID:      firstSourceID(puzzle),
-			Kind:          ScheduledReview,
-			UpdatesRating: false,
-		})
 	}
 
 	if random == nil {
@@ -116,9 +137,9 @@ func (s Scheduler) BuildGuided(
 		if err != nil {
 			return nil, err
 		}
-		eligible := make([]domain.Puzzle, 0, len(candidates))
+		eligible := make([]puzzles.TrainingPuzzle, 0, len(candidates))
 		for _, puzzle := range candidates {
-			if _, duplicate := excluded[puzzle.Fingerprint]; duplicate {
+			if _, duplicate := excluded[puzzle.Core.Fingerprint]; duplicate {
 				continue
 			}
 			eligible = append(eligible, puzzle)
@@ -130,16 +151,24 @@ func (s Scheduler) BuildGuided(
 			if len(items) == profile.SessionSize {
 				break
 			}
-			excluded[puzzle.Fingerprint] = struct{}{}
+			excluded[puzzle.Core.Fingerprint] = struct{}{}
 			items = append(items, ScheduledPuzzle{
 				Puzzle:        puzzle,
-				SourceID:      firstSourceID(puzzle),
 				Kind:          ScheduledNew,
 				UpdatesRating: true,
 			})
 		}
 	}
 	return items, nil
+}
+
+func reviewCursor(state ReviewState) ReviewCursor {
+	return ReviewCursor{DueAt: state.DueAt, Fingerprint: state.Fingerprint}
+}
+
+func reviewCursorLess(left, right ReviewCursor) bool {
+	return left.DueAt.Before(right.DueAt) ||
+		(left.DueAt.Equal(right.DueAt) && left.Fingerprint < right.Fingerprint)
 }
 
 func fingerprintSet(values map[string]struct{}) []string {
@@ -149,11 +178,4 @@ func fingerprintSet(values map[string]struct{}) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-func firstSourceID(puzzle domain.Puzzle) string {
-	if len(puzzle.Sources) == 0 {
-		return ""
-	}
-	return puzzle.Sources[0].SourceID
 }

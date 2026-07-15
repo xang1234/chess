@@ -78,9 +78,9 @@ test('keeps the position after a wrong move and applies the returned FEN after a
 
 test('reveals hints progressively and only offers the solution after level three', async () => {
   const hints: HintResult[] = [
-    { level: 1, text: 'Look for: fork', canReveal: false },
-    { level: 2, text: 'Start with this piece.', sourceSquare: 'e2', canReveal: false },
-    { level: 3, text: 'Try this destination.', sourceSquare: 'e2', targetSquare: 'e4', canReveal: true }
+    { session: session(), level: 1, text: 'Look for: fork', canReveal: false },
+    { session: session(), level: 2, text: 'Start with this piece.', sourceSquare: 'e2', canReveal: false },
+    { session: session(), level: 3, text: 'Try this destination.', sourceSquare: 'e2', targetSquare: 'e4', canReveal: true }
   ]
   const useHint = vi.fn()
     .mockResolvedValueOnce(hints[0])
@@ -100,6 +100,45 @@ test('reveals hints progressively and only offers the solution after level three
   await fireEvent.click(screen.getByRole('button', { name: 'Hint' }))
   await waitFor(() => expect(container.querySelector('[data-square="e4"]')).toHaveClass('hint-target'))
   expect(screen.getByRole('button', { name: 'Show solution' })).toBeInTheDocument()
+})
+
+test('advances to the returned session when the hinted puzzle is unavailable', async () => {
+  const first = {
+    ...session(),
+    total: 2,
+    current: {
+      ...session().current!,
+      sourceFen: undefined,
+      preludeUci: undefined,
+      puzzleTotal: 2
+    }
+  }
+  const next: SessionView = {
+    ...first,
+    currentIndex: 1,
+    current: {
+      ...first.current,
+      fingerprint: 'puzzle-2',
+      currentFen: advancedFen,
+      displayedFen: advancedFen,
+      puzzleNumber: 2
+    }
+  }
+  const unavailable: HintResult = {
+    session: next,
+    level: 0,
+    text: 'Puzzle unavailable',
+    canReveal: false
+  }
+  const useHint = vi.fn().mockResolvedValue(unavailable)
+  setAPIForTests(fakeAPI({ useHint }))
+  render(PuzzleScreen, { session: first })
+
+  expect(screen.getByText('Puzzle 1 of 2')).toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'Hint' }))
+
+  expect(await screen.findByText('Puzzle 2 of 2')).toBeInTheDocument()
+  expect(screen.getByText('Puzzle unavailable')).toBeInTheDocument()
 })
 
 test('pauses to home and presents a child-friendly completion summary', async () => {

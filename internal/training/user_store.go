@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"time"
 
+	"chess-trainer/internal/domain"
+	"chess-trainer/internal/puzzles"
+
 	"github.com/google/uuid"
 )
 
@@ -30,11 +33,24 @@ type itemState struct {
 	StartedAt      time.Time     `json:"startedAt"`
 }
 
+type attemptSnapshot struct {
+	SourceKind string
+	Rating     *int
+	Themes     []string
+	SourceFEN  string
+	PreludeUCI string
+}
+
 type storedItem struct {
 	Ordinal     int
 	Fingerprint string
 	SourceID    string
+	Snapshot    attemptSnapshot
 	State       itemState
+}
+
+func (i storedItem) Key() puzzles.PuzzleKey {
+	return puzzles.PuzzleKey{Fingerprint: i.Fingerprint, SourceID: i.SourceID}
 }
 
 type storedSession struct {
@@ -100,13 +116,26 @@ func (s *UserStore) Profile(ctx context.Context) (Profile, error) {
 	return profile, err
 }
 
-func (s *UserStore) DueReviews(ctx context.Context, now time.Time, limit int) ([]ReviewState, error) {
+func (s *UserStore) DueReviews(
+	ctx context.Context,
+	now time.Time,
+	after *ReviewCursor,
+	limit int,
+) ([]ReviewState, error) {
+	query := `SELECT fingerprint, due_at, interval_index, successful_reviews, last_outcome,
+		        COALESCE(preferred_source_id, '')
+	         FROM review_state WHERE due_at <= ?`
+	arguments := []any{now.Unix()}
+	if after != nil {
+		query += ` AND (due_at > ? OR (due_at = ? AND fingerprint > ?))`
+		arguments = append(arguments, after.DueAt.Unix(), after.DueAt.Unix(), after.Fingerprint)
+	}
+	query += ` ORDER BY due_at, fingerprint LIMIT ?`
+	arguments = append(arguments, limit)
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT fingerprint, due_at, interval_index, successful_reviews, last_outcome
-         FROM review_state WHERE due_at <= ? ORDER BY due_at LIMIT ?`,
-		now.Unix(),
-		limit,
+		query,
+		arguments...,
 	)
 	if err != nil {
 		return nil, err
@@ -122,6 +151,7 @@ func (s *UserStore) DueReviews(ctx context.Context, now time.Time, limit int) ([
 			&state.IntervalIndex,
 			&state.SuccessfulReviews,
 			&state.LastOutcome,
+			&state.PreferredSourceID,
 		); err != nil {
 			return nil, err
 		}
@@ -185,12 +215,25 @@ func (s *UserStore) CreateSession(
 		return storedSession{}, err
 	}
 	for index, scheduled := range items {
+		core := scheduled.Puzzle.Core
+		occurrence := scheduled.Puzzle.Occurrence
+		snapshot := attemptSnapshot{
+			SourceKind: occurrence.SourceKind,
+			Rating:     cloneSnapshotRating(occurrence.Rating),
+			Themes:     domain.NormalizeThemes(occurrence.Themes),
+			SourceFEN:  occurrence.SourceFEN,
+			PreludeUCI: occurrence.PreludeUCI,
+		}
+		themesJSON, err := encodeSnapshotThemes(snapshot.Themes)
+		if err != nil {
+			return storedSession{}, err
+		}
 		startedAt := time.Time{}
 		if index == 0 {
 			startedAt = now
 		}
 		state := itemState{
-			CurrentFEN:    scheduled.Puzzle.DisplayedFEN,
+			CurrentFEN:    core.DisplayedFEN,
 			Path:          []int{},
 			Kind:          scheduled.Kind,
 			UpdatesRating: scheduled.UpdatesRating,
@@ -203,20 +246,29 @@ func (s *UserStore) CreateSession(
 		}
 		if _, err := tx.ExecContext(
 			ctx,
-			`INSERT INTO session_items(session_id, ordinal, fingerprint, source_id, state_json)
-             VALUES (?, ?, ?, ?, ?)`,
+			`INSERT INTO session_items(
+			   session_id, ordinal, fingerprint, source_id, state_json,
+			   source_kind, rating_snapshot, themes_json,
+			   source_fen_snapshot, prelude_uci_snapshot
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			session.ID,
 			index,
-			scheduled.Puzzle.Fingerprint,
-			scheduled.SourceID,
+			core.Fingerprint,
+			occurrence.SourceID,
 			string(encoded),
+			snapshot.SourceKind,
+			snapshot.Rating,
+			themesJSON,
+			snapshot.SourceFEN,
+			snapshot.PreludeUCI,
 		); err != nil {
 			return storedSession{}, err
 		}
 		session.Items[index] = storedItem{
 			Ordinal:     index,
-			Fingerprint: scheduled.Puzzle.Fingerprint,
-			SourceID:    scheduled.SourceID,
+			Fingerprint: core.Fingerprint,
+			SourceID:    occurrence.SourceID,
+			Snapshot:    snapshot,
 			State:       state,
 		}
 	}
@@ -229,18 +281,45 @@ func (s *UserStore) CreateSession(
 	return session, nil
 }
 
+func cloneSnapshotRating(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func encodeSnapshotThemes(themes []string) (any, error) {
+	if themes == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(themes)
+	if err != nil {
+		return nil, fmt.Errorf("encode attempt themes snapshot: %w", err)
+	}
+	return string(encoded), nil
+}
+
 func insertAttempt(ctx context.Context, tx *sql.Tx, sessionID string, item storedItem) error {
-	_, err := tx.ExecContext(
+	themesJSON, err := encodeSnapshotThemes(item.Snapshot.Themes)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(
 		ctx,
 		`INSERT OR IGNORE INTO attempts(
-           attempt_id, session_id, fingerprint, source_id, started_at,
-           incorrect_moves, hints_used, solution_revealed, first_try, duration_ms
-         ) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 0)`,
+		   attempt_id, session_id, fingerprint, source_id, started_at,
+		   incorrect_moves, hints_used, solution_revealed, first_try, duration_ms,
+		   source_kind, rating_snapshot, themes_json
+		 ) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?)`,
 		item.State.AttemptID,
 		sessionID,
 		item.Fingerprint,
 		item.SourceID,
 		item.State.StartedAt.UnixMilli(),
+		item.Snapshot.SourceKind,
+		item.Snapshot.Rating,
+		themesJSON,
 	)
 	return err
 }
@@ -284,8 +363,10 @@ func (s *UserStore) ResumableSession(ctx context.Context) (*storedSession, error
 func (s *UserStore) loadItems(ctx context.Context, session *storedSession) error {
 	rows, err := s.db.QueryContext(
 		ctx,
-		`SELECT ordinal, fingerprint, source_id, state_json
-         FROM session_items WHERE session_id = ? ORDER BY ordinal`,
+		`SELECT ordinal, fingerprint, source_id, state_json,
+		        source_kind, rating_snapshot, themes_json,
+		        source_fen_snapshot, prelude_uci_snapshot
+		 FROM session_items WHERE session_id = ? ORDER BY ordinal`,
 		session.ID,
 	)
 	if err != nil {
@@ -295,8 +376,32 @@ func (s *UserStore) loadItems(ctx context.Context, session *storedSession) error
 	for rows.Next() {
 		var item storedItem
 		var encoded string
-		if err := rows.Scan(&item.Ordinal, &item.Fingerprint, &item.SourceID, &encoded); err != nil {
+		var sourceKind, themesJSON, sourceFEN, preludeUCI sql.NullString
+		var rating sql.NullInt64
+		if err := rows.Scan(
+			&item.Ordinal,
+			&item.Fingerprint,
+			&item.SourceID,
+			&encoded,
+			&sourceKind,
+			&rating,
+			&themesJSON,
+			&sourceFEN,
+			&preludeUCI,
+		); err != nil {
 			return err
+		}
+		item.Snapshot.SourceKind = sourceKind.String
+		item.Snapshot.SourceFEN = sourceFEN.String
+		item.Snapshot.PreludeUCI = preludeUCI.String
+		if rating.Valid {
+			value := int(rating.Int64)
+			item.Snapshot.Rating = &value
+		}
+		if themesJSON.Valid {
+			if err := json.Unmarshal([]byte(themesJSON.String), &item.Snapshot.Themes); err != nil {
+				return fmt.Errorf("decode attempt themes snapshot: %w", err)
+			}
 		}
 		if err := json.Unmarshal([]byte(encoded), &item.State); err != nil {
 			return err
@@ -386,7 +491,8 @@ func (s *UserStore) Review(ctx context.Context, fingerprint string) (ReviewState
 	var dueAt int64
 	err := s.db.QueryRowContext(
 		ctx,
-		`SELECT fingerprint, due_at, interval_index, successful_reviews, last_outcome
+		`SELECT fingerprint, due_at, interval_index, successful_reviews, last_outcome,
+		        COALESCE(preferred_source_id, '')
          FROM review_state WHERE fingerprint = ?`,
 		fingerprint,
 	).Scan(
@@ -395,6 +501,7 @@ func (s *UserStore) Review(ctx context.Context, fingerprint string) (ReviewState
 		&state.IntervalIndex,
 		&state.SuccessfulReviews,
 		&state.LastOutcome,
+		&state.PreferredSourceID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ReviewState{Fingerprint: fingerprint}, false, nil
@@ -452,18 +559,21 @@ func (s *UserStore) CompleteItem(
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT INTO review_state(
-               fingerprint, due_at, interval_index, successful_reviews, last_outcome
-             ) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(fingerprint) DO UPDATE SET
-               due_at=excluded.due_at,
-               interval_index=excluded.interval_index,
-               successful_reviews=excluded.successful_reviews,
-               last_outcome=excluded.last_outcome`,
+			   fingerprint, due_at, interval_index, successful_reviews, last_outcome,
+			   preferred_source_id
+			 ) VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(fingerprint) DO UPDATE SET
+			   due_at=excluded.due_at,
+			   interval_index=excluded.interval_index,
+			   successful_reviews=excluded.successful_reviews,
+			   last_outcome=excluded.last_outcome,
+			   preferred_source_id=excluded.preferred_source_id`,
 			review.Fingerprint,
 			review.DueAt.Unix(),
 			review.IntervalIndex,
 			review.SuccessfulReviews,
 			review.LastOutcome,
+			review.PreferredSourceID,
 		); err != nil {
 			return storedSession{}, err
 		}

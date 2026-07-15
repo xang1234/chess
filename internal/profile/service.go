@@ -6,10 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
-	"strings"
 	"time"
 
+	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/training"
 )
 
@@ -17,7 +16,6 @@ const (
 	defaultMinimumRating = 400
 	defaultMaximumRating = 3000
 	recentSessionLimit   = 20
-	themeQueryBatchSize  = 300
 )
 
 type RatingPoint struct {
@@ -68,15 +66,20 @@ type PracticeFilters struct {
 	MaximumSolutionPlies int              `json:"maximumSolutionPlies"`
 }
 
-type Service struct {
-	userDB   *sql.DB
-	puzzleDB *sql.DB
-	store    *training.UserStore
-	now      func() time.Time
+type ProfileCatalogPort interface {
+	ActiveSourceSummaries(context.Context) ([]puzzles.SourceSummary, error)
+	ActiveThemes(context.Context) ([]string, error)
 }
 
-func NewService(userDB, puzzleDB *sql.DB, store *training.UserStore) *Service {
-	return &Service{userDB: userDB, puzzleDB: puzzleDB, store: store, now: time.Now}
+type Service struct {
+	userDB  *sql.DB
+	catalog ProfileCatalogPort
+	store   *training.UserStore
+	now     func() time.Time
+}
+
+func NewService(userDB *sql.DB, catalog ProfileCatalogPort, store *training.UserStore) *Service {
+	return &Service{userDB: userDB, catalog: catalog, store: store, now: time.Now}
 }
 
 func (s *Service) Get(ctx context.Context) (*training.Profile, error) {
@@ -141,67 +144,58 @@ func (s *Service) Summary(ctx context.Context) (Summary, error) {
 }
 
 func (s *Service) PracticeFilters(ctx context.Context) (PracticeFilters, error) {
-	rows, err := s.puzzleDB.QueryContext(ctx, `SELECT
-		s.source_id,
-		s.kind,
-		MIN(ps.rating),
-		MAX(ps.rating),
-		MAX(p.solution_plies)
-		FROM sources s
-		JOIN puzzle_sources ps ON ps.source_id = s.source_id
-		JOIN puzzles p ON p.fingerprint = ps.fingerprint
-		GROUP BY s.source_id, s.kind
-		ORDER BY s.source_id`)
+	summaries, err := s.catalog.ActiveSourceSummaries(ctx)
 	if err != nil {
 		return PracticeFilters{}, err
 	}
-	defer rows.Close()
-	result := PracticeFilters{Sources: []PracticeSource{}, Themes: []string{}}
-	for rows.Next() {
-		var source PracticeSource
-		var minimum, maximum sql.NullInt64
-		if err := rows.Scan(&source.ID, &source.Kind, &minimum, &maximum, &source.MaximumPlies); err != nil {
-			return PracticeFilters{}, err
+	themes, err := s.catalog.ActiveThemes(ctx)
+	if err != nil {
+		return PracticeFilters{}, err
+	}
+	result := PracticeFilters{
+		Sources: make([]PracticeSource, 0, len(summaries)),
+		Themes:  append([]string{}, themes...),
+	}
+	for _, summary := range summaries {
+		source := PracticeSource{
+			ID:           summary.SourceID,
+			Kind:         summary.Kind,
+			MaximumPlies: summary.MaximumSolutionPlies,
 		}
-		if minimum.Valid && maximum.Valid {
-			source.MinimumRating = int(minimum.Int64)
-			source.MaximumRating = int(maximum.Int64)
+		if summary.MinimumRating != nil && summary.MaximumRating != nil {
+			source.MinimumRating = *summary.MinimumRating
+			source.MaximumRating = *summary.MaximumRating
 			source.HasRatingRange = true
 		}
 		result.MaximumSolutionPlies = max(result.MaximumSolutionPlies, source.MaximumPlies)
 		result.Sources = append(result.Sources, source)
 	}
-	if err := rows.Err(); err != nil {
-		return PracticeFilters{}, err
-	}
-	themeRows, err := s.puzzleDB.QueryContext(ctx, `SELECT DISTINCT theme FROM puzzle_themes ORDER BY theme`)
-	if err != nil {
-		return PracticeFilters{}, err
-	}
-	defer themeRows.Close()
-	for themeRows.Next() {
-		var theme string
-		if err := themeRows.Scan(&theme); err != nil {
-			return PracticeFilters{}, err
-		}
-		result.Themes = append(result.Themes, theme)
-	}
-	return result, themeRows.Err()
+	return result, nil
 }
 
 func (s *Service) lichessRatingRange(ctx context.Context) (int, int, bool, error) {
-	var minimum, maximum sql.NullInt64
-	err := s.puzzleDB.QueryRowContext(ctx, `SELECT MIN(ps.rating), MAX(ps.rating)
-		FROM puzzle_sources ps
-		JOIN sources s ON s.source_id = ps.source_id
-		WHERE s.kind = 'lichess' AND ps.rating IS NOT NULL`).Scan(&minimum, &maximum)
+	summaries, err := s.catalog.ActiveSourceSummaries(ctx)
 	if err != nil {
 		return 0, 0, false, err
 	}
-	if !minimum.Valid || !maximum.Valid {
+	var minimum, maximum int
+	available := false
+	for _, summary := range summaries {
+		if summary.Kind != "lichess" || summary.MinimumRating == nil || summary.MaximumRating == nil {
+			continue
+		}
+		if !available || *summary.MinimumRating < minimum {
+			minimum = *summary.MinimumRating
+		}
+		if !available || *summary.MaximumRating > maximum {
+			maximum = *summary.MaximumRating
+		}
+		available = true
+	}
+	if !available {
 		return 0, 0, false, nil
 	}
-	return int(minimum.Int64), int(maximum.Int64), true, nil
+	return minimum, maximum, true, nil
 }
 
 func (s *Service) ratingTrend(ctx context.Context) ([]RatingPoint, error) {
@@ -256,84 +250,32 @@ func (s *Service) recentSessions(ctx context.Context) ([]RecentSession, error) {
 	return values, rows.Err()
 }
 
-type puzzleAttemptStats struct {
-	fingerprint string
-	sourceID    string
-	attempts    int
-	firstTry    int
-}
-
 func (s *Service) themePerformance(ctx context.Context) ([]ThemePerformance, error) {
 	rows, err := s.userDB.QueryContext(ctx, `SELECT
-		fingerprint, source_id, COUNT(*), COALESCE(SUM(first_try), 0)
-		FROM attempts WHERE completed_at IS NOT NULL
-		GROUP BY fingerprint, source_id`)
+		CAST(theme.value AS TEXT),
+		COUNT(*),
+		COALESCE(SUM(a.first_try), 0)
+		FROM attempts a
+		JOIN json_each(a.themes_json) AS theme
+		WHERE a.completed_at IS NOT NULL
+		  AND theme.type = 'text'
+		GROUP BY CAST(theme.value AS TEXT)
+		ORDER BY CAST(theme.value AS TEXT)`)
 	if err != nil {
 		return nil, err
 	}
-	stats := []puzzleAttemptStats{}
+	defer rows.Close()
+	values := []ThemePerformance{}
 	for rows.Next() {
-		var value puzzleAttemptStats
-		if err := rows.Scan(&value.fingerprint, &value.sourceID, &value.attempts, &value.firstTry); err != nil {
-			rows.Close()
+		var value ThemePerformance
+		var firstTry int
+		if err := rows.Scan(&value.Theme, &value.Attempts, &firstTry); err != nil {
 			return nil, err
 		}
-		stats = append(stats, value)
+		value.Accuracy = percentage(firstTry, value.Attempts)
+		values = append(values, value)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	totals := map[string][2]int{}
-	for start := 0; start < len(stats); start += themeQueryBatchSize {
-		end := min(start+themeQueryBatchSize, len(stats))
-		query := strings.Builder{}
-		query.WriteString(`SELECT fingerprint, source_id, theme FROM puzzle_themes WHERE `)
-		args := make([]any, 0, (end-start)*2)
-		for index, stat := range stats[start:end] {
-			if index > 0 {
-				query.WriteString(" OR ")
-			}
-			query.WriteString("(fingerprint = ? AND source_id = ?)")
-			args = append(args, stat.fingerprint, stat.sourceID)
-		}
-		themeRows, err := s.puzzleDB.QueryContext(ctx, query.String(), args...)
-		if err != nil {
-			return nil, err
-		}
-		statsByKey := make(map[string]puzzleAttemptStats, end-start)
-		for _, stat := range stats[start:end] {
-			statsByKey[stat.fingerprint+"\x00"+stat.sourceID] = stat
-		}
-		for themeRows.Next() {
-			var fingerprint, sourceID, theme string
-			if err := themeRows.Scan(&fingerprint, &sourceID, &theme); err != nil {
-				themeRows.Close()
-				return nil, err
-			}
-			stat := statsByKey[fingerprint+"\x00"+sourceID]
-			total := totals[theme]
-			total[0] += stat.attempts
-			total[1] += stat.firstTry
-			totals[theme] = total
-		}
-		if err := themeRows.Close(); err != nil {
-			return nil, err
-		}
-		if err := themeRows.Err(); err != nil {
-			return nil, err
-		}
-	}
-	values := make([]ThemePerformance, 0, len(totals))
-	for theme, total := range totals {
-		values = append(values, ThemePerformance{
-			Theme: theme, Attempts: total[0], Accuracy: percentage(total[1], total[0]),
-		})
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i].Theme < values[j].Theme })
-	return values, nil
+	return values, rows.Err()
 }
 
 func percentage(numerator, denominator int) float64 {

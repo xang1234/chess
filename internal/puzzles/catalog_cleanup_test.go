@@ -10,11 +10,11 @@ import (
 
 func TestRecoverStartupMarksBuildingAbandoned(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	activeSource := testGenerationSource("recovery-active", "test", "/recovery-active")
+	activeSource := testSource("recovery-active", "test", "/recovery-active")
 	sealAndActivate(t, beginGenerationImport(t, catalog, activeSource), testTrainingPuzzle(activeSource, "active", 1200))
-	buildingSource := testGenerationSource("recovery-building", "test", "/recovery-building")
+	buildingSource := testSource("recovery-building", "test", "/recovery-building")
 	beginGenerationImport(t, catalog, buildingSource)
-	sealedSource := testGenerationSource("recovery-sealed", "test", "/recovery-sealed")
+	sealedSource := testSource("recovery-sealed", "test", "/recovery-sealed")
 	sealed := beginGenerationImport(t, catalog, sealedSource)
 	if err := sealed.Add(context.Background(), testTrainingPuzzle(sealedSource, "sealed", 1300)); err != nil {
 		t.Fatal(err)
@@ -57,12 +57,12 @@ func TestRecoverStartupMarksBuildingAbandoned(t *testing.T) {
 
 func TestCleanupNeverTouchesActiveGeneration(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	activeSource := testGenerationSource("cleanup-active", "test", "/cleanup-active")
+	activeSource := testSource("cleanup-active", "test", "/cleanup-active")
 	active := testTrainingPuzzle(activeSource, "active-core", 1400, "fork", "pin")
 	sealAndActivate(t, beginGenerationImport(t, catalog, activeSource), active)
 	activeGeneration := generationIDForPath(t, store.Reader, activeSource.Path)
 
-	eligibleSource := testGenerationSource("cleanup-eligible", "test", "/cleanup-eligible")
+	eligibleSource := testSource("cleanup-eligible", "test", "/cleanup-eligible")
 	eligible := beginGenerationImport(t, catalog, eligibleSource)
 	if err := eligible.Add(context.Background(), testTrainingPuzzle(eligibleSource, "eligible-core", 1500, "skewer")); err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestCleanupNeverTouchesActiveGeneration(t *testing.T) {
 
 func TestCleanupUsesOnePhysicalRowBudget(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	source := testGenerationSource("budget", "test", "/budget")
+	source := testSource("budget", "test", "/budget")
 	importing := beginGenerationImport(t, catalog, source)
 	for index := range 4 {
 		puzzle := testTrainingPuzzle(
@@ -155,10 +155,10 @@ func TestCleanupUsesOnePhysicalRowBudget(t *testing.T) {
 
 func TestCleanupResumesAndConverges(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	activeSource := testGenerationSource("resume-active", "test", "/resume-active")
+	activeSource := testSource("resume-active", "test", "/resume-active")
 	sealAndActivate(t, beginGenerationImport(t, catalog, activeSource), testTrainingPuzzle(activeSource, "keep", 1100, "keep"))
 	for index := range 2 {
-		source := testGenerationSource(
+		source := testSource(
 			fmt.Sprintf("resume-%d", index),
 			"test",
 			fmt.Sprintf("/resume-%d", index),
@@ -186,7 +186,7 @@ func TestCleanupResumesAndConverges(t *testing.T) {
 		t.Fatalf("first cleanup deleted %d rows, want exactly 1", before-afterFirst)
 	}
 
-	resumed := NewGenerationalSQLiteCatalog(store.Reader, store.Writer)
+	resumed := NewSQLiteCatalog(store.Reader, store.Writer)
 	cleanupUntilDone(t, resumed, 1)
 	if _, err := resumed.Get(context.Background(), PuzzleKey{Fingerprint: "keep", SourceID: activeSource.ID}); err != nil {
 		t.Fatalf("active puzzle missing after resumed cleanup: %v", err)
@@ -208,9 +208,9 @@ func TestCleanupResumesAndConverges(t *testing.T) {
 
 func TestCleanupPreservesSharedCoreAndRemovesOrphanCore(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	activeSource := testGenerationSource("shared-active", "test", "/shared-active")
+	activeSource := testSource("shared-active", "test", "/shared-active")
 	sealAndActivate(t, beginGenerationImport(t, catalog, activeSource), testTrainingPuzzle(activeSource, "shared", 1200, "active"))
-	eligibleSource := testGenerationSource("shared-eligible", "test", "/shared-eligible")
+	eligibleSource := testSource("shared-eligible", "test", "/shared-eligible")
 	eligible := beginGenerationImport(t, catalog, eligibleSource)
 	if err := eligible.Add(context.Background(), testTrainingPuzzle(eligibleSource, "shared", 1400, "eligible")); err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestCleanupPreservesSharedCoreAndRemovesOrphanCore(t *testing.T) {
 	}
 }
 
-func cleanupUntilDone(t *testing.T, catalog *GenerationalSQLiteCatalog, limit int) {
+func cleanupUntilDone(t *testing.T, catalog *SQLiteCatalog, limit int) {
 	t.Helper()
 	for call := 1; call <= 10_000; call++ {
 		more, err := catalog.CleanupBatch(context.Background(), limit)

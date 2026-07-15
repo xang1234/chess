@@ -15,8 +15,8 @@ import (
 
 func TestGetRequiresFingerprintAndSource(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	alpha := testGenerationSource("alpha", "csv", "/get-alpha")
-	beta := testGenerationSource("beta", "lichess", "/get-beta")
+	alpha := testSource("alpha", "csv", "/get-alpha")
+	beta := testSource("beta", "lichess", "/get-beta")
 	alphaPuzzle := testTrainingPuzzle(alpha, "same", 1200, "fork")
 	betaPuzzle := testTrainingPuzzle(beta, "same", 1800, "pin")
 	sealAndActivate(t, beginGenerationImport(t, catalog, alpha), alphaPuzzle)
@@ -42,8 +42,8 @@ func TestGetRequiresFingerprintAndSource(t *testing.T) {
 
 func TestResolvePrefersRequestedActiveSource(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	alpha := testGenerationSource("alpha", "csv", "/resolve-alpha")
-	beta := testGenerationSource("beta", "lichess", "/resolve-beta")
+	alpha := testSource("alpha", "csv", "/resolve-alpha")
+	beta := testSource("beta", "lichess", "/resolve-beta")
 	sealAndActivate(t, beginGenerationImport(t, catalog, alpha), testTrainingPuzzle(alpha, "shared", 1200, "fork"))
 	sealAndActivate(t, beginGenerationImport(t, catalog, beta), testTrainingPuzzle(beta, "shared", 1800, "pin"))
 
@@ -58,8 +58,8 @@ func TestResolvePrefersRequestedActiveSource(t *testing.T) {
 
 func TestResolveFallsBackLexicographically(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	alpha := testGenerationSource("alpha", "csv", "/fallback-alpha")
-	beta := testGenerationSource("beta", "lichess", "/fallback-beta")
+	alpha := testSource("alpha", "csv", "/fallback-alpha")
+	beta := testSource("beta", "lichess", "/fallback-beta")
 	sealAndActivate(t, beginGenerationImport(t, catalog, beta), testTrainingPuzzle(beta, "shared", 1800, "pin"))
 	sealAndActivate(t, beginGenerationImport(t, catalog, alpha), testTrainingPuzzle(alpha, "shared", 1200, "fork"))
 
@@ -76,7 +76,7 @@ func TestResolveFallsBackLexicographically(t *testing.T) {
 
 func TestCandidatesAndMetadataUseOnlyActiveHeads(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	source := testGenerationSource("active", "test", "/active-head")
+	source := testSource("active", "test", "/active-head")
 	active := testTrainingPuzzle(source, "active-fingerprint", 1500, "active-theme")
 	active.Core.Solution = []domain.MoveNode{{UCI: "f7f8", Children: []domain.MoveNode{{UCI: "h8h7"}}}}
 	active.Core.SolutionPlies = 2
@@ -91,7 +91,7 @@ func TestCandidatesAndMetadataUseOnlyActiveHeads(t *testing.T) {
 	if _, err := superseded.Seal(context.Background(), "sealed-checksum"); err != nil {
 		t.Fatal(err)
 	}
-	abandonedSource := testGenerationSource("abandoned", "test", "/abandoned-head")
+	abandonedSource := testSource("abandoned", "test", "/abandoned-head")
 	abandoned := beginGenerationImport(t, catalog, abandonedSource)
 	if err := abandoned.Add(context.Background(), testTrainingPuzzle(abandonedSource, "abandoned-only", 1525, "abandoned-theme")); err != nil {
 		t.Fatal(err)
@@ -152,9 +152,9 @@ func TestCandidatesAndMetadataUseOnlyActiveHeads(t *testing.T) {
 
 func TestRatedCandidatesReturnOneDeterministicOccurrencePerFingerprint(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	alpha := testGenerationSource("alpha", "csv", "/rated-alpha")
-	beta := testGenerationSource("beta", "csv", "/rated-beta")
-	gamma := testGenerationSource("gamma", "csv", "/rated-gamma")
+	alpha := testSource("alpha", "csv", "/rated-alpha")
+	beta := testSource("beta", "csv", "/rated-beta")
+	gamma := testSource("gamma", "csv", "/rated-gamma")
 	alphaShared := testTrainingPuzzle(alpha, "shared", 1500, "alpha")
 	alphaUnique := testTrainingPuzzle(alpha, "unique", 1600, "unique")
 	betaShared := testTrainingPuzzle(beta, "shared", 1200, "beta")
@@ -189,7 +189,7 @@ func TestRatedCandidatesReturnOneDeterministicOccurrencePerFingerprint(t *testin
 
 func TestReaderSeesOldHeadAcrossManyImportBatches(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	source := testGenerationSource("batched", "test", "/batched-active")
+	source := testSource("batched", "test", "/batched-active")
 	sealAndActivate(t, beginGenerationImport(t, catalog, source), testTrainingPuzzle(source, "old-head", 1200, "old"))
 	replacementSource := source
 	replacementSource.Path = "/batched-building"
@@ -221,7 +221,7 @@ func TestReaderSeesOldHeadAcrossManyImportBatches(t *testing.T) {
 
 func TestReaderNeverMixesOccurrenceAcrossActivationAndCleanup(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	source := testGenerationSource("snapshot", "test", "/snapshot-0")
+	source := testSource("snapshot", "test", "/snapshot-0")
 	sealAndActivate(t, beginGenerationImport(t, catalog, source), versionedSnapshotPuzzle(source, 0))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -290,7 +290,7 @@ func TestReaderNeverMixesOccurrenceAcrossActivationAndCleanup(t *testing.T) {
 	}
 }
 
-func versionedSnapshotPuzzle(source GenerationSource, version int) TrainingPuzzle {
+func versionedSnapshotPuzzle(source Source, version int) TrainingPuzzle {
 	marker := strconv.Itoa(version)
 	puzzle := testTrainingPuzzle(source, "snapshot-core", 1_000+version, "theme-"+marker)
 	puzzle.Occurrence.ExternalID = "external-" + marker

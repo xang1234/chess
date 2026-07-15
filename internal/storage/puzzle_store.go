@@ -2,7 +2,6 @@ package storage
 
 import (
 	"database/sql"
-	_ "embed"
 	"errors"
 	"fmt"
 	"net/url"
@@ -12,9 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed puzzle_schema_v3.sql
-var puzzleSchemaV3 string
-
 const CurrentPuzzleSchemaVersion = 3
 
 type PuzzleStore struct {
@@ -22,10 +18,23 @@ type PuzzleStore struct {
 	Writer *sql.DB
 }
 
-func OpenGenerationPuzzleStore(path string) (*PuzzleStore, error) {
+func OpenPuzzleStore(path string) (*PuzzleStore, error) {
 	existed, err := pathExists(path)
 	if err != nil {
 		return nil, err
+	}
+	if existed {
+		state, err := ProbePuzzleStore(path)
+		if err != nil {
+			return nil, err
+		}
+		if !state.Exists || state.Legacy || state.Format != CurrentPuzzleSchemaVersion {
+			return nil, fmt.Errorf(
+				"refuse to open puzzle database %s: expected current schema version %d",
+				path,
+				CurrentPuzzleSchemaVersion,
+			)
+		}
 	}
 
 	writerDSN, err := puzzleStoreDSN(path, false, !existed)
@@ -43,13 +52,11 @@ func OpenGenerationPuzzleStore(path string) (*PuzzleStore, error) {
 		return nil, fmt.Errorf("connect generation puzzle writer: %w", err)
 	}
 
-	if !existed {
-		if err := bootstrapGenerationPuzzleSchema(writer); err != nil {
-			writer.Close()
-			return nil, err
-		}
+	if err := Migrate(writer, "puzzles"); err != nil {
+		writer.Close()
+		return nil, fmt.Errorf("migrate puzzle database: %w", err)
 	}
-	if err := validateGenerationPuzzleSchema(writer); err != nil {
+	if err := validatePuzzleSchema(writer); err != nil {
 		writer.Close()
 		return nil, err
 	}
@@ -119,22 +126,7 @@ func puzzleStoreDSN(path string, readOnly, create bool) (string, error) {
 	return uri.String(), nil
 }
 
-func bootstrapGenerationPuzzleSchema(db *sql.DB) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin generation puzzle bootstrap: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(puzzleSchemaV3); err != nil {
-		return fmt.Errorf("bootstrap generation puzzle schema: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit generation puzzle bootstrap: %w", err)
-	}
-	return nil
-}
-
-func validateGenerationPuzzleSchema(db *sql.DB) error {
+func validatePuzzleSchema(db *sql.DB) error {
 	var count, minimum, maximum int
 	if err := db.QueryRow(
 		`SELECT COUNT(*), COALESCE(MIN(version), 0), COALESCE(MAX(version), 0)
@@ -150,6 +142,25 @@ func validateGenerationPuzzleSchema(db *sql.DB) error {
 			maximum,
 			CurrentPuzzleSchemaVersion,
 		)
+	}
+	for _, table := range []string{
+		"sources",
+		"source_generations",
+		"source_heads",
+		"puzzle_cores",
+		"puzzle_occurrences",
+		"occurrence_themes",
+	} {
+		var present int
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`,
+			table,
+		).Scan(&present); err != nil {
+			return fmt.Errorf("validate puzzle table %s: %w", table, err)
+		}
+		if present != 1 {
+			return fmt.Errorf("validate puzzle schema: required table %s is missing", table)
+		}
 	}
 	return nil
 }

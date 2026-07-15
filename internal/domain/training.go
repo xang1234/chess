@@ -33,11 +33,12 @@ type MoveResult struct {
 }
 
 type HintResult struct {
-	Level        int    `json:"level"`
-	Text         string `json:"text"`
-	SourceSquare string `json:"sourceSquare,omitempty"`
-	TargetSquare string `json:"targetSquare,omitempty"`
-	CanReveal    bool   `json:"canReveal"`
+	Session      SessionView `json:"session"`
+	Level        int         `json:"level"`
+	Text         string      `json:"text"`
+	SourceSquare string      `json:"sourceSquare,omitempty"`
+	TargetSquare string      `json:"targetSquare,omitempty"`
+	CanReveal    bool        `json:"canReveal"`
 }
 
 type SessionSummary struct {

@@ -128,7 +128,7 @@ func TestProbeRejectsLegacyVersionWithGeneratedColumn(t *testing.T) {
 
 func TestProbePreservesUnknownNewerDatabaseAndSidecars(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "puzzles.sqlite")
-	createCrashSQLiteFixture(t, path, puzzleSchemaV3+`
+	createCrashSQLiteFixture(t, path, currentPuzzleSchemaFixture(t)+`
 INSERT INTO schema_migrations(version) VALUES (4);
 CREATE TABLE future_catalogue_state(value TEXT);
 INSERT INTO future_catalogue_state(value) VALUES ('keep me');
@@ -266,7 +266,7 @@ func TestRemoveRecognizedLegacyPreservesPathReplacement(t *testing.T) {
 	}
 	legacyHash := hashFile(t, legacyBackup)
 	replacement := filepath.Join(root, "replacement.sqlite")
-	createCrashSQLiteFixture(t, replacement, puzzleSchemaV3+`
+	createCrashSQLiteFixture(t, replacement, currentPuzzleSchemaFixture(t)+`
 INSERT INTO schema_migrations(version) VALUES (4);
 CREATE TABLE future_catalogue_state(value TEXT);
 INSERT INTO future_catalogue_state(value) VALUES ('preserve replacement');
@@ -330,6 +330,61 @@ func TestRemoveRecognizedLegacyPreservesExactLegacyPathReplacement(t *testing.T)
 
 			if err := pending.remove(); err == nil {
 				t.Fatal("validated legacy removal deleted an exact-legacy path replacement")
+			}
+			assertPuzzleFilesPreserved(t, path, wantReplacement)
+			assertPuzzleFilesPreserved(t, validatedBackup, wantValidated)
+		})
+	}
+}
+
+func TestLegacyPuzzleRecreationPreservesExactLegacyReplacementAfterBackfill(t *testing.T) {
+	fixtures := []struct {
+		name string
+		sql  string
+	}{
+		{name: "v1", sql: legacyPuzzlesV1Fixture},
+		{name: "v2", sql: legacyPuzzlesV2Fixture},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "puzzles.sqlite")
+			createMarkedLegacyCrashSQLiteFixture(t, path, fixture.sql, "backfilled-"+fixture.name)
+
+			recreation, err := OpenLegacyPuzzleRecreation(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = recreation.Close() })
+			user := openMigratedUserDatabase(t)
+			t.Cleanup(func() { _ = user.Close() })
+			if err := BackfillLegacyPuzzleSnapshots(
+				contextWithStorageTestTimeout(t),
+				user,
+				recreation.ReadOnlyDB(),
+			); err != nil {
+				t.Fatal(err)
+			}
+
+			validatedBackup := filepath.Join(root, "backfilled-legacy.sqlite")
+			for _, suffix := range []string{"", "-wal", "-shm"} {
+				if err := os.Rename(path+suffix, validatedBackup+suffix); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantValidated := snapshotPreservedPuzzleFiles(t, validatedBackup)
+
+			createMarkedLegacyCrashSQLiteFixture(t, path, fixture.sql, "replacement-"+fixture.name)
+			wantReplacement := snapshotPreservedPuzzleFiles(t, path)
+			if wantReplacement.database == wantValidated.database {
+				t.Fatal("test setup produced byte-identical validated and replacement databases")
+			}
+			if wantReplacement.wal == wantValidated.wal {
+				t.Fatal("test setup produced byte-identical validated and replacement WALs")
+			}
+
+			if err := recreation.CloseAndRemove(); err == nil {
+				t.Fatal("recreation deleted an exact legacy replacement that was not backfilled")
 			}
 			assertPuzzleFilesPreserved(t, path, wantReplacement)
 			assertPuzzleFilesPreserved(t, validatedBackup, wantValidated)
@@ -911,6 +966,17 @@ func openMigratedUserDatabase(t *testing.T) *sql.DB {
 		}
 	})
 	return db
+}
+
+func currentPuzzleSchemaFixture(t *testing.T) string {
+	t.Helper()
+	body, err := migrationFiles.ReadFile("migrations/puzzles/003.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
+INSERT INTO schema_migrations(version) VALUES (3);
+` + string(body)
 }
 
 func contextWithStorageTestTimeout(t *testing.T) context.Context {

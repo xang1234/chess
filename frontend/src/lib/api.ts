@@ -68,6 +68,7 @@ export type MoveResult = {
 }
 
 export type HintResult = {
+  session: SessionView
   level: number
   text: string
   sourceSquare?: string
@@ -213,7 +214,14 @@ const previewAPI: AppAPI = {
     puzzleCompleted: false,
     message: 'Try again'
   }),
-  useHint: async () => ({ level: 1, text: 'Look for a forcing move.', canReveal: false }),
+  useHint: async () => ({
+    session: {
+      sessionId: 'preview-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
+    },
+    level: 1,
+    text: 'Look for a forcing move.',
+    canReveal: false
+  }),
   revealSolution: async () => ({
     session: {
       sessionId: 'preview-session', mode: 'guided', status: 'complete', currentIndex: 10, total: 10,

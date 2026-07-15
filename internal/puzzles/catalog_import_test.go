@@ -14,9 +14,9 @@ import (
 	"chess-trainer/internal/storage"
 )
 
-func openTestGenerationalCatalog(t *testing.T) (*GenerationalSQLiteCatalog, *storage.PuzzleStore) {
+func openTestGenerationalCatalog(t *testing.T) (*SQLiteCatalog, *storage.PuzzleStore) {
 	t.Helper()
-	store, err := storage.OpenGenerationPuzzleStore(filepath.Join(t.TempDir(), "puzzles.sqlite"))
+	store, err := storage.OpenPuzzleStore(filepath.Join(t.TempDir(), "puzzles.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,11 +25,11 @@ func openTestGenerationalCatalog(t *testing.T) (*GenerationalSQLiteCatalog, *sto
 			t.Errorf("close generation puzzle store: %v", err)
 		}
 	})
-	return NewGenerationalSQLiteCatalog(store.Reader, store.Writer), store
+	return NewSQLiteCatalog(store.Reader, store.Writer), store
 }
 
-func testGenerationSource(id, kind, path string) GenerationSource {
-	return GenerationSource{
+func testSource(id, kind, path string) Source {
+	return Source{
 		ID:        id,
 		Kind:      kind,
 		Path:      path,
@@ -37,7 +37,7 @@ func testGenerationSource(id, kind, path string) GenerationSource {
 	}
 }
 
-func testTrainingPuzzle(source GenerationSource, fingerprint string, rating int, themes ...string) TrainingPuzzle {
+func testTrainingPuzzle(source Source, fingerprint string, rating int, themes ...string) TrainingPuzzle {
 	popularity, playCount := rating/10, rating*10
 	return TrainingPuzzle{
 		Core: PuzzleCore{
@@ -65,7 +65,7 @@ func testTrainingPuzzle(source GenerationSource, fingerprint string, rating int,
 	}
 }
 
-func beginGenerationImport(t *testing.T, catalog *GenerationalSQLiteCatalog, source GenerationSource) GenerationImport {
+func beginGenerationImport(t *testing.T, catalog *SQLiteCatalog, source Source) GenerationImport {
 	t.Helper()
 	importing, err := catalog.BeginImport(context.Background(), source)
 	if err != nil {
@@ -106,7 +106,7 @@ func generationIDForPath(t *testing.T, db *sql.DB, path string) string {
 
 func TestBuildingGenerationIsInvisible(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	source := testGenerationSource("building", "test", "/building")
+	source := testSource("building", "test", "/building")
 	importing := beginGenerationImport(t, catalog, source)
 
 	for index := range 1_000 {
@@ -137,7 +137,7 @@ func TestBuildingGenerationIsInvisible(t *testing.T) {
 
 func TestGenerationLocalDuplicateLastRecordWins(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	source := testGenerationSource("duplicates", "test", "/duplicates")
+	source := testSource("duplicates", "test", "/duplicates")
 	importing := beginGenerationImport(t, catalog, source)
 	first := testTrainingPuzzle(source, "shared", 1200, " fork ", "fork")
 	last := testTrainingPuzzle(source, "shared", 1700, " pin ", "", "skewer", "pin")
@@ -188,8 +188,8 @@ func TestGenerationLocalDuplicateLastRecordWins(t *testing.T) {
 
 func TestSharedCoreRetainsIndependentOccurrences(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	firstSource := testGenerationSource("alpha", "csv", "/alpha")
-	secondSource := testGenerationSource("beta", "lichess", "/beta")
+	firstSource := testSource("alpha", "csv", "/alpha")
+	secondSource := testSource("beta", "lichess", "/beta")
 	first := testTrainingPuzzle(firstSource, "common-core", 1100, "fork")
 	second := testTrainingPuzzle(secondSource, "common-core", 1900, "pin")
 	second.Occurrence.ExternalID = "beta-external"
@@ -233,8 +233,8 @@ func TestSharedCoreRetainsIndependentOccurrences(t *testing.T) {
 
 func TestCoreContentMismatchReturnsCatalogCorrupt(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	firstSource := testGenerationSource("core-one", "test", "/core-one")
-	secondSource := testGenerationSource("core-two", "test", "/core-two")
+	firstSource := testSource("core-one", "test", "/core-one")
+	secondSource := testSource("core-two", "test", "/core-two")
 	sealAndActivate(t, beginGenerationImport(t, catalog, firstSource), testTrainingPuzzle(firstSource, "same-fingerprint", 1200))
 
 	importing := beginGenerationImport(t, catalog, secondSource)
@@ -261,14 +261,14 @@ func TestCoreContentMismatchReturnsCatalogCorrupt(t *testing.T) {
 
 func TestExistingSourceKindMismatchPreservesHead(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	source := testGenerationSource("immutable-source", "lichess", "/initial")
+	source := testSource("immutable-source", "lichess", "/initial")
 	sealAndActivate(t, beginGenerationImport(t, catalog, source), testTrainingPuzzle(source, "initial", 1200))
 	var headBefore string
 	if err := store.Reader.QueryRow(`SELECT generation_id FROM source_heads WHERE source_id = ?`, source.ID).Scan(&headBefore); err != nil {
 		t.Fatal(err)
 	}
 
-	mismatched := testGenerationSource(source.ID, "csv", "/mismatch")
+	mismatched := testSource(source.ID, "csv", "/mismatch")
 	_, err := catalog.BeginImport(context.Background(), mismatched)
 	var kindErr *SourceKindMismatchError
 	if !errors.As(err, &kindErr) {
@@ -295,7 +295,7 @@ func TestExistingSourceKindMismatchPreservesHead(t *testing.T) {
 
 func TestSealRequiresBuildingGenerationAndChecksum(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	source := testGenerationSource("seal-state", "test", "/seal-state")
+	source := testSource("seal-state", "test", "/seal-state")
 	importing := beginGenerationImport(t, catalog, source)
 	if err := importing.Add(context.Background(), testTrainingPuzzle(source, "seal-state", 1200)); err != nil {
 		t.Fatal(err)
@@ -321,7 +321,7 @@ func TestSealRequiresBuildingGenerationAndChecksum(t *testing.T) {
 
 func TestActivateRequiresOwnSealedGeneration(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	source := testGenerationSource("activate-state", "test", "/activate-state")
+	source := testSource("activate-state", "test", "/activate-state")
 	importing := beginGenerationImport(t, catalog, source)
 	if err := importing.Add(context.Background(), testTrainingPuzzle(source, "activate-state", 1200)); err != nil {
 		t.Fatal(err)
@@ -350,7 +350,7 @@ func TestActivateRequiresOwnSealedGeneration(t *testing.T) {
 
 func TestActivateCASWithExpectedHead(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	source := testGenerationSource("cas-existing", "test", "/baseline")
+	source := testSource("cas-existing", "test", "/baseline")
 	sealAndActivate(t, beginGenerationImport(t, catalog, source), testTrainingPuzzle(source, "baseline", 1000))
 
 	oldSource := source
@@ -389,7 +389,7 @@ func TestActivateCASWithExpectedHead(t *testing.T) {
 
 func TestActivateCASWithNoExpectedHead(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
-	source := testGenerationSource("cas-empty", "test", "/first-writer")
+	source := testSource("cas-empty", "test", "/first-writer")
 	secondSource := source
 	secondSource.Path = "/second-writer"
 	first := beginGenerationImport(t, catalog, source)
@@ -419,7 +419,7 @@ func TestActivateCASWithNoExpectedHead(t *testing.T) {
 
 func TestAbandonDoesNotDeleteOrChangeHead(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
-	source := testGenerationSource("abandon", "test", "/active")
+	source := testSource("abandon", "test", "/active")
 	sealAndActivate(t, beginGenerationImport(t, catalog, source), testTrainingPuzzle(source, "active", 1000))
 	var headBefore string
 	if err := store.Reader.QueryRow(`SELECT generation_id FROM source_heads WHERE source_id = ?`, source.ID).Scan(&headBefore); err != nil {

@@ -2,12 +2,15 @@ package training
 
 import (
 	"context"
+	"database/sql"
 	"math/rand"
 	"slices"
+	"sort"
 	"testing"
 	"time"
 
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/puzzles"
 )
 
 type candidateCall struct {
@@ -18,12 +21,42 @@ type candidateCall struct {
 }
 
 type schedulerCatalogFake struct {
-	puzzles map[string]domain.Puzzle
+	puzzles map[puzzles.PuzzleKey]puzzles.TrainingPuzzle
 	calls   []candidateCall
 }
 
-func (f *schedulerCatalogFake) Get(_ context.Context, fingerprint string) (domain.Puzzle, error) {
-	return f.puzzles[fingerprint], nil
+func (f *schedulerCatalogFake) Get(_ context.Context, key puzzles.PuzzleKey) (puzzles.TrainingPuzzle, error) {
+	puzzle, ok := f.puzzles[key]
+	if !ok {
+		return puzzles.TrainingPuzzle{}, sql.ErrNoRows
+	}
+	return puzzle, nil
+}
+
+func (f *schedulerCatalogFake) Resolve(
+	ctx context.Context,
+	fingerprint string,
+	preferredSourceID string,
+) (puzzles.TrainingPuzzle, error) {
+	if preferredSourceID != "" {
+		if puzzle, err := f.Get(ctx, puzzles.PuzzleKey{
+			Fingerprint: fingerprint,
+			SourceID:    preferredSourceID,
+		}); err == nil {
+			return puzzle, nil
+		}
+	}
+	sourceIDs := make([]string, 0)
+	for key := range f.puzzles {
+		if key.Fingerprint == fingerprint {
+			sourceIDs = append(sourceIDs, key.SourceID)
+		}
+	}
+	if len(sourceIDs) == 0 {
+		return puzzles.TrainingPuzzle{}, sql.ErrNoRows
+	}
+	sort.Strings(sourceIDs)
+	return f.Get(ctx, puzzles.PuzzleKey{Fingerprint: fingerprint, SourceID: sourceIDs[0]})
 }
 
 func (f *schedulerCatalogFake) RatedCandidates(
@@ -32,7 +65,7 @@ func (f *schedulerCatalogFake) RatedCandidates(
 	maximum int,
 	excluded []string,
 	limit int,
-) ([]domain.Puzzle, error) {
+) ([]puzzles.TrainingPuzzle, error) {
 	f.calls = append(f.calls, candidateCall{
 		minimum: minimum, maximum: maximum, excluded: slices.Clone(excluded), limit: limit,
 	})
@@ -45,14 +78,29 @@ func (f *schedulerCatalogFake) RatedCandidates(
 	default:
 		count = 6
 	}
-	result := make([]domain.Puzzle, 0, count)
+	result := make([]puzzles.TrainingPuzzle, 0, count)
 	for index := 1; index <= count; index++ {
 		fingerprint := "new" + string(rune('0'+index))
 		if !slices.Contains(excluded, fingerprint) {
-			result = append(result, f.puzzles[fingerprint])
+			result = append(result, f.puzzles[puzzles.PuzzleKey{
+				Fingerprint: fingerprint,
+				SourceID:    "lichess",
+			}])
 		}
 	}
 	return result, nil
+}
+
+func (*schedulerCatalogFake) FreePracticeCandidates(
+	context.Context,
+	string,
+	*int,
+	*int,
+	[]string,
+	*int,
+	int,
+) ([]puzzles.TrainingPuzzle, error) {
+	return nil, nil
 }
 
 type schedulerUserFake struct {
@@ -61,32 +109,58 @@ type schedulerUserFake struct {
 	reviewLimit int
 }
 
-func (f *schedulerUserFake) DueReviews(_ context.Context, _ time.Time, limit int) ([]ReviewState, error) {
+func (f *schedulerUserFake) DueReviews(
+	_ context.Context,
+	_ time.Time,
+	after *ReviewCursor,
+	limit int,
+) ([]ReviewState, error) {
 	f.reviewLimit = limit
-	return slices.Clone(f.due), nil
+	due := slices.Clone(f.due)
+	sort.SliceStable(due, func(i, j int) bool {
+		return reviewCursorLess(reviewCursor(due[i]), reviewCursor(due[j]))
+	})
+	start := 0
+	if after != nil {
+		start = len(due)
+		for index, review := range due {
+			if reviewCursorLess(*after, reviewCursor(review)) {
+				start = index
+				break
+			}
+		}
+	}
+	return slices.Clone(due[start:min(start+limit, len(due))]), nil
 }
 
 func (f *schedulerUserFake) RecentFingerprints(context.Context, int) ([]string, error) {
 	return slices.Clone(f.recent), nil
 }
 
-func scheduledTestPuzzle(fingerprint string, rating int) domain.Puzzle {
-	return domain.Puzzle{
-		Fingerprint:  fingerprint,
-		DisplayedFEN: "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1",
-		Solver:       domain.White,
-		Solution:     []domain.MoveNode{{UCI: "f7f8"}},
-		Rating:       &rating,
-		Sources:      []domain.SourceRef{{SourceID: "lichess"}},
+func scheduledTestPuzzle(fingerprint string, rating int) puzzles.TrainingPuzzle {
+	return puzzles.TrainingPuzzle{
+		Core: puzzles.PuzzleCore{
+			Fingerprint:   fingerprint,
+			DisplayedFEN:  "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1",
+			Solver:        domain.White,
+			Solution:      []domain.MoveNode{{UCI: "f7f8"}},
+			SolutionPlies: 1,
+		},
+		Occurrence: puzzles.PuzzleOccurrence{
+			SourceID:   "lichess",
+			SourceKind: "lichess",
+			Rating:     &rating,
+		},
 	}
 }
 
 func TestSchedulerBuildsFourReviewsThenWidensForNewPuzzles(t *testing.T) {
-	puzzles := make(map[string]domain.Puzzle)
+	catalogPuzzles := make(map[puzzles.PuzzleKey]puzzles.TrainingPuzzle)
 	due := make([]ReviewState, 0, 6)
 	for index := 1; index <= 6; index++ {
 		fingerprint := "review" + string(rune('0'+index))
-		puzzles[fingerprint] = scheduledTestPuzzle(fingerprint, 1400+index)
+		puzzle := scheduledTestPuzzle(fingerprint, 1400+index)
+		catalogPuzzles[puzzle.Key()] = puzzle
 		due = append(due, ReviewState{
 			Fingerprint: fingerprint,
 			DueAt:       time.Unix(int64(index), 0),
@@ -94,9 +168,10 @@ func TestSchedulerBuildsFourReviewsThenWidensForNewPuzzles(t *testing.T) {
 	}
 	for index := 1; index <= 6; index++ {
 		fingerprint := "new" + string(rune('0'+index))
-		puzzles[fingerprint] = scheduledTestPuzzle(fingerprint, 1500)
+		puzzle := scheduledTestPuzzle(fingerprint, 1500)
+		catalogPuzzles[puzzle.Key()] = puzzle
 	}
-	catalog := &schedulerCatalogFake{puzzles: puzzles}
+	catalog := &schedulerCatalogFake{puzzles: catalogPuzzles}
 	user := &schedulerUserFake{due: due, recent: []string{"recent"}}
 	scheduler := Scheduler{Catalog: catalog, User: user}
 
@@ -159,7 +234,7 @@ func TestSchedulerBuildsFourReviewsThenWidensForNewPuzzles(t *testing.T) {
 func scheduledFingerprints(items []ScheduledPuzzle) []string {
 	result := make([]string, len(items))
 	for index, item := range items {
-		result[index] = item.Puzzle.Fingerprint
+		result[index] = item.Puzzle.Core.Fingerprint
 	}
 	return result
 }

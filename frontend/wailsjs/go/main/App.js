@@ -70,6 +70,10 @@ export function StartLichessImport(arg1) {
   return window['go']['main']['App']['StartLichessImport'](arg1);
 }
 
+export function StartPuzzleImport(arg1) {
+  return window['go']['main']['App']['StartPuzzleImport'](arg1);
+}
+
 export function UpdateProfile(arg1) {
   return window['go']['main']['App']['UpdateProfile'](arg1);
 }

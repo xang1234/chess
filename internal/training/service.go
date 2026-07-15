@@ -14,17 +14,12 @@ import (
 )
 
 type Service struct {
-	catalog         CatalogPort
-	practiceCatalog PracticeCatalogPort
-	store           *UserStore
-	rules           chessrules.Rules
-	random          *rand.Rand
-	now             func() time.Time
-	scheduler       Scheduler
-}
-
-type PracticeCatalogPort interface {
-	FreePracticeCandidates(context.Context, string, *int, *int, []string, *int, int) ([]domain.Puzzle, error)
+	catalog   TrainingCatalogPort
+	store     *UserStore
+	rules     chessrules.Rules
+	random    *rand.Rand
+	now       func() time.Time
+	scheduler Scheduler
 }
 
 type PracticeRequest struct {
@@ -38,20 +33,18 @@ type PracticeRequest struct {
 const practiceCandidatePool = 200
 
 func NewService(
-	catalog CatalogPort,
+	catalog TrainingCatalogPort,
 	store *UserStore,
 	rules chessrules.Rules,
 	random *rand.Rand,
 ) *Service {
-	practiceCatalog, _ := catalog.(PracticeCatalogPort)
 	return &Service{
-		catalog:         catalog,
-		practiceCatalog: practiceCatalog,
-		store:           store,
-		rules:           rules,
-		random:          random,
-		now:             time.Now,
-		scheduler:       Scheduler{Catalog: catalog, User: store},
+		catalog:   catalog,
+		store:     store,
+		rules:     rules,
+		random:    random,
+		now:       time.Now,
+		scheduler: Scheduler{Catalog: catalog, User: store},
 	}
 }
 
@@ -72,9 +65,6 @@ func (s *Service) StartGuided(ctx context.Context) (domain.SessionView, error) {
 }
 
 func (s *Service) StartFreePractice(ctx context.Context, request PracticeRequest) (domain.SessionView, error) {
-	if s.practiceCatalog == nil {
-		return domain.SessionView{}, errors.New("puzzle catalogue does not support free practice")
-	}
 	if request.SourceID == "" {
 		return domain.SessionView{}, errors.New("practice source is required")
 	}
@@ -89,7 +79,7 @@ func (s *Service) StartFreePractice(ctx context.Context, request PracticeRequest
 	if err != nil {
 		return domain.SessionView{}, err
 	}
-	candidates, err := s.practiceCatalog.FreePracticeCandidates(
+	candidates, err := s.catalog.FreePracticeCandidates(
 		ctx,
 		request.SourceID,
 		request.MinimumRating,
@@ -116,7 +106,6 @@ func (s *Service) StartFreePractice(ctx context.Context, request PracticeRequest
 	for index, puzzle := range candidates {
 		items[index] = ScheduledPuzzle{
 			Puzzle:        puzzle,
-			SourceID:      request.SourceID,
 			Kind:          ScheduledNew,
 			UpdatesRating: false,
 		}
@@ -159,11 +148,14 @@ func (s *Service) PlayMove(ctx context.Context, sessionID, uci string) (domain.M
 		return domain.MoveResult{}, errors.New("session is complete")
 	}
 	item := &session.Items[session.CurrentIndex]
-	puzzle, err := s.catalog.Get(ctx, item.Fingerprint)
+	puzzle, err := s.catalog.Get(ctx, item.Key())
+	if errors.Is(err, sql.ErrNoRows) {
+		return s.unavailableMoveResult(ctx, session)
+	}
 	if err != nil {
 		return domain.MoveResult{}, err
 	}
-	nodes, err := nodesAtPath(puzzle.Solution, item.State.Path)
+	nodes, err := nodesAtPath(puzzle.Core.Solution, item.State.Path)
 	if err != nil {
 		return domain.MoveResult{}, err
 	}
@@ -177,7 +169,7 @@ func (s *Service) PlayMove(ctx context.Context, sessionID, uci string) (domain.M
 				return domain.MoveResult{}, err
 			}
 			item.State.Completed = true
-			return s.completeCurrent(ctx, session, *item, puzzle)
+			return s.completeCurrent(ctx, session, *item)
 		}
 		if _, err := s.rules.ApplyUCI(item.State.CurrentFEN, uci); err != nil {
 			return domain.MoveResult{}, fmt.Errorf("illegal move %q: %w", uci, err)
@@ -212,7 +204,7 @@ func (s *Service) PlayMove(ctx context.Context, sessionID, uci string) (domain.M
 		return domain.MoveResult{}, errors.New("solution has multiple automatic replies")
 	}
 	if item.State.Completed {
-		return s.completeCurrent(ctx, session, *item, puzzle)
+		return s.completeCurrent(ctx, session, *item)
 	}
 	if err := s.store.SaveItemState(ctx, session.ID, item.Ordinal, item.State, s.now()); err != nil {
 		return domain.MoveResult{}, err
@@ -234,11 +226,19 @@ func (s *Service) UseHint(ctx context.Context, sessionID string) (domain.HintRes
 		return domain.HintResult{}, errors.New("session is complete")
 	}
 	item := &session.Items[session.CurrentIndex]
-	puzzle, err := s.catalog.Get(ctx, item.Fingerprint)
+	puzzle, err := s.catalog.Get(ctx, item.Key())
+	if errors.Is(err, sql.ErrNoRows) {
+		session, skipErr := s.advanceUnavailable(ctx, session)
+		if skipErr != nil {
+			return domain.HintResult{}, skipErr
+		}
+		view, viewErr := s.view(ctx, session)
+		return domain.HintResult{Session: view, Text: "Puzzle unavailable"}, viewErr
+	}
 	if err != nil {
 		return domain.HintResult{}, err
 	}
-	nodes, err := nodesAtPath(puzzle.Solution, item.State.Path)
+	nodes, err := nodesAtPath(puzzle.Core.Solution, item.State.Path)
 	if err != nil || len(nodes) == 0 {
 		return domain.HintResult{}, errors.New("puzzle has no remaining hint move")
 	}
@@ -256,8 +256,8 @@ func (s *Service) UseHint(ctx context.Context, sessionID string) (domain.HintRes
 	hint := domain.HintResult{Level: item.State.HintLevel, CanReveal: item.State.HintLevel >= 3}
 	switch item.State.HintLevel {
 	case 1:
-		if len(puzzle.Themes) > 0 {
-			hint.Text = "Look for: " + puzzle.Themes[0]
+		if len(item.Snapshot.Themes) > 0 {
+			hint.Text = "Look for: " + item.Snapshot.Themes[0]
 		} else {
 			hint.Text = "Look for a forcing move."
 		}
@@ -269,6 +269,14 @@ func (s *Service) UseHint(ctx context.Context, sessionID string) (domain.HintRes
 		hint.SourceSquare = move[:2]
 		hint.TargetSquare = move[2:4]
 	}
+	view, err := s.view(ctx, session)
+	if err != nil {
+		return domain.HintResult{}, err
+	}
+	if view.CurrentIndex != session.CurrentIndex {
+		return domain.HintResult{Session: view, Text: "Puzzle unavailable"}, nil
+	}
+	hint.Session = view
 	return hint, nil
 }
 
@@ -284,12 +292,15 @@ func (s *Service) Reveal(ctx context.Context, sessionID string) (domain.MoveResu
 	if item.State.HintLevel < 3 {
 		return domain.MoveResult{}, errors.New("three hints are required before reveal")
 	}
-	puzzle, err := s.catalog.Get(ctx, item.Fingerprint)
+	puzzle, err := s.catalog.Get(ctx, item.Key())
+	if errors.Is(err, sql.ErrNoRows) {
+		return s.unavailableMoveResult(ctx, session)
+	}
 	if err != nil {
 		return domain.MoveResult{}, err
 	}
 	for {
-		nodes, err := nodesAtPath(puzzle.Solution, item.State.Path)
+		nodes, err := nodesAtPath(puzzle.Core.Solution, item.State.Path)
 		if err != nil {
 			return domain.MoveResult{}, err
 		}
@@ -304,7 +315,7 @@ func (s *Service) Reveal(ctx context.Context, sessionID string) (domain.MoveResu
 	}
 	item.State.Revealed = true
 	item.State.Completed = true
-	return s.completeCurrent(ctx, session, *item, puzzle)
+	return s.completeCurrent(ctx, session, *item)
 }
 
 func (s *Service) Pause(ctx context.Context, sessionID string) error {
@@ -346,10 +357,14 @@ func (s *Service) completeCurrent(
 	ctx context.Context,
 	session storedSession,
 	item storedItem,
-	puzzle domain.Puzzle,
 ) (domain.MoveResult, error) {
+	if _, err := s.catalog.Get(ctx, item.Key()); errors.Is(err, sql.ErrNoRows) {
+		return s.unavailableMoveResult(ctx, session)
+	} else if err != nil {
+		return domain.MoveResult{}, err
+	}
 	now := s.now()
-	effects, err := s.effectsForCompletion(ctx, item, puzzle, now)
+	effects, err := s.effectsForCompletion(ctx, item, now)
 	if err != nil {
 		return domain.MoveResult{}, err
 	}
@@ -368,7 +383,6 @@ func (s *Service) completeCurrent(
 func (s *Service) effectsForCompletion(
 	ctx context.Context,
 	item storedItem,
-	puzzle domain.Puzzle,
 	now time.Time,
 ) (completionEffects, error) {
 	var effects completionEffects
@@ -387,9 +401,10 @@ func (s *Service) effectsForCompletion(
 			return completionEffects{}, err
 		}
 		next := NextReview(now, current, outcome)
+		next.PreferredSourceID = item.SourceID
 		effects.Review = &next
 	}
-	if item.State.UpdatesRating && puzzle.Rating != nil {
+	if item.State.UpdatesRating && item.Snapshot.Rating != nil {
 		seen, err := s.store.HasCompletedAttemptBefore(ctx, item.Fingerprint, item.State.AttemptID)
 		if err != nil {
 			return completionEffects{}, err
@@ -405,16 +420,42 @@ func (s *Service) effectsForCompletion(
 			} else if item.State.IncorrectMoves > 0 || item.State.HintsUsed > 0 {
 				score = 0.5
 			}
-			updated := UpdateRating(profile.LearnerRating, float64(*puzzle.Rating), score, 400, 3000)
+			updated := UpdateRating(profile.LearnerRating, float64(*item.Snapshot.Rating), score, 400, 3000)
 			effects.NewRating = &updated
 		}
 	}
 	return effects, nil
 }
 
+func (s *Service) advanceUnavailable(
+	ctx context.Context,
+	session storedSession,
+) (storedSession, error) {
+	session, err := s.store.SkipUnavailable(ctx, session, s.now())
+	if err != nil {
+		return storedSession{}, err
+	}
+	return s.prepareAvailable(ctx, session)
+}
+
+func (s *Service) unavailableMoveResult(
+	ctx context.Context,
+	session storedSession,
+) (domain.MoveResult, error) {
+	session, err := s.advanceUnavailable(ctx, session)
+	if err != nil {
+		return domain.MoveResult{}, err
+	}
+	view, err := s.view(ctx, session)
+	return domain.MoveResult{
+		Session: view,
+		Message: "Puzzle unavailable",
+	}, err
+}
+
 func (s *Service) prepareAvailable(ctx context.Context, session storedSession) (storedSession, error) {
 	for session.Status != "completed" && session.CurrentIndex < len(session.Items) {
-		_, err := s.catalog.Get(ctx, session.Items[session.CurrentIndex].Fingerprint)
+		_, err := s.catalog.Get(ctx, session.Items[session.CurrentIndex].Key())
 		if err == nil {
 			return session, nil
 		}
@@ -447,20 +488,24 @@ func (s *Service) view(ctx context.Context, session storedSession) (domain.Sessi
 		return view, nil
 	}
 	item := session.Items[session.CurrentIndex]
-	puzzle, err := s.catalog.Get(ctx, item.Fingerprint)
+	puzzle, err := s.catalog.Get(ctx, item.Key())
 	if errors.Is(err, sql.ErrNoRows) {
-		return view, nil
+		session, err = s.advanceUnavailable(ctx, session)
+		if err != nil {
+			return domain.SessionView{}, err
+		}
+		return s.view(ctx, session)
 	}
 	if err != nil {
 		return domain.SessionView{}, err
 	}
 	view.Current = &domain.PuzzleView{
-		Fingerprint:    puzzle.Fingerprint,
-		SourceFEN:      puzzle.SourceFEN,
-		DisplayedFEN:   puzzle.DisplayedFEN,
+		Fingerprint:    puzzle.Core.Fingerprint,
+		SourceFEN:      item.Snapshot.SourceFEN,
+		DisplayedFEN:   puzzle.Core.DisplayedFEN,
 		CurrentFEN:     item.State.CurrentFEN,
-		PreludeUCI:     puzzle.PreludeUCI,
-		Solver:         puzzle.Solver,
+		PreludeUCI:     item.Snapshot.PreludeUCI,
+		Solver:         puzzle.Core.Solver,
 		CurrentPath:    slices.Clone(item.State.Path),
 		PuzzleNumber:   session.CurrentIndex + 1,
 		PuzzleTotal:    len(session.Items),

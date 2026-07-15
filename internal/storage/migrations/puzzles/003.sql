@@ -1,9 +1,3 @@
-CREATE TABLE schema_migrations (
-  version INTEGER PRIMARY KEY
-);
-
-INSERT INTO schema_migrations(version) VALUES (3);
-
 CREATE TABLE sources (
   source_id TEXT PRIMARY KEY,
   kind TEXT NOT NULL
@@ -12,7 +6,7 @@ CREATE TABLE sources (
 CREATE TABLE source_generations (
   generation_id TEXT PRIMARY KEY,
   source_id TEXT NOT NULL REFERENCES sources(source_id),
-  status TEXT NOT NULL CHECK (status IN ('building', 'sealed', 'abandoned')),
+  status TEXT NOT NULL CHECK(status IN ('building', 'sealed', 'abandoned')),
   source_path TEXT NOT NULL,
   checksum TEXT,
   started_at INTEGER NOT NULL CHECK (started_at > 0),
