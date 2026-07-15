@@ -183,13 +183,17 @@ The puzzle store exposes separate handles for reads and writes against the same 
 - Rating at the time the puzzle was scheduled.
 - Normalized source themes as JSON.
 
+The same snapshot columns are stored on every queued `session_item`. Only the current item has an attempt row, so later attempts must copy the metadata selected when the session was scheduled rather than consulting a possibly reimported catalogue.
+
+The new columns are nullable for schema compatibility. Before a recognized legacy puzzle catalogue is deleted, startup performs a one-time cross-store backfill for legacy attempts and queued session items whose snapshot is null. It reads source kind, rating, and themes from the matching legacy fingerprint/source rows. A valid legacy catalogue therefore retains its existing historical theme attribution through recreation. If a legacy row has no matching occurrence, its snapshot remains null and reporting omits unknown themes instead of inventing attribution from a future replacement catalogue.
+
 Review state also records a preferred source ID. Existing rows receive a null preferred source and choose a deterministic active occurrence when next scheduled. New or updated review rows retain the occurrence used by the attempt. If that source no longer contains the fingerprint, scheduling may choose another active occurrence for the same core; if none exists, the review remains dormant until the fingerprint returns.
 
 Parent theme metrics read attempt snapshots from `user.sqlite`; they no longer reconstruct history from the mutable current puzzle catalogue.
 
 ## Legacy Catalogue Recreation and Startup
 
-The application opens `user.sqlite` independently from the replaceable puzzle catalogue.
+The application opens and migrates `user.sqlite` before replacing the puzzle catalogue. If the puzzle store has the recognized legacy schema, it backfills null attempt and session-item snapshots, closes the legacy handle, and only then recreates `puzzles.sqlite`.
 
 Puzzle-store startup performs a cheap schema/version probe. A known legacy puzzle schema is closed, its database and WAL/SHM sidecars are removed, and a fresh generational catalogue is created. This behavior is authorized only for `puzzles.sqlite`; no user or game-library database is rebuilt by this path.
 
@@ -264,5 +268,6 @@ Implementation follows red-green-refactor. Every behavior change begins with a f
 - Activation performs no source-wide delete, catalogue-wide merge, or global index rebuild.
 - Additional puzzle sources can retain independent metadata for a shared canonical fingerprint.
 - Attempts and parent theme history remain stable after source reimport or complete puzzle-catalogue recreation.
+- Queued session items retain the source metadata selected at scheduling time, even when their attempts start after a restart or source reimport.
 - Normal startup does not scan the complete puzzle catalogue.
 - `go test ./...`, the serial frontend test suite, the frontend production build, and the race suite pass; explicit performance tests run separately from the race suite.
