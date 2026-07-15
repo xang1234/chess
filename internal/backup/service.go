@@ -85,12 +85,26 @@ func (s *Service) validateDestination(destination string) error {
 	if err != nil {
 		return fmt.Errorf("resolve backup destination: %w", err)
 	}
+	destinationInfo, destinationStatErr := os.Stat(canonicalDestination)
+	if destinationStatErr != nil && !errors.Is(destinationStatErr, os.ErrNotExist) {
+		return fmt.Errorf("inspect backup destination: %w", destinationStatErr)
+	}
 	for _, managed := range []string{s.paths.UserDB, s.paths.LibraryDB, s.paths.PuzzlesDB} {
 		canonicalManaged, err := canonicalPath(managed)
 		if err != nil {
 			return fmt.Errorf("resolve managed database path: %w", err)
 		}
-		if canonicalDestination == canonicalManaged {
+		sameFile := false
+		if destinationStatErr == nil {
+			managedInfo, err := os.Stat(canonicalManaged)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("inspect managed database: %w", err)
+			}
+			if err == nil {
+				sameFile = os.SameFile(destinationInfo, managedInfo)
+			}
+		}
+		if canonicalDestination == canonicalManaged || sameFile {
 			return fmt.Errorf("backup destination %q resolves to managed database %q", destination, managed)
 		}
 	}

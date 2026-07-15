@@ -246,6 +246,26 @@ func TestServiceCreateRejectsManagedDatabaseDestinationAliases(t *testing.T) {
 	})
 }
 
+func TestServiceCreateRejectsCaseVariantManagedDatabaseDestination(t *testing.T) {
+	paths := managedDatabaseFixture(t)
+	destination := filepath.Join(paths.Root, "USER.SQLITE")
+	managedInfo, err := os.Stat(paths.UserDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destinationInfo, err := os.Stat(destination)
+	if os.IsNotExist(err) {
+		t.Skip("temp filesystem is case-sensitive: uppercase alias does not resolve to existing user.sqlite")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(destinationInfo, managedInfo) {
+		t.Fatal("case-variant destination exists but does not identify user.sqlite")
+	}
+	assertManagedDestinationRejected(t, paths, destination, paths.UserDB)
+}
+
 func managedDatabaseFixture(t *testing.T) storage.Paths {
 	t.Helper()
 	paths := storage.PathsAt(filepath.Join(t.TempDir(), "data"))
