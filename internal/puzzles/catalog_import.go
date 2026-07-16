@@ -20,6 +20,7 @@ type generationImportState uint8
 
 const (
 	generationImportBuilding generationImportState = iota
+	generationImportFinalizing
 	generationImportSealed
 	generationImportActivated
 	generationImportAbandoned
@@ -46,6 +47,7 @@ type generationRow struct {
 
 type sqliteGenerationImport struct {
 	catalog         *SQLiteCatalog
+	stage           *generationStage
 	source          Source
 	generationID    string
 	hadExpectedHead bool
@@ -128,9 +130,23 @@ func (c *SQLiteCatalog) BeginImport(
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit generation import start: %w", err)
 	}
+	stage, err := createGenerationStage(ctx, c.writeDB, generationID)
+	if err != nil {
+		if _, abandonErr := c.writeDB.ExecContext(
+			context.WithoutCancel(ctx),
+			`UPDATE source_generations
+			 SET status = 'abandoned'
+			 WHERE generation_id = ? AND status = 'building'`,
+			generationID,
+		); abandonErr != nil {
+			err = errors.Join(err, fmt.Errorf("abandon generation without stage: %w", abandonErr))
+		}
+		return nil, err
+	}
 
 	return &sqliteGenerationImport{
 		catalog:         c,
+		stage:           stage,
 		source:          source,
 		generationID:    generationID,
 		hadExpectedHead: hadExpectedHead,
@@ -249,177 +265,9 @@ func (s *sqliteGenerationImport) flush(ctx context.Context) error {
 	if s.state != generationImportBuilding {
 		return errors.New("generation import is not building")
 	}
-	tx, err := s.catalog.writeDB.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin generation import batch: %w", err)
+	if err := s.stage.append(ctx, s.buffer); err != nil {
+		return err
 	}
-	defer tx.Rollback()
-
-	var status string
-	if err := tx.QueryRowContext(
-		ctx,
-		`SELECT status
-		 FROM source_generations
-		 WHERE generation_id = ? AND source_id = ?`,
-		s.generationID,
-		s.source.ID,
-	).Scan(&status); err != nil {
-		return fmt.Errorf("read generation import status: %w", err)
-	}
-	if status != "building" {
-		return fmt.Errorf("generation import status is %q, want building", status)
-	}
-
-	coreInsert, err := tx.PrepareContext(ctx, `INSERT INTO puzzle_cores(
-		fingerprint, displayed_fen, solver, solution_json, solution_plies
-	) VALUES (?, ?, ?, ?, ?)
-	ON CONFLICT(fingerprint) DO NOTHING`)
-	if err != nil {
-		return fmt.Errorf("prepare puzzle core insert: %w", err)
-	}
-	defer coreInsert.Close()
-	coreSelect, err := tx.PrepareContext(ctx, `SELECT
-		displayed_fen, solver, solution_json, solution_plies
-	FROM puzzle_cores WHERE fingerprint = ?`)
-	if err != nil {
-		return fmt.Errorf("prepare puzzle core select: %w", err)
-	}
-	defer coreSelect.Close()
-	occurrenceInsert, err := tx.PrepareContext(ctx, `INSERT INTO puzzle_occurrences(
-		generation_id, fingerprint, external_id, source_fen, prelude_uci,
-		rating, popularity, play_count, source_url, attribution, metadata_json, ordinal
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(generation_id, fingerprint) DO NOTHING`)
-	if err != nil {
-		return fmt.Errorf("prepare puzzle occurrence insert: %w", err)
-	}
-	defer occurrenceInsert.Close()
-	occurrenceUpdate, err := tx.PrepareContext(ctx, `UPDATE puzzle_occurrences SET
-		external_id = ?, source_fen = ?, prelude_uci = ?, rating = ?, popularity = ?,
-		play_count = ?, source_url = ?, attribution = ?, metadata_json = ?, ordinal = ?
-	WHERE generation_id = ? AND fingerprint = ?`)
-	if err != nil {
-		return fmt.Errorf("prepare puzzle occurrence update: %w", err)
-	}
-	defer occurrenceUpdate.Close()
-	themeDelete, err := tx.PrepareContext(ctx, `DELETE FROM occurrence_themes
-		WHERE generation_id = ? AND fingerprint = ?`)
-	if err != nil {
-		return fmt.Errorf("prepare occurrence theme delete: %w", err)
-	}
-	defer themeDelete.Close()
-	themeInsert, err := tx.PrepareContext(ctx, `INSERT INTO occurrence_themes(
-		generation_id, fingerprint, theme
-	) VALUES (?, ?, ?)`)
-	if err != nil {
-		return fmt.Errorf("prepare occurrence theme insert: %w", err)
-	}
-	defer themeInsert.Close()
-
-	var accepted, duplicates int64
-	for _, row := range s.buffer {
-		result, err := coreInsert.ExecContext(
-			ctx,
-			row.fingerprint,
-			row.displayedFEN,
-			row.solver,
-			row.solutionJSON,
-			row.solutionPlies,
-		)
-		if err != nil {
-			return fmt.Errorf("insert puzzle core %q: %w", row.fingerprint, err)
-		}
-		inserted, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("count inserted puzzle core %q: %w", row.fingerprint, err)
-		}
-		if inserted == 0 {
-			var displayedFEN, solver, solutionJSON string
-			var solutionPlies int
-			if err := coreSelect.QueryRowContext(ctx, row.fingerprint).Scan(
-				&displayedFEN,
-				&solver,
-				&solutionJSON,
-				&solutionPlies,
-			); err != nil {
-				return fmt.Errorf("read existing puzzle core %q: %w", row.fingerprint, err)
-			}
-			if displayedFEN != row.displayedFEN || solver != row.solver ||
-				solutionJSON != row.solutionJSON || solutionPlies != row.solutionPlies {
-				return fmt.Errorf(
-					"%w: fingerprint %q maps to different stable content",
-					ErrCatalogCorrupt,
-					row.fingerprint,
-				)
-			}
-		}
-
-		result, err = occurrenceInsert.ExecContext(
-			ctx,
-			s.generationID,
-			row.fingerprint,
-			generationNullString(row.externalID),
-			generationNullString(row.sourceFEN),
-			generationNullString(row.preludeUCI),
-			generationNullableInt(row.rating),
-			generationNullableInt(row.popularity),
-			generationNullableInt(row.playCount),
-			generationNullString(row.sourceURL),
-			generationNullString(row.attribution),
-			row.metadataJSON,
-			row.ordinal,
-		)
-		if err != nil {
-			return fmt.Errorf("insert puzzle occurrence %q: %w", row.fingerprint, err)
-		}
-		inserted, err = result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("count inserted puzzle occurrence %q: %w", row.fingerprint, err)
-		}
-		if inserted == 1 {
-			accepted++
-		} else {
-			duplicates++
-			result, err = occurrenceUpdate.ExecContext(
-				ctx,
-				generationNullString(row.externalID),
-				generationNullString(row.sourceFEN),
-				generationNullString(row.preludeUCI),
-				generationNullableInt(row.rating),
-				generationNullableInt(row.popularity),
-				generationNullableInt(row.playCount),
-				generationNullString(row.sourceURL),
-				generationNullString(row.attribution),
-				row.metadataJSON,
-				row.ordinal,
-				s.generationID,
-				row.fingerprint,
-			)
-			if err != nil {
-				return fmt.Errorf("update puzzle occurrence %q: %w", row.fingerprint, err)
-			}
-			updated, rowsErr := result.RowsAffected()
-			if rowsErr != nil {
-				return fmt.Errorf("count updated puzzle occurrence %q: %w", row.fingerprint, rowsErr)
-			}
-			if updated != 1 {
-				return fmt.Errorf("update puzzle occurrence %q affected %d rows, want 1", row.fingerprint, updated)
-			}
-		}
-		if _, err := themeDelete.ExecContext(ctx, s.generationID, row.fingerprint); err != nil {
-			return fmt.Errorf("replace occurrence themes for %q: %w", row.fingerprint, err)
-		}
-		for _, theme := range row.themes {
-			if _, err := themeInsert.ExecContext(ctx, s.generationID, row.fingerprint, theme); err != nil {
-				return fmt.Errorf("insert occurrence theme %q for %q: %w", theme, row.fingerprint, err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit generation import batch: %w", err)
-	}
-	s.report.Accepted += accepted
-	s.report.Duplicates += duplicates
 	s.buffer = s.buffer[:0]
 	return nil
 }
@@ -449,7 +297,42 @@ func (s *sqliteGenerationImport) Seal(ctx context.Context, checksum string) (Imp
 	if err := s.flush(ctx); err != nil {
 		return ImportReport{}, err
 	}
-	result, err := s.catalog.writeDB.ExecContext(
+	s.state = generationImportFinalizing
+	if err := s.materialize(ctx); err != nil {
+		return ImportReport{}, err
+	}
+	if err := s.sealMaterializedGeneration(ctx, normalizedChecksum); err != nil {
+		return ImportReport{}, err
+	}
+	s.state = generationImportSealed
+	return cloneImportReport(s.report), nil
+}
+
+func (s *sqliteGenerationImport) sealMaterializedGeneration(
+	ctx context.Context,
+	normalizedChecksum string,
+) error {
+	tx, err := s.catalog.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin puzzle source generation seal: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO generation_themes(generation_id, theme)
+		 SELECT ?, theme
+		 FROM (
+		   SELECT DISTINCT theme
+		   FROM occurrence_themes
+		   WHERE generation_id = ?
+		 )`,
+		s.generationID,
+		s.generationID,
+	); err != nil {
+		return fmt.Errorf("build sealed generation theme facet: %w", err)
+	}
+	result, err := tx.ExecContext(
 		ctx,
 		`UPDATE source_generations
 		 SET status = 'sealed', checksum = ?, sealed_at = ?
@@ -460,17 +343,19 @@ func (s *sqliteGenerationImport) Seal(ctx context.Context, checksum string) (Imp
 		s.source.ID,
 	)
 	if err != nil {
-		return ImportReport{}, fmt.Errorf("seal puzzle source generation: %w", err)
+		return fmt.Errorf("seal puzzle source generation: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return ImportReport{}, fmt.Errorf("count sealed puzzle source generations: %w", err)
+		return fmt.Errorf("count sealed puzzle source generations: %w", err)
 	}
 	if affected != 1 {
-		return ImportReport{}, errors.New("generation import is not building")
+		return errors.New("generation import is not building")
 	}
-	s.state = generationImportSealed
-	return cloneImportReport(s.report), nil
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit puzzle source generation seal: %w", err)
+	}
+	return nil
 }
 
 func cloneImportReport(report ImportReport) ImportReport {
@@ -540,7 +425,15 @@ func (s *sqliteGenerationImport) Activate(ctx context.Context) error {
 	return nil
 }
 
-func (s *sqliteGenerationImport) Abandon(ctx context.Context) error {
+func (s *sqliteGenerationImport) Abandon(ctx context.Context) (returnErr error) {
+	defer func() {
+		stageErr := s.stage.closeAndRemove()
+		s.stage = nil
+		s.buffer = nil
+		s.state = generationImportAbandoned
+		returnErr = errors.Join(returnErr, stageErr)
+	}()
+
 	result, err := s.catalog.writeDB.ExecContext(
 		ctx,
 		`UPDATE source_generations
@@ -555,7 +448,5 @@ func (s *sqliteGenerationImport) Abandon(ctx context.Context) error {
 	if _, err := result.RowsAffected(); err != nil {
 		return fmt.Errorf("count abandoned puzzle source generations: %w", err)
 	}
-	s.buffer = nil
-	s.state = generationImportAbandoned
 	return nil
 }

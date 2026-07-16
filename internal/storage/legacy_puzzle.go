@@ -151,6 +151,16 @@ func probePuzzleStoreOpen(path string) (PuzzleFileState, *sql.DB, error) {
 	if !equalPuzzleSchemas(actualSchema, wantSchema) {
 		return state, db, fmt.Errorf("puzzle database %s does not match the exact schema for format %d", path, maximum)
 	}
+	if !legacy {
+		if err := validateCurrentPuzzlePhysicalSchema(db); err != nil {
+			return state, db, fmt.Errorf(
+				"puzzle database %s does not match the exact physical schema for format %d: %w",
+				path,
+				maximum,
+				err,
+			)
+		}
+	}
 
 	state.Legacy = legacy
 	return state, db, nil
@@ -897,8 +907,8 @@ var currentPuzzleSchema = puzzleSchemaSignature{
 		puzzleColumn("solution_plies", "INTEGER", 1, 0),
 	},
 	"puzzle_occurrences": {
-		puzzleColumn("generation_id", "TEXT", 1, 1),
-		puzzleColumn("fingerprint", "TEXT", 1, 2),
+		puzzleColumn("generation_id", "TEXT", 1, 2),
+		puzzleColumn("fingerprint", "TEXT", 1, 1),
 		puzzleColumn("external_id", "TEXT", 0, 0),
 		puzzleColumn("source_fen", "TEXT", 0, 0),
 		puzzleColumn("prelude_uci", "TEXT", 0, 0),
@@ -908,11 +918,21 @@ var currentPuzzleSchema = puzzleSchemaSignature{
 		puzzleColumn("source_url", "TEXT", 0, 0),
 		puzzleColumn("attribution", "TEXT", 0, 0),
 		puzzleColumnWithDefault("metadata_json", "TEXT", 1, 0, "'{}'"),
+		puzzleColumnWithDefault("themes_json", "TEXT", 1, 0, "'[]'"),
 		puzzleColumn("ordinal", "INTEGER", 1, 0),
+	},
+	"occurrence_ratings": {
+		puzzleColumn("generation_id", "TEXT", 1, 1),
+		puzzleColumn("rating_key", "INTEGER", 1, 2),
+		puzzleColumn("fingerprint", "TEXT", 1, 3),
 	},
 	"occurrence_themes": {
 		puzzleColumn("generation_id", "TEXT", 1, 1),
-		puzzleColumn("fingerprint", "TEXT", 1, 2),
-		puzzleColumn("theme", "TEXT", 1, 3),
+		puzzleColumn("fingerprint", "TEXT", 1, 3),
+		puzzleColumn("theme", "TEXT", 1, 2),
+	},
+	"generation_themes": {
+		puzzleColumn("generation_id", "TEXT", 1, 1),
+		puzzleColumn("theme", "TEXT", 1, 2),
 	},
 }

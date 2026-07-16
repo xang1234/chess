@@ -1128,11 +1128,19 @@ git commit -m "feat: activate the generational puzzle catalogue"
 - Create: `internal/puzzles/catalog_performance_test.go`
 - Modify as a measured regression requires: catalogue/import implementation files
 
-- [ ] **Step 1: Isolate timing assertions from correctness/race tests**
+**Measured refinement:** Profiling replaced superlinear direct final-table writes with two non-overlapping disposable catalogue-local SQLite artifacts. The ordered writer appends normalized rows to an append stage in 1,000-row transactions. Sealing performs one wide external window sort over `(fingerprint, row_id DESC)` into a separate full-width, fingerprint-clustered winner database; that same sort selects the last stream row, counts duplicates, and computes exact stable-core conflicts without a per-winner append-stage lookup. After the winner normally closes, the append stage is deleted before any durable final-table write. The sole final writer then sequentially scans the winner for cores and canonical occurrences, and sequentially reads it into destination-order rating and theme sorts. Each final phase disables automatic checkpointing, commits under WAL `synchronous=NORMAL`, runs a truncating checkpoint, and restores the 16,384-page setting. Because destination rating/theme order randomizes their fingerprint-first parent lookups at full scale, those two phases suspend foreign-key probes only on the sole writer outside transactions and restore enforcement on every path. Before seal, authoritative winner-versus-destination rating and theme audits compare positive expected and negative actual full keys with one grouped external sort and sequential scans, catching missing, extra, and replaced rows without per-row parent searches; a scoped SQLite foreign-key check validates occurrence rows built with enforcement enabled. The final schema uses a fingerprint-first `puzzle_occurrences` primary key with a canonical theme snapshot, one generation/fingerprint maintenance index for bounded cleanup, generation/theme/fingerprint occurrence-theme storage, a compact generation/rating-key/fingerprint `occurrence_ratings` table, no other reverse secondary indexes, and an exact sealed-generation theme facet. `rating_key` uses the signed 64-bit minimum solely to order null-rated occurrences before rated ones in unbounded practice. Candidate queries count indexed live theme membership and choose membership-first at 1,000 rows or fewer and rating-first above that threshold.
+
+A 500,000-row synthetic tracer completed in 1m57.494s: 1m13.455s staging, 3.060s winner compaction, 40.300s across the four checkpointed final phases, and 0.529s for facet plus seal. It retained exact last-record-wins results for 499,964 winners and 36 duplicates, increased Go heap by about 10 MiB and RSS by about 204 MiB, used a 1.300 GB peak database footprint against the full-gate-derived 2.392 GB ceiling, activated in 141 microseconds, and returned common-theme and rare-theme probes in 23.47 ms and 2.48 ms respectively. The generation/fingerprint cleanup index was added after this tracer; occurrence rows already arrive in its key order and the measured footprint retained about 1.092 GB of reserve. This evidence validates the promoted shape but does not replace the downloaded full-dataset acceptance gate below.
+
+The first downloaded full-dataset run exposed a per-winner append-stage row-ID probe that delayed final materialization until 46m53s. Folding exact conflict detection into winner aggregation moved that boundary to about 20m, but a second run then showed the joined wide-row materialization path growing the core WAL from 529 MiB to 723 MiB in 86 seconds and projecting beyond the 65-minute gate once occurrence, rating, and theme phases were included. The focused red-green refinement therefore requires the one-sort full-width winner architecture above, exact `EXPLAIN` proof that compaction performs no staged-row search, an append-deleted-before-final lifecycle test, and a large synthetic tracer before the downloaded gate is attempted again.
+
+The first full-width-winner acceptance run reached six million staged rows in 27m22s but timed out at 65 minutes in rating materialization. VDBE evidence showed one fingerprint-first parent `Found` probe per destination-rating-ordered row. Suspending those probes reduced the 500,000-row materialization gate from 39.049s to 15.629s, but the next full run crossed one hour in the generic `PRAGMA foreign_key_check`, which performed the same cache-hostile child-order parent probes. Focused red-green tests then replaced only the two large-child checks with the exact ordered winner audits above. The final 500,000-row gate completed in 23.055s total, and the downloaded dataset passed in 29m04.914s with 6,052,811 accepted rows, 4,545 duplicates, zero rejections, 1.805ms activation, 22 MiB heap growth, and 299 MiB RSS growth.
+
+- [x] **Step 1: Isolate timing assertions from correctness/race tests**
 
 Add `//go:build performance` to `full_import_test.go` and the new performance file. No ordinary test may assert wall-clock ingestion, activation, or query speed.
 
-- [ ] **Step 2: Add synthetic activation and candidate-query gates**
+- [x] **Step 2: Add synthetic activation and candidate-query gates**
 
 Add:
 
@@ -1152,7 +1160,7 @@ go test -tags=performance ./internal/puzzles \
 
 Expected: PASS; activation updates only one head row.
 
-- [ ] **Step 3: Upgrade the real Lichess acceptance test**
+- [x] **Step 3: Upgrade the real Lichess acceptance test**
 
 Use the dual-handle store and a test-only catalogue decorator that times the exact `GenerationImport.Activate` call without production instrumentation. Seed a prior head for the same source. On many progress callbacks across ingestion batches, read through the public reader and assert the complete old occurrence remains visible.
 
@@ -1167,7 +1175,7 @@ Assert:
 - no decompressed CSV is created;
 - post-activation candidates are source-aware and available.
 
-- [ ] **Step 4: Run the actual downloaded dataset gate**
+- [x] **Step 4: Run the actual downloaded dataset gate**
 
 Run:
 
@@ -1180,7 +1188,7 @@ CHESS_TRAINER_LICHESS_PATH="$CHESS_TRAINER_LICHESS_PATH" \
 
 Expected: the test itself asserts elapsed time below one hour and PASSes before the 65-minute process timeout. If it fails, retain progress/timing evidence, add a focused failing regression test or benchmark, fix the measured bottleneck, and rerun.
 
-- [ ] **Step 5: Re-run ordinary correctness after performance changes**
+- [x] **Step 5: Re-run ordinary correctness after performance changes**
 
 Run:
 
@@ -1190,7 +1198,7 @@ go test ./... -count=1
 
 Expected: PASS; performance-tagged files are not compiled.
 
-- [ ] **Step 6: Commit full-scale coverage**
+- [x] **Step 6: Commit full-scale coverage**
 
 Run:
 

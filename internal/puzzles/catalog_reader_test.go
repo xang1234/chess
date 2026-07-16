@@ -3,6 +3,7 @@ package puzzles
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/storage"
 )
 
 func TestGetRequiresFingerprintAndSource(t *testing.T) {
@@ -37,6 +39,43 @@ func TestGetRequiresFingerprintAndSource(t *testing.T) {
 		if _, err := catalog.Get(context.Background(), key); !errors.Is(err, sql.ErrNoRows) {
 			t.Fatalf("Get(%+v) err = %v, want sql.ErrNoRows", key, err)
 		}
+	}
+}
+
+func TestGetHydratesThemesFromOccurrenceSnapshot(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("theme-snapshot", "test", "/theme-snapshot")
+	generationID := seedActiveReaderGeneration(
+		t,
+		store,
+		source,
+		testTrainingPuzzle(source, "theme-snapshot-puzzle", 1500, "fork", "pin"),
+	)
+
+	if _, err := store.Writer.Exec(`UPDATE puzzle_occurrences
+		SET themes_json = '["fork","pin"]'
+		WHERE generation_id = ? AND fingerprint = ?`, generationID, "theme-snapshot-puzzle"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Writer.Exec(`DELETE FROM occurrence_themes
+		WHERE generation_id = ? AND fingerprint = ?`, generationID, "theme-snapshot-puzzle"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Writer.Exec(`INSERT INTO occurrence_themes(
+		generation_id, theme, fingerprint
+	) VALUES (?, 'decoy', ?)`, generationID, "theme-snapshot-puzzle"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := catalog.Get(context.Background(), PuzzleKey{
+		Fingerprint: "theme-snapshot-puzzle",
+		SourceID:    source.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Occurrence.Themes, []string{"fork", "pin"}) {
+		t.Fatalf("hydrated themes = %q, want occurrence snapshot", got.Occurrence.Themes)
 	}
 }
 
@@ -187,6 +226,213 @@ func TestRatedCandidatesReturnOneDeterministicOccurrencePerFingerprint(t *testin
 	}
 }
 
+func TestRatedCandidatesAreDrivenByRatingMembership(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("rated-membership", "test", "/rated-membership")
+	included := testTrainingPuzzle(source, "rated-included", 1500)
+	withoutMembership := testTrainingPuzzle(source, "rated-without-membership", 1500)
+	withoutMembership.Occurrence.Ordinal = 2
+	generationID := seedActiveReaderGeneration(
+		t,
+		store,
+		source,
+		included,
+		withoutMembership,
+	)
+
+	if _, err := store.Writer.Exec(`DELETE FROM occurrence_ratings WHERE generation_id = ?`, generationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Writer.Exec(`INSERT INTO occurrence_ratings(
+		generation_id, rating_key, fingerprint
+	) VALUES (?, 1500, 'rated-included')`, generationID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := catalog.RatedCandidates(context.Background(), 1400, 1600, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fingerprints := candidateFingerprints(got); !reflect.DeepEqual(fingerprints, []string{"rated-included"}) {
+		t.Fatalf("rated candidates = %q, want rating membership only", fingerprints)
+	}
+}
+
+func TestRatedCandidatesPreferOnlySourcesInsideRatingWindow(t *testing.T) {
+	catalog, _ := openTestGenerationalCatalog(t)
+	alpha := testSource("alpha", "csv", "/rated-window-alpha")
+	beta := testSource("beta", "csv", "/rated-window-beta")
+	// Alpha is lexically preferred for shared fingerprints, but its occurrence
+	// is outside this request's rating window. Beta must remain eligible.
+	sealAndActivate(t, beginGenerationImport(t, catalog, alpha), testTrainingPuzzle(alpha, "shared-window", 900))
+	sealAndActivate(t, beginGenerationImport(t, catalog, beta), testTrainingPuzzle(beta, "shared-window", 1500))
+
+	got, err := catalog.RatedCandidates(context.Background(), 1000, 2000, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Core.Fingerprint != "shared-window" ||
+		got[0].Occurrence.SourceID != beta.ID || got[0].Occurrence.Rating == nil ||
+		*got[0].Occurrence.Rating != 1500 {
+		t.Fatalf("rated-window candidates = %+v, want beta's in-window occurrence", got)
+	}
+}
+
+func TestFreePracticeThemeStrategySwitchesAboveOneThousandMemberships(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		membershipCount int
+		wantCandidates  int
+	}{
+		{name: "one thousand uses membership first", membershipCount: 1_000, wantCandidates: 1},
+		{name: "above one thousand uses rating first", membershipCount: 1_001, wantCandidates: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			catalog, store := openTestGenerationalCatalog(t)
+			source := testSource(
+				fmt.Sprintf("theme-threshold-%d", test.membershipCount),
+				"test",
+				fmt.Sprintf("/theme-threshold-%d", test.membershipCount),
+			)
+			puzzles := make([]TrainingPuzzle, 0, test.membershipCount)
+			for index := range test.membershipCount {
+				puzzle := testTrainingPuzzle(
+					source,
+					fmt.Sprintf("threshold-%04d", index),
+					1_200+index,
+					"fork",
+				)
+				puzzle.Occurrence.Ordinal = int64(index + 1)
+				puzzles = append(puzzles, puzzle)
+			}
+			generationID := seedActiveReaderGeneration(t, store, source, puzzles...)
+			if _, err := store.Writer.Exec(`DELETE FROM occurrence_ratings WHERE generation_id = ?`, generationID); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := catalog.FreePracticeCandidates(
+				context.Background(),
+				source.ID,
+				nil,
+				nil,
+				[]string{"fork"},
+				nil,
+				1,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != test.wantCandidates {
+				t.Fatalf(
+					"candidate count with %d memberships = %d, want %d",
+					test.membershipCount,
+					len(got),
+					test.wantCandidates,
+				)
+			}
+		})
+	}
+}
+
+func TestFreePracticeCandidatesAreDrivenByRatingMembership(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("practice-rating-membership", "test", "/practice-rating-membership")
+	included := testTrainingPuzzle(source, "practice-included", 1400)
+	withoutMembership := testTrainingPuzzle(source, "practice-without-membership", 1500)
+	withoutMembership.Occurrence.Ordinal = 2
+	generationID := seedActiveReaderGeneration(t, store, source, included, withoutMembership)
+	if _, err := store.Writer.Exec(`DELETE FROM occurrence_ratings
+		WHERE generation_id = ? AND fingerprint = 'practice-without-membership'`, generationID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := catalog.FreePracticeCandidates(
+		context.Background(), source.ID, nil, nil, nil, nil, 10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fingerprints := candidateFingerprints(got); !reflect.DeepEqual(fingerprints, []string{"practice-included"}) {
+		t.Fatalf("practice candidates = %q, want rating membership only", fingerprints)
+	}
+}
+
+func TestFreePracticeWithoutRatingBoundsIncludesUnratedOccurrences(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("practice-unrated", "test", "/practice-unrated")
+	unrated := testTrainingPuzzle(source, "practice-unrated", 0)
+	unrated.Occurrence.Rating = nil
+	rated := testTrainingPuzzle(source, "practice-rated", 1500)
+	rated.Occurrence.Ordinal = 2
+	seedActiveReaderGeneration(t, store, source, unrated, rated)
+
+	got, err := catalog.FreePracticeCandidates(
+		context.Background(), source.ID, nil, nil, nil, nil, 10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fingerprints := candidateFingerprints(got); !reflect.DeepEqual(
+		fingerprints,
+		[]string{"practice-unrated", "practice-rated"},
+	) {
+		t.Fatalf("unbounded practice candidates = %q, want unrated first", fingerprints)
+	}
+
+	maximum := 2_000
+	bounded, err := catalog.FreePracticeCandidates(
+		context.Background(), source.ID, nil, &maximum, nil, nil, 10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fingerprints := candidateFingerprints(bounded); !reflect.DeepEqual(
+		fingerprints,
+		[]string{"practice-rated"},
+	) {
+		t.Fatalf("maximum-bounded practice candidates = %q, want rated only", fingerprints)
+	}
+}
+
+func TestFreePracticeOverlappingThemesPreserveAnySemantics(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("theme-overlap", "test", "/theme-overlap")
+	const puzzleCount = 501
+	puzzles := make([]TrainingPuzzle, 0, puzzleCount)
+	for index := range puzzleCount {
+		puzzle := testTrainingPuzzle(
+			source,
+			fmt.Sprintf("overlap-%04d", index),
+			1_200+index,
+			"fork",
+			"pin",
+		)
+		puzzle.Occurrence.Ordinal = int64(index + 1)
+		puzzles = append(puzzles, puzzle)
+	}
+	generationID := seedActiveReaderGeneration(t, store, source, puzzles...)
+	if _, err := store.Writer.Exec(`DELETE FROM occurrence_ratings
+		WHERE generation_id = ? AND fingerprint <> 'overlap-0500'`, generationID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := catalog.FreePracticeCandidates(
+		context.Background(),
+		source.ID,
+		nil,
+		nil,
+		[]string{"fork", "pin"},
+		nil,
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fingerprints := candidateFingerprints(got); !reflect.DeepEqual(fingerprints, []string{"overlap-0500"}) {
+		t.Fatalf("overlapping-theme candidates = %q, want one eligible fingerprint", fingerprints)
+	}
+}
+
 func TestReaderSeesOldHeadAcrossManyImportBatches(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
 	source := testSource("batched", "test", "/batched-active")
@@ -329,4 +575,108 @@ func reportSnapshotReadError(target chan<- error, err error) {
 	case target <- err:
 	default:
 	}
+}
+
+func seedActiveReaderGeneration(
+	t *testing.T,
+	store *storage.PuzzleStore,
+	source Source,
+	puzzles ...TrainingPuzzle,
+) string {
+	t.Helper()
+	ctx := context.Background()
+	generationID := source.ID + "-reader-generation"
+	tx, err := store.Writer.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sources(source_id, kind) VALUES (?, ?)`, source.ID, source.Kind); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO source_generations(
+		generation_id, source_id, status, source_path, checksum, started_at, sealed_at
+	) VALUES (?, ?, 'sealed', ?, 'reader-fixture', ?, ?)`,
+		generationID, source.ID, source.Path, source.StartedAt.Unix(), source.StartedAt.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	for _, puzzle := range puzzles {
+		solutionJSON, err := json.Marshal(normalizeNodes(puzzle.Core.Solution))
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata := puzzle.Occurrence.Metadata
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			t.Fatal(err)
+		}
+		themes := domain.NormalizeThemes(puzzle.Occurrence.Themes)
+		themesJSON, err := json.Marshal(themes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO puzzle_cores(
+			fingerprint, displayed_fen, solver, solution_json, solution_plies
+		) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(fingerprint) DO NOTHING`,
+			puzzle.Core.Fingerprint,
+			puzzle.Core.DisplayedFEN,
+			puzzle.Core.Solver,
+			string(solutionJSON),
+			puzzle.Core.SolutionPlies,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO puzzle_occurrences(
+			generation_id, fingerprint, external_id, source_fen, prelude_uci,
+			rating, popularity, play_count, source_url, attribution, metadata_json,
+			themes_json, ordinal
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			generationID,
+			puzzle.Core.Fingerprint,
+			generationNullString(puzzle.Occurrence.ExternalID),
+			generationNullString(puzzle.Occurrence.SourceFEN),
+			generationNullString(puzzle.Occurrence.PreludeUCI),
+			generationNullableInt(puzzle.Occurrence.Rating),
+			generationNullableInt(puzzle.Occurrence.Popularity),
+			generationNullableInt(puzzle.Occurrence.PlayCount),
+			generationNullString(puzzle.Occurrence.URL),
+			generationNullString(puzzle.Occurrence.Attribution),
+			string(metadataJSON),
+			string(themesJSON),
+			puzzle.Occurrence.Ordinal,
+		); err != nil {
+			t.Fatal(err)
+		}
+		ratingKey := nullPuzzleRatingKey
+		if puzzle.Occurrence.Rating != nil {
+			ratingKey = int64(*puzzle.Occurrence.Rating)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO occurrence_ratings(
+			generation_id, rating_key, fingerprint
+		) VALUES (?, ?, ?)`, generationID, ratingKey, puzzle.Core.Fingerprint); err != nil {
+			t.Fatal(err)
+		}
+		for _, theme := range themes {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO occurrence_themes(
+				generation_id, theme, fingerprint
+			) VALUES (?, ?, ?)`, generationID, theme, puzzle.Core.Fingerprint); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO generation_themes(generation_id, theme)
+				VALUES (?, ?) ON CONFLICT(generation_id, theme) DO NOTHING`, generationID, theme); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO source_heads(source_id, generation_id) VALUES (?, ?)`, source.ID, generationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return generationID
 }

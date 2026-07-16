@@ -3,10 +3,131 @@ package puzzles
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"chess-trainer/internal/storage"
+
+	"github.com/google/uuid"
 )
+
+func TestRecoverStartupRemovesOrphanGenerationStage(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	activeSource := testSource("orphan-stage-active", "test", "/orphan-stage-active")
+	sealAndActivate(
+		t,
+		beginGenerationImport(t, catalog, activeSource),
+		testTrainingPuzzle(activeSource, "orphan-stage-active", 1200),
+	)
+	interruptedSource := testSource("orphan-stage-building", "test", "/orphan-stage-building")
+	interrupted := beginGenerationImport(t, catalog, interruptedSource)
+	staged, ok := interrupted.(*sqliteGenerationImport)
+	if !ok {
+		t.Fatalf("generation import type = %T, want *sqliteGenerationImport", interrupted)
+	}
+	for index := range generationImportBatchSize {
+		puzzle := testTrainingPuzzle(
+			interruptedSource,
+			fmt.Sprintf("orphan-stage-%04d", index),
+			1300,
+		)
+		puzzle.Occurrence.Ordinal = int64(index + 1)
+		if err := interrupted.Add(context.Background(), puzzle); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stagePath := staged.stage.path
+	if err := staged.stage.close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stagePath); err != nil {
+		t.Fatalf("stat simulated orphan stage: %v", err)
+	}
+	stageSidecars := []string{stagePath + "-journal", stagePath + "-wal", stagePath + "-shm"}
+	for _, path := range stageSidecars {
+		if err := os.WriteFile(path, []byte("orphan"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	winnerPath := generationWinnerPathForStage(stagePath)
+	if err := os.WriteFile(winnerPath, []byte("orphan winner"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	winnerSidecars := []string{winnerPath + "-journal", winnerPath + "-wal", winnerPath + "-shm"}
+	for _, path := range winnerSidecars {
+		if err := os.WriteFile(path, []byte("orphan winner sidecar"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mainPath, err := puzzleDatabasePath(context.Background(), store.Writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoys := []string{
+		mainPath + ".stage-not-a-generation.sqlite",
+		mainPath + ".stage-" + uuid.NewString() + ".sqlite.backup",
+		mainPath + ".winner-not-a-generation.sqlite",
+		mainPath + ".winner-" + uuid.NewString() + ".sqlite.backup",
+	}
+	for _, path := range decoys {
+		if err := os.WriteFile(path, []byte("preserve"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stageShapedDirectory := mainPath + ".stage-" + uuid.NewString() + ".sqlite"
+	if err := os.Mkdir(stageShapedDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	winnerShapedDirectory := mainPath + ".winner-" + uuid.NewString() + ".sqlite"
+	if err := os.Mkdir(winnerShapedDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, path := range append(decoys, stageShapedDirectory, winnerShapedDirectory) {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				t.Errorf("remove preserved stage decoy %q: %v", path, err)
+			}
+		}
+	})
+
+	resumed := NewSQLiteCatalog(store.Reader, store.Writer)
+	if err := resumed.RecoverStartup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stagePath); !os.IsNotExist(err) {
+		t.Fatalf("orphan stage stat after recovery = %v, want not-exist", err)
+	}
+	for _, path := range stageSidecars {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("orphan stage sidecar %q stat = %v, want not-exist", path, err)
+		}
+	}
+	if _, err := os.Stat(winnerPath); !os.IsNotExist(err) {
+		t.Fatalf("orphan winner stat after recovery = %v, want not-exist", err)
+	}
+	for _, path := range winnerSidecars {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("orphan winner sidecar %q stat = %v, want not-exist", path, err)
+		}
+	}
+	for _, path := range decoys {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stage decoy %q after recovery: %v", path, err)
+		}
+	}
+	if info, err := os.Stat(stageShapedDirectory); err != nil || !info.IsDir() {
+		t.Fatalf("stage-shaped directory after recovery: info=%v err=%v", info, err)
+	}
+	if info, err := os.Stat(winnerShapedDirectory); err != nil || !info.IsDir() {
+		t.Fatalf("winner-shaped directory after recovery: info=%v err=%v", info, err)
+	}
+	if _, err := resumed.Get(context.Background(), PuzzleKey{
+		Fingerprint: "orphan-stage-active",
+		SourceID:    activeSource.ID,
+	}); err != nil {
+		t.Fatalf("old head after orphan-stage recovery: %v", err)
+	}
+}
 
 func TestRecoverStartupMarksBuildingAbandoned(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
@@ -75,25 +196,33 @@ func TestCleanupNeverTouchesActiveGeneration(t *testing.T) {
 	if _, err := catalog.Get(context.Background(), PuzzleKey{Fingerprint: "active-core", SourceID: activeSource.ID}); err != nil {
 		t.Fatalf("active puzzle removed by cleanup: %v", err)
 	}
-	var generationRows, occurrenceRows, themeRows, headRows int
+	var generationRows, occurrenceRows, ratingRows, themeRows, facetRows, headRows int
 	if err := store.Reader.QueryRow(`SELECT COUNT(*) FROM source_generations WHERE generation_id = ?`, activeGeneration).Scan(&generationRows); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Reader.QueryRow(`SELECT COUNT(*) FROM puzzle_occurrences WHERE generation_id = ?`, activeGeneration).Scan(&occurrenceRows); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.Reader.QueryRow(`SELECT COUNT(*) FROM occurrence_ratings WHERE generation_id = ?`, activeGeneration).Scan(&ratingRows); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Reader.QueryRow(`SELECT COUNT(*) FROM occurrence_themes WHERE generation_id = ?`, activeGeneration).Scan(&themeRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Reader.QueryRow(`SELECT COUNT(*) FROM generation_themes WHERE generation_id = ?`, activeGeneration).Scan(&facetRows); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Reader.QueryRow(`SELECT COUNT(*) FROM source_heads WHERE generation_id = ?`, activeGeneration).Scan(&headRows); err != nil {
 		t.Fatal(err)
 	}
-	if generationRows != 1 || occurrenceRows != 1 || themeRows != 2 || headRows != 1 {
+	if generationRows != 1 || occurrenceRows != 1 || ratingRows != 1 || themeRows != 2 || facetRows != 2 || headRows != 1 {
 		t.Fatalf(
-			"active physical rows after cleanup: generation=%d occurrence=%d themes=%d head=%d",
+			"active physical rows after cleanup: generation=%d occurrence=%d ratings=%d themes=%d facet=%d head=%d",
 			generationRows,
 			occurrenceRows,
+			ratingRows,
 			themeRows,
+			facetRows,
 			headRows,
 		)
 	}
@@ -151,6 +280,41 @@ func TestCleanupUsesOnePhysicalRowBudget(t *testing.T) {
 		}
 	}
 	t.Fatal("cleanup did not converge within 20 calls")
+}
+
+func TestCleanupOccurrencePlanStreamsOneGeneration(t *testing.T) {
+	_, store := openTestGenerationalCatalog(t)
+	details := catalogQueryPlanDetails(t, store.Reader, `
+		SELECT occurrence.generation_id, occurrence.fingerprint
+		FROM puzzle_occurrences occurrence
+		WHERE occurrence.generation_id = (
+		  SELECT MIN(generation.generation_id)
+		  FROM source_generations generation
+		  WHERE generation.status IN ('abandoned', 'sealed')
+		    AND NOT EXISTS (
+		      SELECT 1 FROM source_heads head
+		      WHERE head.generation_id = generation.generation_id
+		    )
+		)
+		  AND NOT EXISTS (
+		    SELECT 1 FROM occurrence_themes theme
+		    WHERE theme.generation_id = occurrence.generation_id
+		      AND theme.fingerprint = occurrence.fingerprint
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1 FROM occurrence_ratings rated
+		    WHERE rated.generation_id = occurrence.generation_id
+		      AND rated.fingerprint = occurrence.fingerprint
+		  )
+		ORDER BY occurrence.fingerprint
+		LIMIT ?`, 1_000)
+	assertQueryPlanContains(
+		t,
+		details,
+		"occurrence USING COVERING INDEX idx_occurrences_generation (generation_id=?)",
+	)
+	assertQueryPlanNotContains(t, details, "SCAN occurrence")
+	assertQueryPlanNotContains(t, details, "USE TEMP B-TREE")
 }
 
 func TestCleanupResumesAndConverges(t *testing.T) {
@@ -263,7 +427,9 @@ func physicalCatalogRowCount(t *testing.T, store *storage.PuzzleStore) int {
 		(SELECT COUNT(*) FROM source_heads) +
 		(SELECT COUNT(*) FROM puzzle_cores) +
 		(SELECT COUNT(*) FROM puzzle_occurrences) +
-		(SELECT COUNT(*) FROM occurrence_themes)`).Scan(&total); err != nil {
+		(SELECT COUNT(*) FROM occurrence_ratings) +
+		(SELECT COUNT(*) FROM occurrence_themes) +
+		(SELECT COUNT(*) FROM generation_themes)`).Scan(&total); err != nil {
 		t.Fatal(err)
 	}
 	return total

@@ -128,8 +128,8 @@ Inserting an existing fingerprint must verify that its canonical fields match. A
 
 - `generation_id TEXT NOT NULL REFERENCES source_generations(generation_id) ON DELETE CASCADE`
 - `fingerprint TEXT NOT NULL REFERENCES puzzle_cores(fingerprint)`
-- Source FEN, prelude, external ID, rating, popularity, play count, URL, attribution, metadata, and ordinal columns.
-- Primary key `(generation_id, fingerprint)`.
+- Source FEN, prelude, external ID, rating, popularity, play count, URL, attribution, metadata, canonical `themes_json`, and ordinal columns.
+- Primary key `(fingerprint, generation_id)` in a `WITHOUT ROWID` table.
 
 The last valid record for a repeated fingerprint within one input file wins deterministically. The report counts the first retained occurrence as accepted and subsequent input records for the same generation and fingerprint as duplicates. A canonical puzzle already present through another source is still an accepted occurrence because its source-specific provenance is retained.
 
@@ -138,10 +138,28 @@ The last valid record for a repeated fingerprint within one input file wins dete
 - `generation_id TEXT NOT NULL`
 - `fingerprint TEXT NOT NULL`
 - `theme TEXT NOT NULL`
-- Primary key `(generation_id, fingerprint, theme)`.
-- Composite foreign key to `puzzle_occurrences` with cascading deletion.
+- Primary key `(generation_id, theme, fingerprint)` in a `WITHOUT ROWID` table.
+- Composite foreign key `(fingerprint, generation_id)` to the fingerprint-first `puzzle_occurrences` primary key, with cascading deletion.
 
-Indexes cover active-generation rating queries, active-generation theme queries, generation cleanup, and fingerprint lookup. Schema DDL lives only in migrations; repositories do not recreate migration-owned indexes at runtime.
+### `occurrence_ratings`
+
+- `generation_id TEXT NOT NULL`
+- `rating_key INTEGER NOT NULL`
+- `fingerprint TEXT NOT NULL`
+- Primary key `(generation_id, rating_key, fingerprint)` in a `WITHOUT ROWID` table.
+- Composite foreign key `(fingerprint, generation_id)` to the fingerprint-first `puzzle_occurrences` primary key, with cascading deletion.
+
+`rating_key` equals the occurrence rating when present. A null occurrence rating uses the signed 64-bit minimum (`-9223372036854775808`) solely as its ordering sentinel, so unbounded practice includes unrated occurrences first without changing the nullable source value.
+
+### `generation_themes`
+
+- `generation_id TEXT NOT NULL REFERENCES source_generations(generation_id) ON DELETE CASCADE`
+- `theme TEXT NOT NULL`
+- Primary key `(generation_id, theme)` in a `WITHOUT ROWID` table.
+
+Sealing materializes this exact distinct-theme facet from the generation's final occurrence rows in the same transaction that changes the generation from `building` to `sealed`. Active theme discovery reads only sealed head facets and never rescans raw occurrence themes.
+
+The compact `occurrence_ratings` table supplies rating-key-ordered candidate lookup, while `occurrence_themes` is ordered for generation/theme membership lookup. The fingerprint-first occurrence primary key supplies fingerprint lookup, and each occurrence snapshots its canonical theme array for direct reads. One explicit `puzzle_occurrences(generation_id, fingerprint)` index lets bounded cleanup select and delete one inactive generation in key order without rescanning or sorting the catalogue; no other reverse occurrence index is retained. The sealed facet serves theme discovery. Separate indexes cover source-head and generation-status cleanup lookups. Schema DDL lives only in migrations; repositories do not recreate migration-owned indexes at runtime.
 
 ## Import Lifecycle
 
@@ -153,19 +171,24 @@ The writer performs these steps:
 
 1. In one transaction, validate/insert the immutable source identity, capture the prior head, and create a `building` generation before reading source rows.
 2. Stream and validate the source without creating a decompressed file.
-3. Write cores, occurrences, and occurrence themes in bounded transactions.
-4. Count rejected records and repeated generation-local fingerprints while retaining at most 100 rejection examples.
-5. Finish the checksum and seal the generation.
-6. In one short transaction, compare the expected previous head and switch `source_heads` to the sealed generation.
-7. Emit the terminal job snapshot and trigger the bounded cleanup worker.
+3. Send accepted puzzles and rejections through one ordered queue of at most 1,000 commands. One writer goroutine preserves input order and appends normalized accepted rows in 1,000-row transactions to a disposable catalogue-local SQLite append stage. The append stage uses an exclusive lock, a 64 MiB cache, file-backed temporary storage, and disabled journal and synchronous durability because it is never authoritative.
+4. Finish the checksum and drain the ordered writer. Build a separate full-width winner database whose `WITHOUT ROWID` table is clustered by fingerprint. One external window sort over `(fingerprint, row_id DESC)` carries each complete normalized row, selects rank one as the last input record independently of source ordinals, counts earlier copies, and computes exact stable-core `MIN`/`MAX` conflicts. Compaction must not build winner keys and then random-probe the append stage by row ID.
+5. Reject any repeated fingerprint whose stable core differs within the input. Normally close the still-disposable winner database, delete the append stage and its sidecars, then attach only the winner database to the sole final writer. Reject any winner whose stable core differs from an existing canonical core before writing that generation's final rows.
+6. Materialize cores and canonical occurrences by sequential fingerprint scans of the winner table. Materialize rating and theme memberships by sequential winner scans followed by their destination-key sorts. Run these as four bulk autocommit phases; for each phase, temporarily disable automatic WAL checkpointing, commit with `synchronous=NORMAL`, run `wal_checkpoint(TRUNCATE)`, and restore the 16,384-page automatic-checkpoint setting. On the sole writer connection only, suspend foreign-key probes outside transactions for the rating and theme phases, restore enforcement on every success and error path, and keep it enabled for all other work.
+7. Before detaching the authoritative winner, audit the complete expected and actual rating keys and theme keys using `UNION ALL` positive/negative rows grouped by the full child key. Each audit performs one external sort over sequential winner and destination scans and rejects missing, extra, or replaced materialization. Run the scoped SQLite foreign-key check for the occurrence rows built with enforcement enabled. Only after all audits pass, delete the disposable winner database, build the exact generation-theme facet, and change the generation from `building` to `sealed` in one transaction.
+8. In one short transaction, compare the expected previous head and switch `source_heads` to the sealed generation.
+9. Emit the terminal job snapshot and trigger the bounded cleanup worker.
 
 The compare-and-swap condition prevents an obsolete writer from replacing a newer head even if job exclusion is later relaxed. Activation never deletes live rows or rebuilds global indexes. Service shutdown first prevents new jobs, cancels active import and maintenance contexts, waits for their registered goroutines, and only then permits SQLite handles to close.
 
-The puzzle store exposes separate handles for reads and writes against the same WAL-mode database. The writer handle has exactly one connection and serializes import, activation, and cleanup work. The reader handle has a small bounded pool so training queries can continue against the prior source head while the writer commits batches. Every public catalogue read uses one SQL statement or one read transaction so activation and cleanup cannot mix rows from different snapshots. Connection-scoped foreign-key and busy-timeout pragmas are configured for every connection rather than only for the first connection opened. Cleanup runs only when no import is writing.
+The puzzle store exposes separate handles for reads and writes against the same WAL-mode database. The final writer handle has exactly one connection, uses `synchronous=NORMAL`, and serializes sealing, activation, and cleanup work; streaming writes use only the disposable stage. The reader handle has a small bounded pool so training queries continue against the prior source head while staging and final bulk phases run. Every public catalogue read uses one SQL statement or one read transaction so activation and cleanup cannot mix rows from different snapshots. Connection-scoped foreign-key and busy-timeout pragmas are configured for every connection rather than only for the first connection opened. Cleanup runs only when no import is writing.
 
 ## Failure and Crash Semantics
 
 - Parse, validation, disk, or database failures leave the existing head unchanged.
+- Append-stage and winner databases are disposable: a failed import removes both, and startup removes any exact canonical append, winner, or sidecar artifact left by a terminated process while preserving similarly named decoys.
+- Final materialization never overlaps the append stage on disk: the closed winner must exist before the append stage is deleted, and the append stage must be absent before the first durable final-table write.
+- A process termination during final bulk materialization may leave partial `building` rows in the durable catalogue. They remain head-invisible, startup marks the generation abandoned, and bounded cleanup reclaims them.
 - Cancellation marks the generation abandoned and returns promptly; physical deletion is asynchronous.
 - Startup marks every leftover `building` generation abandoned because no import goroutine survives process restart.
 - Startup acquires a data-root single-instance lock before recovery, so a second live process cannot abandon the first process's import.
@@ -209,6 +232,7 @@ The current catalogue implementation is decomposed by responsibility:
 - `internal/puzzles/catalog_models.go`: puzzle core, occurrence, key, and training projection.
 - `internal/puzzles/catalog_reader.go`: active source-aware retrieval and candidate queries.
 - `internal/puzzles/catalog_import.go`: generation creation, batched writes, sealing, and activation.
+- `internal/puzzles/generation_import_pipeline.go`: ordered bounded parsing/writer handoff and the lifecycle barrier before sealing or abandonment.
 - `internal/puzzles/catalog_cleanup.go`: crash recovery and bounded garbage collection.
 - `internal/puzzles/catalog.go`: public interfaces and import report types only.
 - `internal/importjob/service.go`: typed request routing, global puzzle-job exclusion, cancellation, and snapshots.
@@ -233,6 +257,10 @@ Implementation follows red-green-refactor. Every behavior change begins with a f
 - Reimport removes only the replaced source generation from active queries.
 - Generation-local duplicates are counted deterministically.
 - A canonical fingerprint/data mismatch fails as corruption.
+- Streamed rows remain outside final tables until sealing, and a failed seal removes both disposable databases without changing the active head.
+- Winner compaction uses one `(fingerprint, row_id DESC)` external sort carrying the complete row and performs no per-winner append-stage lookup; core and occurrence materialization scan the fingerprint-clustered winner sequentially.
+- Final bulk phases materialize in key order, truncate their WAL growth, and restore the configured automatic-checkpoint setting on success and error paths.
+- Rating and theme bulk phases suspend per-row foreign-key probes only on the sole writer, restore enforcement on success and error, and pass full winner-versus-destination audits with one external sort and no per-row parent search before sealing.
 
 ### Job tests
 

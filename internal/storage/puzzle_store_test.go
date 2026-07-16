@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,8 @@ func TestOpenGenerationPuzzleStoreCreatesExactSchema(t *testing.T) {
 	store := openTestGenerationPuzzleStore(t, filepath.Join(t.TempDir(), "puzzles.sqlite"))
 
 	wantTables := []string{
+		"generation_themes",
+		"occurrence_ratings",
 		"occurrence_themes",
 		"puzzle_cores",
 		"puzzle_occurrences",
@@ -29,9 +32,7 @@ func TestOpenGenerationPuzzleStoreCreatesExactSchema(t *testing.T) {
 
 	wantIndexes := []string{
 		"idx_generations_cleanup",
-		"idx_occurrence_themes_theme",
-		"idx_occurrences_fingerprint",
-		"idx_occurrences_rating",
+		"idx_occurrences_generation",
 		"idx_source_heads_generation",
 	}
 	if got := schemaObjectNames(t, store.Reader, "index"); !slices.Equal(got, wantIndexes) {
@@ -40,9 +41,7 @@ func TestOpenGenerationPuzzleStoreCreatesExactSchema(t *testing.T) {
 
 	indexColumns := map[string][]string{
 		"idx_generations_cleanup":     {"status", "generation_id"},
-		"idx_occurrence_themes_theme": {"generation_id", "theme", "fingerprint"},
-		"idx_occurrences_fingerprint": {"fingerprint", "generation_id"},
-		"idx_occurrences_rating":      {"generation_id", "rating", "fingerprint"},
+		"idx_occurrences_generation":  {"generation_id", "fingerprint"},
 		"idx_source_heads_generation": {"generation_id"},
 	}
 	for name, want := range indexColumns {
@@ -52,13 +51,34 @@ func TestOpenGenerationPuzzleStoreCreatesExactSchema(t *testing.T) {
 	}
 
 	wantColumns := map[string][]string{
+		"generation_themes":  {"generation_id", "theme"},
+		"occurrence_ratings": {"generation_id", "rating_key", "fingerprint"},
 		"sources":            {"source_id", "kind"},
 		"source_generations": {"generation_id", "source_id", "status", "source_path", "checksum", "started_at", "sealed_at"},
 		"source_heads":       {"source_id", "generation_id"},
 		"puzzle_cores":       {"fingerprint", "displayed_fen", "solver", "solution_json", "solution_plies"},
-		"puzzle_occurrences": {"generation_id", "fingerprint", "external_id", "source_fen", "prelude_uci", "rating", "popularity", "play_count", "source_url", "attribution", "metadata_json", "ordinal"},
+		"puzzle_occurrences": {"generation_id", "fingerprint", "external_id", "source_fen", "prelude_uci", "rating", "popularity", "play_count", "source_url", "attribution", "metadata_json", "themes_json", "ordinal"},
 		"occurrence_themes":  {"generation_id", "fingerprint", "theme"},
 		"schema_migrations":  {"version"},
+	}
+	for _, table := range []string{"puzzle_occurrences", "occurrence_ratings", "occurrence_themes", "generation_themes"} {
+		assertPuzzleTableWithoutRowID(t, store.Reader, table, true)
+	}
+	assertPuzzleTableWithoutRowID(t, store.Reader, "puzzle_cores", false)
+	if got, want := puzzlePrimaryKeyColumns(t, store.Reader, "puzzle_occurrences"), []string{"fingerprint", "generation_id"}; !slices.Equal(got, want) {
+		t.Fatalf("puzzle_occurrences primary key = %q, want %q", got, want)
+	}
+	if got, want := puzzleForeignKeyColumns(t, store.Reader, "occurrence_themes", "puzzle_occurrences"), []string{"fingerprint:fingerprint", "generation_id:generation_id"}; !slices.Equal(got, want) {
+		t.Fatalf("occurrence_themes parent key = %q, want %q", got, want)
+	}
+	if got, want := puzzlePrimaryKeyColumns(t, store.Reader, "occurrence_ratings"), []string{"generation_id", "rating_key", "fingerprint"}; !slices.Equal(got, want) {
+		t.Fatalf("occurrence_ratings primary key = %q, want %q", got, want)
+	}
+	if got, want := puzzleForeignKeyColumns(t, store.Reader, "occurrence_ratings", "puzzle_occurrences"), []string{"fingerprint:fingerprint", "generation_id:generation_id"}; !slices.Equal(got, want) {
+		t.Fatalf("occurrence_ratings parent key = %q, want %q", got, want)
+	}
+	if got, want := puzzlePrimaryKeyColumns(t, store.Reader, "occurrence_themes"), []string{"generation_id", "theme", "fingerprint"}; !slices.Equal(got, want) {
+		t.Fatalf("occurrence_themes primary key = %q, want %q", got, want)
 	}
 	for table, want := range wantColumns {
 		if got := pragmaNames(t, store.Reader, `PRAGMA table_info("`+table+`")`, 1); !slices.Equal(got, want) {
@@ -203,6 +223,29 @@ func TestPuzzleStoreAppliesPragmasToEveryConnection(t *testing.T) {
 	assertConnectionPragmas(t, writer, -1)
 }
 
+func TestPuzzleStoreWriterUsesBoundedImportPragmas(t *testing.T) {
+	store := openTestGenerationPuzzleStore(t, filepath.Join(t.TempDir(), "puzzles.sqlite"))
+	var cacheSize, walAutoCheckpoint, synchronous int
+	if err := store.Writer.QueryRow(`PRAGMA cache_size`).Scan(&cacheSize); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Writer.QueryRow(`PRAGMA wal_autocheckpoint`).Scan(&walAutoCheckpoint); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Writer.QueryRow(`PRAGMA synchronous`).Scan(&synchronous); err != nil {
+		t.Fatal(err)
+	}
+	if cacheSize != -65_536 {
+		t.Fatalf("writer cache_size = %d, want -65536 (64 MiB)", cacheSize)
+	}
+	if walAutoCheckpoint != 16_384 {
+		t.Fatalf("writer wal_autocheckpoint = %d, want 16384 pages", walAutoCheckpoint)
+	}
+	if synchronous != 1 {
+		t.Fatalf("writer synchronous = %d, want 1 (NORMAL)", synchronous)
+	}
+}
+
 func TestPuzzleStoreReaderRejectsWrites(t *testing.T) {
 	store := openTestGenerationPuzzleStore(t, filepath.Join(t.TempDir(), "puzzles.sqlite"))
 
@@ -325,6 +368,63 @@ func pragmaNames(t *testing.T, db *sql.DB, query string, nameColumn int) []strin
 	return names
 }
 
+func puzzlePrimaryKeyColumns(t *testing.T, db *sql.DB, table string) []string {
+	t.Helper()
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk`, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatal(err)
+		}
+		columns = append(columns, column)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return columns
+}
+
+func puzzleForeignKeyColumns(t *testing.T, db *sql.DB, table, parent string) []string {
+	t.Helper()
+	rows, err := db.Query(`SELECT "from", "to"
+		FROM pragma_foreign_key_list(?) WHERE "table" = ? ORDER BY seq`, table, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var from, to string
+		if err := rows.Scan(&from, &to); err != nil {
+			t.Fatal(err)
+		}
+		columns = append(columns, from+":"+to)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return columns
+}
+
+func assertPuzzleTableWithoutRowID(t *testing.T, db *sql.DB, table string, want bool) {
+	t.Helper()
+	var statement string
+	if err := db.QueryRow(
+		`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+		table,
+	).Scan(&statement); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Contains(strings.ToUpper(statement), "WITHOUT ROWID"); got != want {
+		t.Fatalf("table %s WITHOUT ROWID = %t, want %t; sql=%s", table, got, want, statement)
+	}
+}
+
 func assertConnectionPragmas(t *testing.T, connection *sql.Conn, index int) {
 	t.Helper()
 	ctx := context.Background()
@@ -373,13 +473,37 @@ func assertGenerationSchemaConstraints(t *testing.T, db *sql.DB) {
 	mustPuzzleStoreExec(t, db, `INSERT INTO puzzle_occurrences(
 		generation_id, fingerprint, metadata_json, ordinal
 	) VALUES ('generation', 'core', '{}', 1)`)
+	var themesJSON string
+	if err := db.QueryRow(`SELECT themes_json FROM puzzle_occurrences
+		WHERE generation_id = 'generation' AND fingerprint = 'core'`).Scan(&themesJSON); err != nil {
+		t.Fatal(err)
+	}
+	if themesJSON != "[]" {
+		t.Fatalf("default themes_json = %q, want []", themesJSON)
+	}
+	expectPuzzleStoreExecError(t, db, `INSERT INTO occurrence_ratings(generation_id, rating_key, fingerprint)
+		VALUES ('generation', 1500, 'missing')`)
+	mustPuzzleStoreExec(t, db, `INSERT INTO occurrence_ratings(generation_id, rating_key, fingerprint)
+		VALUES ('generation', -9223372036854775808, 'core')`)
+	var sourceRating sql.NullInt64
+	if err := db.QueryRow(`SELECT rating FROM puzzle_occurrences
+		WHERE generation_id = 'generation' AND fingerprint = 'core'`).Scan(&sourceRating); err != nil {
+		t.Fatal(err)
+	}
+	if sourceRating.Valid {
+		t.Fatalf("source rating = %d, want NULL while rating_key stores the NULL sentinel", sourceRating.Int64)
+	}
 	expectPuzzleStoreExecError(t, db, `INSERT INTO occurrence_themes(generation_id, fingerprint, theme)
 		VALUES ('generation', 'missing', 'fork')`)
 	mustPuzzleStoreExec(t, db, `INSERT INTO occurrence_themes(generation_id, fingerprint, theme)
 		VALUES ('generation', 'core', 'fork')`)
+	expectPuzzleStoreExecError(t, db, `INSERT INTO generation_themes(generation_id, theme)
+		VALUES ('missing', 'fork')`)
+	mustPuzzleStoreExec(t, db, `INSERT INTO generation_themes(generation_id, theme)
+		VALUES ('generation', 'fork')`)
 
 	mustPuzzleStoreExec(t, db, `DELETE FROM source_generations WHERE generation_id = 'generation'`)
-	for _, table := range []string{"puzzle_occurrences", "occurrence_themes"} {
+	for _, table := range []string{"puzzle_occurrences", "occurrence_ratings", "occurrence_themes", "generation_themes"} {
 		var count int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
 			t.Fatal(err)

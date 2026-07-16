@@ -16,6 +16,9 @@ func (c *SQLiteCatalog) RecoverStartup(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("abandon interrupted puzzle generations: %w", err)
 	}
+	if err := removeOrphanGenerationStages(ctx, c.writeDB); err != nil {
+		return fmt.Errorf("remove interrupted puzzle generation stages: %w", err)
+	}
 	return nil
 }
 
@@ -35,10 +38,27 @@ func (c *SQLiteCatalog) CleanupBatch(ctx context.Context, limit int) (bool, erro
 		statement string
 	}{
 		{
+			name: "generation themes",
+			statement: `DELETE FROM generation_themes
+				WHERE (generation_id, theme) IN (
+				  SELECT facet.generation_id, facet.theme
+				  FROM generation_themes facet
+				  JOIN source_generations generation
+				    ON generation.generation_id = facet.generation_id
+				  WHERE generation.status IN ('abandoned', 'sealed')
+				    AND NOT EXISTS (
+				      SELECT 1 FROM source_heads head
+				      WHERE head.generation_id = generation.generation_id
+				    )
+				  ORDER BY facet.generation_id, facet.theme
+				  LIMIT ?
+				)`,
+		},
+		{
 			name: "occurrence themes",
 			statement: `DELETE FROM occurrence_themes
-				WHERE rowid IN (
-				  SELECT theme.rowid
+				WHERE (generation_id, theme, fingerprint) IN (
+				  SELECT theme.generation_id, theme.theme, theme.fingerprint
 				  FROM occurrence_themes theme
 				  JOIN source_generations generation
 				    ON generation.generation_id = theme.generation_id
@@ -47,29 +67,53 @@ func (c *SQLiteCatalog) CleanupBatch(ctx context.Context, limit int) (bool, erro
 				      SELECT 1 FROM source_heads head
 				      WHERE head.generation_id = generation.generation_id
 				    )
-				  ORDER BY theme.generation_id, theme.fingerprint, theme.theme
+				  ORDER BY theme.generation_id, theme.theme, theme.fingerprint
+				  LIMIT ?
+				)`,
+		},
+		{
+			name: "occurrence ratings",
+			statement: `DELETE FROM occurrence_ratings
+				WHERE (generation_id, rating_key, fingerprint) IN (
+				  SELECT rated.generation_id, rated.rating_key, rated.fingerprint
+				  FROM occurrence_ratings rated
+				  JOIN source_generations generation
+				    ON generation.generation_id = rated.generation_id
+				  WHERE generation.status IN ('abandoned', 'sealed')
+				    AND NOT EXISTS (
+				      SELECT 1 FROM source_heads head
+				      WHERE head.generation_id = generation.generation_id
+				    )
+				  ORDER BY rated.generation_id, rated.rating_key, rated.fingerprint
 				  LIMIT ?
 				)`,
 		},
 		{
 			name: "puzzle occurrences",
 			statement: `DELETE FROM puzzle_occurrences
-				WHERE rowid IN (
-				  SELECT occurrence.rowid
+				WHERE (generation_id, fingerprint) IN (
+				  SELECT occurrence.generation_id, occurrence.fingerprint
 				  FROM puzzle_occurrences occurrence
-				  JOIN source_generations generation
-				    ON generation.generation_id = occurrence.generation_id
-				  WHERE generation.status IN ('abandoned', 'sealed')
-				    AND NOT EXISTS (
-				      SELECT 1 FROM source_heads head
-				      WHERE head.generation_id = generation.generation_id
-				    )
+				  WHERE occurrence.generation_id = (
+				    SELECT MIN(generation.generation_id)
+				    FROM source_generations generation
+				    WHERE generation.status IN ('abandoned', 'sealed')
+				      AND NOT EXISTS (
+				        SELECT 1 FROM source_heads head
+				        WHERE head.generation_id = generation.generation_id
+				      )
+				  )
 				    AND NOT EXISTS (
 				      SELECT 1 FROM occurrence_themes theme
 				      WHERE theme.generation_id = occurrence.generation_id
 				        AND theme.fingerprint = occurrence.fingerprint
 				    )
-				  ORDER BY occurrence.generation_id, occurrence.fingerprint
+				    AND NOT EXISTS (
+				      SELECT 1 FROM occurrence_ratings rated
+				      WHERE rated.generation_id = occurrence.generation_id
+				        AND rated.fingerprint = occurrence.fingerprint
+				    )
+				  ORDER BY occurrence.fingerprint
 				  LIMIT ?
 				)`,
 		},
@@ -87,6 +131,10 @@ func (c *SQLiteCatalog) CleanupBatch(ctx context.Context, limit int) (bool, erro
 				    AND NOT EXISTS (
 				      SELECT 1 FROM puzzle_occurrences occurrence
 				      WHERE occurrence.generation_id = generation.generation_id
+				    )
+				    AND NOT EXISTS (
+				      SELECT 1 FROM generation_themes facet
+				      WHERE facet.generation_id = generation.generation_id
 				    )
 				  ORDER BY generation.generation_id
 				  LIMIT ?

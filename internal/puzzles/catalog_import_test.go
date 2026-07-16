@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -108,6 +109,12 @@ func TestBuildingGenerationIsInvisible(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
 	source := testSource("building", "test", "/building")
 	importing := beginGenerationImport(t, catalog, source)
+	staged := importing.(*sqliteGenerationImport)
+	defer func() {
+		if err := importing.Abandon(context.Background()); err != nil {
+			t.Errorf("abandon building-stage fixture: %v", err)
+		}
+	}()
 
 	for index := range 1_000 {
 		puzzle := testTrainingPuzzle(source, fmt.Sprintf("building-%04d", index), 1200)
@@ -123,8 +130,20 @@ func TestBuildingGenerationIsInvisible(t *testing.T) {
 	).Scan(&persisted); err != nil {
 		t.Fatal(err)
 	}
-	if persisted != 1 {
-		t.Fatalf("persisted building occurrences = %d, want 1", persisted)
+	if persisted != 0 {
+		t.Fatalf("persisted building occurrences = %d, want 0 before seal", persisted)
+	}
+	var stagedRows int
+	if err := staged.stage.db.QueryRow(`SELECT COUNT(*) FROM staged_rows`).Scan(&stagedRows); err != nil {
+		t.Fatal(err)
+	}
+	if stagedRows != generationImportBatchSize || len(staged.buffer) != 0 {
+		t.Fatalf(
+			"stage after one batch: rows=%d buffer=%d, want %d and 0",
+			stagedRows,
+			len(staged.buffer),
+			generationImportBatchSize,
+		)
 	}
 	_, err := catalog.Get(context.Background(), PuzzleKey{
 		Fingerprint: "building-0000",
@@ -183,6 +202,176 @@ func TestGenerationLocalDuplicateLastRecordWins(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Occurrence.Themes, []string{"pin", "skewer"}) {
 		t.Fatalf("themes = %q, want normalized last themes", got.Occurrence.Themes)
+	}
+}
+
+func TestGenerationDuplicateAccountingAndLastRecordWinsAcrossBatches(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("cross-batch-duplicates", "test", "/cross-batch-duplicates")
+	importing := beginGenerationImport(t, catalog, source)
+
+	first := testTrainingPuzzle(source, "shared-across-batches", 1200, "fork", "pin")
+	first.Occurrence.Ordinal = 1
+	withinBatch := testTrainingPuzzle(source, "shared-across-batches", 1400, "skewer")
+	withinBatch.Occurrence.Ordinal = 2
+	for _, puzzle := range []TrainingPuzzle{first, withinBatch} {
+		if err := importing.Add(context.Background(), puzzle); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index := range 998 {
+		puzzle := testTrainingPuzzle(source, fmt.Sprintf("unique-%04d", index), 1300+(index%100))
+		puzzle.Occurrence.Ordinal = int64(index + 3)
+		if err := importing.Add(context.Background(), puzzle); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	acrossBatch := testTrainingPuzzle(source, "shared-across-batches", 1700)
+	acrossBatch.Occurrence.Ordinal = 1001
+	acrossBatch.Occurrence.ExternalID = "last-across-batches"
+	if err := importing.Add(context.Background(), acrossBatch); err != nil {
+		t.Fatal(err)
+	}
+	tail := testTrainingPuzzle(source, "tail-after-flush", 1500, "mate")
+	tail.Occurrence.Ordinal = 1002
+	if err := importing.Add(context.Background(), tail); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := importing.Seal(context.Background(), "cross-batch-checksum")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Accepted != 1000 || report.Duplicates != 2 || report.Rejected != 0 {
+		t.Fatalf("report = %+v, want accepted=1000 duplicates=2 rejected=0", report)
+	}
+	if err := importing.Activate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := catalog.Get(context.Background(), PuzzleKey{
+		Fingerprint: "shared-across-batches",
+		SourceID:    source.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Occurrence.ExternalID != "last-across-batches" ||
+		got.Occurrence.Rating == nil || *got.Occurrence.Rating != 1700 ||
+		got.Occurrence.Ordinal != 1001 || len(got.Occurrence.Themes) != 0 {
+		t.Fatalf("last cross-batch occurrence was not retained: %+v", got.Occurrence)
+	}
+	generationID := generationIDForPath(t, store.Reader, source.Path)
+	var occurrences, sharedThemes int
+	if err := store.Reader.QueryRow(
+		`SELECT
+		   (SELECT COUNT(*) FROM puzzle_occurrences WHERE generation_id = ?),
+		   (SELECT COUNT(*) FROM occurrence_themes
+		    WHERE generation_id = ? AND fingerprint = 'shared-across-batches')`,
+		generationID,
+		generationID,
+	).Scan(&occurrences, &sharedThemes); err != nil {
+		t.Fatal(err)
+	}
+	if occurrences != 1000 || sharedThemes != 0 {
+		t.Fatalf("physical last-record state: occurrences=%d shared_themes=%d, want 1000 and 0", occurrences, sharedThemes)
+	}
+}
+
+func TestIntraBatchCoreConflictRollsBackWholeBatch(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("intra-batch-conflict", "test", "/intra-batch-conflict")
+	importing := beginGenerationImport(t, catalog, source)
+	valid := testTrainingPuzzle(source, "must-roll-back", 1200, "fork")
+	conflict := testTrainingPuzzle(source, "intra-batch-shared", 1300, "pin")
+	mismatch := testTrainingPuzzle(source, "intra-batch-shared", 1400, "skewer")
+	mismatch.Core.DisplayedFEN = "8/8/8/8/8/8/5Q2/7k w - - 0 1"
+	for index, puzzle := range []TrainingPuzzle{valid, conflict, mismatch} {
+		puzzle.Occurrence.Ordinal = int64(index + 1)
+		if err := importing.Add(context.Background(), puzzle); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := importing.Seal(context.Background(), "intra-batch-conflict-checksum")
+	if !errors.Is(err, ErrCatalogCorrupt) {
+		t.Fatalf("Seal(intra-batch core conflict) err = %v, want ErrCatalogCorrupt", err)
+	}
+	generationID := generationIDForPath(t, store.Reader, source.Path)
+	assertFailedGenerationHasNoPuzzleWrites(t, store.Reader, generationID, "must-roll-back")
+	assertFailedGenerationHasNoPuzzleWrites(t, store.Reader, generationID, "intra-batch-shared")
+}
+
+func TestExistingCoreConflictRollsBackWholeBatch(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	existingSource := testSource("existing-core-owner", "test", "/existing-core-owner")
+	sealAndActivate(
+		t,
+		beginGenerationImport(t, catalog, existingSource),
+		testTrainingPuzzle(existingSource, "existing-conflict-core", 1200, "fork"),
+	)
+
+	conflictingSource := testSource("existing-core-conflict", "test", "/existing-core-conflict")
+	importing := beginGenerationImport(t, catalog, conflictingSource)
+	valid := testTrainingPuzzle(conflictingSource, "new-core-must-roll-back", 1300, "pin")
+	mismatch := testTrainingPuzzle(conflictingSource, "existing-conflict-core", 1400, "skewer")
+	mismatch.Core.DisplayedFEN = "8/8/8/8/8/8/5Q2/7k w - - 0 1"
+	for index, puzzle := range []TrainingPuzzle{valid, mismatch} {
+		puzzle.Occurrence.Ordinal = int64(index + 1)
+		if err := importing.Add(context.Background(), puzzle); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := importing.Seal(context.Background(), "existing-core-conflict-checksum")
+	if !errors.Is(err, ErrCatalogCorrupt) {
+		t.Fatalf("Seal(existing core conflict) err = %v, want ErrCatalogCorrupt", err)
+	}
+	generationID := generationIDForPath(t, store.Reader, conflictingSource.Path)
+	assertFailedGenerationHasNoPuzzleWrites(t, store.Reader, generationID, "new-core-must-roll-back")
+	assertFailedGenerationHasNoPuzzleWrites(t, store.Reader, generationID, "existing-conflict-core")
+	if _, err := catalog.Get(context.Background(), PuzzleKey{
+		Fingerprint: "existing-conflict-core",
+		SourceID:    existingSource.ID,
+	}); err != nil {
+		t.Fatalf("existing active puzzle changed after conflict rollback: %v", err)
+	}
+}
+
+func assertFailedGenerationHasNoPuzzleWrites(
+	t *testing.T,
+	db *sql.DB,
+	generationID string,
+	fingerprint string,
+) {
+	t.Helper()
+	var occurrences, themes, orphanCore int
+	if err := db.QueryRow(
+		`SELECT
+		   (SELECT COUNT(*) FROM puzzle_occurrences
+		    WHERE generation_id = ? AND fingerprint = ?),
+		   (SELECT COUNT(*) FROM occurrence_themes
+		    WHERE generation_id = ? AND fingerprint = ?),
+		   (SELECT COUNT(*) FROM puzzle_cores AS core
+		    WHERE core.fingerprint = ?
+		      AND NOT EXISTS (
+		        SELECT 1 FROM puzzle_occurrences AS occurrence
+		        WHERE occurrence.fingerprint = core.fingerprint
+		      ))`,
+		generationID,
+		fingerprint,
+		generationID,
+		fingerprint,
+		fingerprint,
+	).Scan(&occurrences, &themes, &orphanCore); err != nil {
+		t.Fatal(err)
+	}
+	if occurrences != 0 || themes != 0 || orphanCore != 0 {
+		t.Fatalf(
+			"failed generation retained writes for %q: occurrences=%d themes=%d orphan_cores=%d",
+			fingerprint,
+			occurrences,
+			themes,
+			orphanCore,
+		)
 	}
 }
 
@@ -429,6 +618,7 @@ func TestAbandonDoesNotDeleteOrChangeHead(t *testing.T) {
 	replacementSource := source
 	replacementSource.Path = "/abandoned"
 	replacement := beginGenerationImport(t, catalog, replacementSource)
+	stagePath := replacement.(*sqliteGenerationImport).stage.path
 	for index := range 1_000 {
 		puzzle := testTrainingPuzzle(source, fmt.Sprintf("abandoned-%04d", index), 1200)
 		puzzle.Occurrence.Ordinal = int64(index + 1)
@@ -454,8 +644,11 @@ func TestAbandonDoesNotDeleteOrChangeHead(t *testing.T) {
 	if err := store.Reader.QueryRow(`SELECT COUNT(*) FROM puzzle_occurrences WHERE generation_id = ?`, abandonedID).Scan(&retained); err != nil {
 		t.Fatal(err)
 	}
-	if retained != 1_000 {
-		t.Fatalf("abandon retained %d occurrences, want 1000", retained)
+	if retained != 0 {
+		t.Fatalf("abandon retained %d final occurrences, want 0", retained)
+	}
+	if _, err := os.Stat(stagePath); !os.IsNotExist(err) {
+		t.Fatalf("abandoned generation stage stat = %v, want not-exist", err)
 	}
 	if _, err := catalog.Get(context.Background(), PuzzleKey{Fingerprint: "active", SourceID: source.ID}); err != nil {
 		t.Fatalf("old head is unreadable after abandon: %v", err)

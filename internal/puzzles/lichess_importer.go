@@ -105,6 +105,7 @@ func (i LichessImporter) Import(
 	if err != nil {
 		return ImportReport{}, err
 	}
+	generation = newOrderedGenerationImport(ctx, generation)
 	sealed := false
 	abandon := func(cause error) (ImportReport, error) {
 		if !sealed {

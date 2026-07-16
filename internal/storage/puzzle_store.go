@@ -114,6 +114,11 @@ func puzzleStoreDSN(path string, readOnly, create bool) (string, error) {
 	query := uri.Query()
 	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "foreign_keys(ON)")
+	if !readOnly {
+		query.Add("_pragma", "cache_size(-65536)")
+		query.Add("_pragma", "wal_autocheckpoint(16384)")
+		query.Add("_pragma", "synchronous(NORMAL)")
+	}
 	switch {
 	case readOnly:
 		query.Set("mode", "ro")
@@ -143,24 +148,15 @@ func validatePuzzleSchema(db *sql.DB) error {
 			CurrentPuzzleSchemaVersion,
 		)
 	}
-	for _, table := range []string{
-		"sources",
-		"source_generations",
-		"source_heads",
-		"puzzle_cores",
-		"puzzle_occurrences",
-		"occurrence_themes",
-	} {
-		var present int
-		if err := db.QueryRow(
-			`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`,
-			table,
-		).Scan(&present); err != nil {
-			return fmt.Errorf("validate puzzle table %s: %w", table, err)
-		}
-		if present != 1 {
-			return fmt.Errorf("validate puzzle schema: required table %s is missing", table)
-		}
+	actualSchema, err := readPuzzleSchema(db)
+	if err != nil {
+		return fmt.Errorf("validate generation puzzle logical schema: %w", err)
+	}
+	if !equalPuzzleSchemas(actualSchema, currentPuzzleSchema) {
+		return errors.New("validate generation puzzle logical schema: schema is not exact")
+	}
+	if err := validateCurrentPuzzlePhysicalSchema(db); err != nil {
+		return fmt.Errorf("validate generation puzzle physical schema: %w", err)
 	}
 	return nil
 }
