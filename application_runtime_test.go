@@ -228,8 +228,9 @@ func TestNewApplicationAtKeepsSuccessfulStartupUnchanged(t *testing.T) {
 	if controller.services != application.lifecycle {
 		t.Fatal("normal application did not retain its fully opened services")
 	}
-	if application.mode != ApplicationModeNormal {
-		t.Fatalf("normal startup mode = %q", application.mode)
+	mode, ok := application.Bindings()[0].(*ModeController)
+	if !ok || mode.GetApplicationMode() != string(ApplicationModeNormal) {
+		t.Fatalf("normal startup mode binding = %#v", application.Bindings()[0])
 	}
 }
 

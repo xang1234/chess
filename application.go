@@ -26,7 +26,6 @@ type startupController interface {
 }
 
 type ApplicationRuntime struct {
-	mode       ApplicationMode
 	lifecycle  *appservices.Services
 	controller startupController
 	bindings   []interface{}
@@ -36,7 +35,7 @@ func newNormalRuntime(services *appservices.Services) *ApplicationRuntime {
 	mode := &ModeController{mode: ApplicationModeNormal}
 	controller := NewNormalController(services)
 	return &ApplicationRuntime{
-		mode: ApplicationModeNormal, lifecycle: services, controller: controller,
+		lifecycle: services, controller: controller,
 		bindings: []interface{}{mode, controller},
 	}
 }
@@ -48,7 +47,7 @@ func newRecoveryRuntime(
 	mode := &ModeController{mode: ApplicationModeRecovery}
 	controller := NewRecoveryController(services, recovery)
 	return &ApplicationRuntime{
-		mode: ApplicationModeRecovery, lifecycle: services, controller: controller,
+		lifecycle: services, controller: controller,
 		bindings: []interface{}{mode, controller},
 	}
 }
