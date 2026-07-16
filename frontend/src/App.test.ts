@@ -25,6 +25,24 @@ test('shows Continue on the home hub when a session is active', async () => {
   })
 })
 
+test('uses catalogued learner bounds on the parent settings screen', async () => {
+  setAPIForTests(fakeAPI({
+    getProfile: async () => ({ learnerRating: 3300, sessionSize: 10 }),
+    getPracticeFilters: async () => ({
+      sources: [],
+      themes: [],
+      maximumSolutionPlies: 0,
+      learnerRatingBounds: { minimum: 3200, maximum: 3600 }
+    })
+  }))
+  render(App)
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Parent settings' }))
+  const rating = await screen.findByLabelText('Current learner rating')
+  expect(rating).toHaveAttribute('min', '3200')
+  expect(rating).toHaveAttribute('max', '3600')
+})
+
 test('opens the board-first puzzle screen from the home hub', async () => {
   setAPIForTests(fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
@@ -52,17 +70,24 @@ test('opens the board-first puzzle screen from the home hub', async () => {
 })
 
 test('opens only the recovery surface when startup integrity fails', async () => {
+  const getProfile = vi.fn(async () => null)
+  const onImportProgress = vi.fn(() => () => {})
   setAPIForTests(fakeAPI({
+    getApplicationMode: async () => 'recovery',
     getRecoveryState: async () => ({
       required: true,
       path: '/data/user.sqlite',
       detail: 'database disk image is malformed'
-    })
+    }),
+    getProfile,
+    onImportProgress
   }))
   render(App)
 
   await waitFor(() => expect(screen.getByText('Your chess data needs recovery')).toBeInTheDocument())
   expect(screen.queryByRole('button', { name: 'Chess Trainer home' })).not.toBeInTheDocument()
+  expect(getProfile).not.toHaveBeenCalled()
+  expect(onImportProgress).not.toHaveBeenCalled()
 })
 
 test('keeps monitoring an active import while navigating away and reconciles it on return', async () => {

@@ -33,16 +33,13 @@ type Manifest struct {
 }
 
 type Service struct {
-	paths       storage.Paths
-	closeLive   func() error
-	replaceLive func(string, Manifest) error
-	now         func() time.Time
+	paths     storage.Paths
+	closeLive func() error
+	now       func() time.Time
 }
 
 func NewService(paths storage.Paths, closeLive func() error) *Service {
-	service := &Service{paths: paths, closeLive: closeLive, now: time.Now}
-	service.replaceLive = service.replaceDatabases
-	return service
+	return &Service{paths: paths, closeLive: closeLive, now: time.Now}
 }
 
 func (s *Service) Create(ctx context.Context, destination string, includeLibrary bool) error {
@@ -155,7 +152,7 @@ func (s *Service) Restore(ctx context.Context, source string) error {
 	if err := s.closeLive(); err != nil {
 		return fmt.Errorf("close live databases: %w", err)
 	}
-	return s.replaceLive(temporary, manifest)
+	return s.replaceDatabases(temporary, manifest)
 }
 
 func vacuumInto(ctx context.Context, source, destination string) error {

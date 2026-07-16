@@ -16,7 +16,8 @@ test('starts practice with the selected source, rating, themes, and length filte
         hasRatingRange: true, maximumPlies: 7
       }],
       themes: ['fork', 'pin'],
-      maximumSolutionPlies: 7
+      maximumSolutionPlies: 7,
+      learnerRatingBounds: { minimum: 800, maximum: 2200 }
     }),
     startFreePractice
   }))

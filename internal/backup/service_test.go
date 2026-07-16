@@ -144,50 +144,6 @@ func TestServiceRejectsCorruptBackupWithoutTouchingLiveData(t *testing.T) {
 	}
 }
 
-func TestRestoreKeepsCallerLockAcrossReplacementAndFailure(t *testing.T) {
-	paths := storage.PathsAt(filepath.Join(t.TempDir(), "data"))
-	t.Cleanup(func() { _ = os.Chmod(paths.LibraryDB, 0o700) })
-	userDB, libraryDB := openBackupStores(t, paths)
-	lock, err := storage.AcquireDataRootLock(paths.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lock.Close()
-
-	service := NewService(paths, func() error {
-		return errorsJoin(userDB.Close(), libraryDB.Close())
-	})
-	destination := filepath.Join(t.TempDir(), "trainer-backup.zip")
-	if err := service.Create(context.Background(), destination, true); err != nil {
-		t.Fatal(err)
-	}
-	service.replaceLive = func(extracted string, manifest Manifest) error {
-		assertDataRootLocked(t, paths.Root)
-		if err := os.Remove(filepath.Join(extracted, "user.sqlite")); err != nil {
-			t.Fatal(err)
-		}
-		library := filepath.Join(extracted, "library.sqlite")
-		if err := os.Remove(library); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Mkdir(library, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(library, "blocker"), []byte("force rollback failure"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		err := service.replaceDatabases(extracted, manifest)
-		assertDataRootLocked(t, paths.Root)
-		return err
-	}
-
-	err = service.Restore(context.Background(), destination)
-	if err == nil || !strings.Contains(err.Error(), "pre-restore data retained") {
-		t.Fatalf("Restore() error = %v, want retained pre-restore rollback failure", err)
-	}
-	assertDataRootLocked(t, paths.Root)
-}
-
 func assertDataRootLocked(t *testing.T, root string) {
 	t.Helper()
 	contender, err := storage.AcquireDataRootLock(root)
@@ -204,6 +160,12 @@ func TestReplaceDatabasesRetainsPreRestoreWhenRollbackCannotRestoreDatabase(t *t
 	if err := paths.Ensure(); err != nil {
 		t.Fatal(err)
 	}
+	lock, err := storage.AcquireDataRootLock(paths.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	assertDataRootLocked(t, paths.Root)
 	if err := os.WriteFile(paths.UserDB, []byte("original user database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -235,6 +197,7 @@ func TestReplaceDatabasesRetainsPreRestoreWhenRollbackCannotRestoreDatabase(t *t
 	if err == nil {
 		t.Fatal("replaceDatabases() succeeded despite injected install and rollback failures")
 	}
+	assertDataRootLocked(t, paths.Root)
 	if !strings.Contains(err.Error(), preRestore) {
 		t.Errorf("replaceDatabases() error %q does not identify retained pre-restore directory %q", err, preRestore)
 	}

@@ -149,7 +149,7 @@ func TestThemePerformanceSurvivesCatalogueRecreation(t *testing.T) {
 
 func TestPracticeFiltersUseActiveCataloguePort(t *testing.T) {
 	db := openTask5ProfileUserDB(t)
-	minimum, maximum := 900, 2100
+	minimum, maximum := 3200, 3600
 	catalog := &task5ProfileCatalog{
 		summaries: []puzzles.SourceSummary{
 			{SourceID: "club", Kind: "pgn", MaximumSolutionPlies: 7},
@@ -166,11 +166,12 @@ func TestPracticeFiltersUseActiveCataloguePort(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := PracticeFilters{
+		LearnerRatingBounds: puzzles.RatingBounds{Minimum: 3200, Maximum: 3600},
 		Sources: []PracticeSource{
 			{ID: "club", Kind: "pgn", MaximumPlies: 7},
 			{
-				ID: "lichess", Kind: "lichess", MinimumRating: 900,
-				MaximumRating: 2100, HasRatingRange: true, MaximumPlies: 5,
+				ID: "lichess", Kind: "lichess", MinimumRating: 3200,
+				MaximumRating: 3600, HasRatingRange: true, MaximumPlies: 5,
 			},
 		},
 		Themes: []string{"fork", "pin"}, MaximumSolutionPlies: 7,
@@ -178,9 +179,9 @@ func TestPracticeFiltersUseActiveCataloguePort(t *testing.T) {
 	if !reflect.DeepEqual(filters, want) {
 		t.Fatalf("PracticeFilters() = %+v, want %+v", filters, want)
 	}
-	if catalog.summariesCalls != 1 || catalog.themesCalls != 1 {
-		t.Fatalf("catalogue calls = summaries %d themes %d, want one each",
-			catalog.summariesCalls, catalog.themesCalls)
+	if catalog.summariesCalls != 1 || catalog.themesCalls != 1 || catalog.boundsCalls != 0 {
+		t.Fatalf("catalogue calls = summaries %d themes %d bounds %d, want one facet query each and no duplicate bounds query",
+			catalog.summariesCalls, catalog.themesCalls, catalog.boundsCalls)
 	}
 }
 

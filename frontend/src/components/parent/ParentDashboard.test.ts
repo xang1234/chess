@@ -7,7 +7,13 @@ import ParentDashboard from './ParentDashboard.svelte'
 test('shows progress and saves parent settings', async () => {
   const updateProfile = vi.fn().mockResolvedValue(undefined)
   setAPIForTests(fakeAPI({
-    getProfile: async () => ({ learnerRating: 1250, sessionSize: 10 }),
+    getProfile: async () => ({ learnerRating: 3250, sessionSize: 10 }),
+    getPracticeFilters: async () => ({
+      sources: [],
+      themes: [],
+      maximumSolutionPlies: 0,
+      learnerRatingBounds: { minimum: 3200, maximum: 3600 }
+    }),
     updateProfile,
     getParentSummary: async () => ({
       learnerRating: 1250,
@@ -43,10 +49,20 @@ test('shows progress and saves parent settings', async () => {
   expect(screen.getByRole('cell', { name: 'fork' })).toBeInTheDocument()
   expect(screen.getByRole('cell', { name: 'Guided' })).toBeInTheDocument()
 
-  await fireEvent.input(screen.getByLabelText('Current learner rating'), { target: { value: '1300' } })
+  const rating = screen.getByLabelText('Current learner rating')
+  expect(rating).toHaveAttribute('min', '3200')
+  expect(rating).toHaveAttribute('max', '3600')
+  expect(screen.getByText('Available rating range: 3200–3600')).toBeInTheDocument()
+
+  await fireEvent.input(rating, { target: { value: '3100' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Learner rating must be between 3200 and 3600')
+  expect(updateProfile).not.toHaveBeenCalled()
+
+  await fireEvent.input(rating, { target: { value: '3300' } })
   await fireEvent.change(screen.getByLabelText('Puzzles per guided session'), { target: { value: '5' } })
   await fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
-  await waitFor(() => expect(updateProfile).toHaveBeenCalledWith({ learnerRating: 1300, sessionSize: 5 }))
+  await waitFor(() => expect(updateProfile).toHaveBeenCalledWith({ learnerRating: 3300, sessionSize: 5 }))
   expect(screen.getByText('Settings saved')).toBeInTheDocument()
 
   await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))

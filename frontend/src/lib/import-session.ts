@@ -21,6 +21,19 @@ export type ImportSession = Readable<ImportSessionState> & {
 
 const emptyProgress = (): ImportProgress => ({ jobId: '', rowsRead: 0, bytesRead: 0 })
 
+function mergeProgress(
+  currentProgress: ImportProgress,
+  jobId: string,
+  nextProgress: { rowsRead: number; bytesRead: number }
+): ImportProgress {
+  if (currentProgress.jobId !== jobId) return { jobId, ...nextProgress }
+  return {
+    jobId,
+    rowsRead: Math.max(currentProgress.rowsRead, nextProgress.rowsRead),
+    bytesRead: Math.max(currentProgress.bytesRead, nextProgress.bytesRead)
+  }
+}
+
 export function createImportSession(api: () => AppAPI): ImportSession {
   const state = writable<ImportSessionState>({
     path: '',
@@ -40,7 +53,9 @@ export function createImportSession(api: () => AppAPI): ImportSession {
     state.update((value) => ({
       ...value,
       running: result.status === 'running',
-      progress: result.progress ? { jobId: result.jobId, ...result.progress } : value.progress,
+      progress: result.progress
+        ? mergeProgress(value.progress, result.jobId, result.progress)
+        : value.progress,
       result: result.status === 'running' ? null : result,
       error: result.status === 'failed' ? (result.error ?? 'Import failed') : ''
     }))
@@ -51,7 +66,10 @@ export function createImportSession(api: () => AppAPI): ImportSession {
     connect() {
       const stopProgress = api().onImportProgress((progress) => {
         if (progress.jobId !== current.jobId || !current.running) return
-        state.update((value) => ({ ...value, progress }))
+        state.update((value) => ({
+          ...value,
+          progress: mergeProgress(value.progress, progress.jobId, progress)
+        }))
       })
       const stopFinished = api().onImportFinished(applyResult)
       return () => {
@@ -84,7 +102,12 @@ export function createImportSession(api: () => AppAPI): ImportSession {
       }))
       try {
         const jobId = await api().startLichessImport(current.path)
-        state.update((value) => ({ ...value, jobId, running: true }))
+        state.update((value) => ({
+          ...value,
+          jobId,
+          running: true,
+          progress: { jobId, rowsRead: 0, bytesRead: 0 }
+        }))
         await this.refresh()
       } catch (cause) {
         state.update((value) => ({

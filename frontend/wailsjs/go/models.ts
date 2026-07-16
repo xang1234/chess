@@ -289,6 +289,7 @@ export namespace profile {
 	    sources: PracticeSource[];
 	    themes: string[];
 	    maximumSolutionPlies: number;
+	    learnerRatingBounds: puzzles.RatingBounds;
 
 	    static createFrom(source: any = {}) {
 	        return new PracticeFilters(source);
@@ -299,6 +300,7 @@ export namespace profile {
 	        this.sources = this.convertValues(source["sources"], PracticeSource);
 	        this.themes = source["themes"];
 	        this.maximumSolutionPlies = source["maximumSolutionPlies"];
+	        this.learnerRatingBounds = this.convertValues(source["learnerRatingBounds"], puzzles.RatingBounds);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -487,6 +489,20 @@ export namespace puzzles {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.rowsRead = source["rowsRead"];
 	        this.bytesRead = source["bytesRead"];
+	    }
+	}
+	export class RatingBounds {
+	    minimum: number;
+	    maximum: number;
+
+	    static createFrom(source: any = {}) {
+	        return new RatingBounds(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.minimum = source["minimum"];
+	        this.maximum = source["maximum"];
 	    }
 	}
 

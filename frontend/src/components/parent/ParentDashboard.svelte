@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { getAPI, type ParentSummary, type Profile } from '../../lib/api'
+  import { getAPI, type ParentSummary, type Profile, type RatingBounds } from '../../lib/api'
   import BackupPanel from './BackupPanel.svelte'
 
   const dispatch = createEventDispatcher<{ import: void }>()
@@ -12,6 +12,7 @@
   let saving = false
   let saved = false
   let error = ''
+  let learnerRatingBounds: RatingBounds | null = null
 
   $: ratings = summary?.ratingTrend.map((point) => point.rating) ?? []
   $: minimumRating = ratings.length > 0 ? Math.min(...ratings) : summary?.learnerRating ?? 0
@@ -20,12 +21,14 @@
 
   onMount(async () => {
     try {
-      const [loadedProfile, loadedSummary] = await Promise.all([
+      const [loadedProfile, loadedSummary, filters] = await Promise.all([
         getAPI().getProfile(),
-        getAPI().getParentSummary()
+        getAPI().getParentSummary(),
+        getAPI().getPracticeFilters()
       ])
       profile = loadedProfile
       summary = loadedSummary
+      learnerRatingBounds = filters.learnerRatingBounds
       if (profile) {
         learnerRating = Math.round(profile.learnerRating)
         sessionSize = profile.sessionSize
@@ -52,6 +55,11 @@
   }
 
   async function save(): Promise<void> {
+    if (!learnerRatingBounds) return
+    if (learnerRating < learnerRatingBounds.minimum || learnerRating > learnerRatingBounds.maximum) {
+      error = `Learner rating must be between ${learnerRatingBounds.minimum} and ${learnerRatingBounds.maximum}`
+      return
+    }
     saving = true
     saved = false
     error = ''
@@ -77,7 +85,7 @@
 
   {#if loading}
     <p class="loading" aria-live="polite">Gathering progress…</p>
-  {:else if summary}
+  {:else if summary && learnerRatingBounds}
     <div class="metric-grid">
       <article><span>Current level</span><strong>{Math.round(summary.learnerRating)}</strong></article>
       <article><span>First-try accuracy</span><strong>{summary.firstAttemptAccuracy}%</strong></article>
@@ -104,11 +112,20 @@
 
       <article class="dashboard-card settings-card">
         <h3>Guided training settings</h3>
-        <form on:submit|preventDefault={save}>
+        <form novalidate on:submit|preventDefault={save}>
           <label>
             Current learner rating
-            <input type="number" min="400" max="3000" bind:value={learnerRating} />
+            <input
+              type="number"
+              min={learnerRatingBounds.minimum}
+              max={learnerRatingBounds.maximum}
+              aria-describedby="learner-rating-help"
+              bind:value={learnerRating}
+            />
           </label>
+          <p id="learner-rating-help" class="muted">
+            Available rating range: {learnerRatingBounds.minimum}–{learnerRatingBounds.maximum}
+          </p>
           <label>
             Puzzles per guided session
             <select bind:value={sessionSize}>

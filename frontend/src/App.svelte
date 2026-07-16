@@ -16,15 +16,18 @@
   let recoveryState: RecoveryState | null = null
   let error = ''
   const importSession = createImportSession(getAPI)
+  let disconnectImport = (): void => {}
 
   async function initialise(): Promise<void> {
     try {
-      const recovery = await getAPI().getRecoveryState()
-      if (recovery.required) {
+      const mode = await getAPI().getApplicationMode()
+      if (mode === 'recovery') {
+        const recovery = await getAPI().getRecoveryState()
         recoveryState = recovery
         screen.set('recovery')
         return
       }
+      disconnectImport = importSession.connect()
       const profile = await getAPI().getProfile()
       if (!profile) {
         screen.set('setup')
@@ -40,9 +43,8 @@
   }
 
   onMount(() => {
-    const disconnectImport = importSession.connect()
     void initialise()
-    return disconnectImport
+    return () => disconnectImport()
   })
 
   async function openTraining(): Promise<void> {

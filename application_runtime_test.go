@@ -22,17 +22,18 @@ func TestRecoveryApplicationStartupDoesNotRequireImportJobs(t *testing.T) {
 	if err := os.WriteFile(paths.UserDB, []byte("corrupt user database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app, lifecycle, err := newApplicationAt(paths)
+	application, err := newApplicationAt(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lifecycle.Close()
-	if !app.GetRecoveryState().Required {
+	defer application.Close()
+	recovery := application.controller.(*RecoveryController)
+	if !recovery.GetRecoveryState().Required {
 		t.Fatal("fixture did not construct a recovery application")
 	}
 
-	app.startup(context.Background())
-	if lifecycle.ImportJobs != nil {
+	application.startup(context.Background())
+	if application.lifecycle.ImportJobs != nil {
 		t.Fatal("recovery startup unexpectedly composed import jobs")
 	}
 }
@@ -57,12 +58,12 @@ func TestNewApplicationAtBuildsRecoveryForPreservedNewerPuzzleSchema(t *testing.
 	}
 	before := fileSHA256(t, paths.PuzzlesDB)
 
-	app, lifecycle, err := newApplicationAt(paths)
+	application, err := newApplicationAt(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lifecycle.Close()
-	state := app.GetRecoveryState()
+	defer application.Close()
+	state := application.controller.(*RecoveryController).GetRecoveryState()
 	if !state.Required || state.Path != paths.PuzzlesDB || state.Detail == "" {
 		t.Fatalf("recovery state = %+v", state)
 	}
@@ -102,12 +103,12 @@ func TestNewApplicationAtBuildsRecoveryForPreservedModifiedPuzzleSchema(t *testi
 	}
 	before := fileSHA256(t, paths.PuzzlesDB)
 
-	app, lifecycle, err := newApplicationAt(paths)
+	application, err := newApplicationAt(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lifecycle.Close()
-	state := app.GetRecoveryState()
+	defer application.Close()
+	state := application.controller.(*RecoveryController).GetRecoveryState()
 	if !state.Required || state.Path != paths.PuzzlesDB || state.Detail == "" {
 		t.Fatalf("recovery state = %+v", state)
 	}
@@ -215,16 +216,20 @@ func TestOpenApplicationTypesLibraryMigrationFailureWithoutMutation(t *testing.T
 }
 
 func TestNewApplicationAtKeepsSuccessfulStartupUnchanged(t *testing.T) {
-	app, services, err := newApplicationAt(storage.PathsAt(t.TempDir()))
+	application, err := newApplicationAt(storage.PathsAt(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer services.Close()
-	if app.services != services {
+	defer application.Close()
+	controller, ok := application.controller.(*NormalController)
+	if !ok {
+		t.Fatalf("normal startup controller = %T", application.controller)
+	}
+	if controller.services != application.lifecycle {
 		t.Fatal("normal application did not retain its fully opened services")
 	}
-	if state := app.GetRecoveryState(); state.Required {
-		t.Fatalf("normal startup entered recovery: %+v", state)
+	if application.mode != ApplicationModeNormal {
+		t.Fatalf("normal startup mode = %q", application.mode)
 	}
 }
 

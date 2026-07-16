@@ -23,7 +23,7 @@
   <span class="recovery-mark" aria-hidden="true">♜</span>
   <p class="eyebrow">Data protection</p>
   <h2 id="recovery-title">Your chess data needs recovery</h2>
-  <p>The app found a problem and left every file untouched. Restore a trusted backup, or inspect the data folder.</p>
+  <p>The app stopped when it found a problem and will not make further data changes. Restore a trusted backup, or inspect the data folder.</p>
   <details>
     <summary>Technical details</summary>
     <p><strong>File:</strong> {state.path}</p>

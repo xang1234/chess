@@ -57,8 +57,7 @@ test.beforeEach(async ({ page }) => {
         emit('import:progress', progress)
       }
     }
-    ;(window as any).go = { main: { App: {
-      GetRecoveryState: async () => ({ required: false }),
+    const normalController = {
       GetProfile: async () => profile,
       UpdateProfile: async (value: { learnerRating: number; sessionSize: number }) => { profile = value },
       ResumeSession: async () => activeSession,
@@ -118,7 +117,8 @@ test.beforeEach(async ({ page }) => {
           hasRatingRange: true, maximumPlies: 5
         }],
         themes: ['fork', 'pin'],
-        maximumSolutionPlies: 5
+        maximumSolutionPlies: 5,
+        learnerRatingBounds: { minimum: 800, maximum: 2200 }
       }),
       GetParentSummary: async () => ({
         learnerRating: profile?.learnerRating ?? 1200,
@@ -162,7 +162,12 @@ test.beforeEach(async ({ page }) => {
       RestoreBackup: async () => {},
       OpenDataFolder: async () => {},
       Quit: async () => {}
-    } } }
+    }
+    ;(window as any).go = { main: {
+      ModeController: { GetApplicationMode: async () => 'normal' },
+      NormalController: normalController,
+      RecoveryController: {}
+    } }
   })
 })
 

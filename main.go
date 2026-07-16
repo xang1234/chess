@@ -14,14 +14,12 @@ import (
 var assets embed.FS
 
 func main() {
-	app, services, err := newApplication()
+	application, err := newApplication()
 	if err != nil {
 		log.Printf("initialize application: %v", err)
 		return
 	}
-	if services != nil {
-		defer services.Close()
-	}
+	defer application.Close()
 
 	err = wails.Run(&options.App{
 		Title:  "Chess Trainer",
@@ -31,17 +29,13 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
+		OnStartup:        application.startup,
 		OnShutdown: func(context.Context) {
-			if services != nil {
-				if err := services.Close(); err != nil {
-					log.Printf("close application services: %v", err)
-				}
+			if err := application.Close(); err != nil {
+				log.Printf("close application services: %v", err)
 			}
 		},
-		Bind: []interface{}{
-			app,
-		},
+		Bind: application.Bindings(),
 	})
 
 	if err != nil {

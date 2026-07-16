@@ -108,6 +108,27 @@ func TestReaderMembershipPlansUsePhysicalPrimaryKeys(t *testing.T) {
 			WHERE rated.generation_id = ? AND rated.rating_key <> ?
 			ORDER BY rated.rating_key DESC, rated.fingerprint DESC LIMIT 1`,
 			alphaGeneration, nullPuzzleRatingKey),
+		"learner bounds active lichess seeks": catalogQueryPlanDetails(t, store.Reader, `
+			SELECT
+			  (SELECT rated.rating_key
+			   FROM occurrence_ratings rated
+			   WHERE rated.generation_id = head.generation_id
+			     AND rated.rating_key <> ?
+			   ORDER BY rated.rating_key, rated.fingerprint
+			   LIMIT 1),
+			  (SELECT rated.rating_key
+			   FROM occurrence_ratings rated
+			   WHERE rated.generation_id = head.generation_id
+			     AND rated.rating_key <> ?
+			   ORDER BY rated.rating_key DESC, rated.fingerprint DESC
+			   LIMIT 1)
+			FROM source_heads head
+			JOIN source_generations generation
+			  ON generation.source_id = head.source_id
+			 AND generation.generation_id = head.generation_id
+			JOIN sources source ON source.source_id = head.source_id
+			WHERE generation.status = 'sealed' AND source.kind = 'lichess'`,
+			nullPuzzleRatingKey, nullPuzzleRatingKey),
 		"free practice unranged": catalogQueryPlanDetails(t, store.Reader, `
 			SELECT rated.fingerprint
 			FROM occurrence_ratings rated
@@ -168,6 +189,10 @@ func TestReaderMembershipPlansUsePhysicalPrimaryKeys(t *testing.T) {
 	assertQueryPlanNotContains(t, plans["summary minimum rating"], "USE TEMP B-TREE")
 	assertQueryPlanContains(t, plans["summary maximum rating"], "rated USING PRIMARY KEY (generation_id=?)")
 	assertQueryPlanNotContains(t, plans["summary maximum rating"], "USE TEMP B-TREE")
+	assertQueryPlanCount(t, plans["learner bounds active lichess seeks"], "rated USING PRIMARY KEY (generation_id=?)", 2)
+	assertQueryPlanNotContains(t, plans["learner bounds active lichess seeks"], "puzzle_occurrences")
+	assertQueryPlanNotContains(t, plans["learner bounds active lichess seeks"], "puzzle_cores")
+	assertQueryPlanNotContains(t, plans["learner bounds active lichess seeks"], "USE TEMP B-TREE")
 	assertQueryPlanContains(t, plans["free practice unranged"], "rated USING PRIMARY KEY (generation_id=?)")
 	assertQueryPlanContains(t, plans["free practice ranged"], "rated USING PRIMARY KEY (generation_id=? AND rating_key>? AND rating_key<?)")
 	assertQueryPlanContains(t, plans["theme membership count"], "theme USING PRIMARY KEY (generation_id=? AND theme=?)")
@@ -225,5 +250,19 @@ func assertQueryPlanNotContains(t *testing.T, details []string, unwanted string)
 		if strings.Contains(detail, unwanted) {
 			t.Fatalf("query plan = %s; unwanted fragment %q", strings.Join(details, " | "), unwanted)
 		}
+	}
+}
+
+func assertQueryPlanCount(t *testing.T, details []string, want string, count int) {
+	t.Helper()
+	found := 0
+	for _, detail := range details {
+		if strings.Contains(detail, want) {
+			found++
+		}
+	}
+	if found != count {
+		t.Fatalf("query plan = %s; fragment %q count = %d, want %d",
+			strings.Join(details, " | "), want, found, count)
 	}
 }

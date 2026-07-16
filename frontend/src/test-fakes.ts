@@ -10,6 +10,7 @@ const emptySession: SessionView = {
 
 export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
   return {
+    getApplicationMode: async () => 'normal',
     getProfile: async () => null,
     updateProfile: async (_profile: Profile) => {},
     resumeSession: async () => null,
@@ -33,7 +34,12 @@ export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
       dueReviews: 0,
       recentSessions: []
     }),
-    getPracticeFilters: async () => ({ sources: [], themes: [], maximumSolutionPlies: 1 }),
+    getPracticeFilters: async () => ({
+      sources: [],
+      themes: [],
+      maximumSolutionPlies: 1,
+      learnerRatingBounds: { minimum: 400, maximum: 3000 }
+    }),
     getRecoveryState: async () => ({ required: false }),
     createBackup: async () => '/tmp/Chess Trainer Backup.zip',
     restoreBackup: async () => {},

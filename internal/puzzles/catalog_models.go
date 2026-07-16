@@ -52,10 +52,31 @@ type SourceSummary struct {
 }
 
 type RatingBounds struct {
-	Minimum int
-	Maximum int
+	Minimum int `json:"minimum"`
+	Maximum int `json:"maximum"`
 }
 
 func DefaultLearnerRatingBounds() RatingBounds {
 	return RatingBounds{Minimum: 400, Maximum: 3000}
+}
+
+func LearnerRatingBoundsFromSourceSummaries(summaries []SourceSummary) RatingBounds {
+	bounds := DefaultLearnerRatingBounds()
+	available := false
+	for _, summary := range summaries {
+		if summary.Kind != "lichess" || summary.MinimumRating == nil || summary.MaximumRating == nil {
+			continue
+		}
+		if !available || *summary.MinimumRating < bounds.Minimum {
+			bounds.Minimum = *summary.MinimumRating
+		}
+		if !available || *summary.MaximumRating > bounds.Maximum {
+			bounds.Maximum = *summary.MaximumRating
+		}
+		available = true
+	}
+	if !available {
+		return DefaultLearnerRatingBounds()
+	}
+	return bounds
 }

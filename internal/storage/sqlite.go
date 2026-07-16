@@ -36,24 +36,10 @@ func Open(path string) (*sql.DB, error) {
 }
 
 func Migrate(db *sql.DB, schema string) error {
-	switch schema {
-	case "puzzles", "user", "library":
-	default:
-		return fmt.Errorf("unknown database schema %q", schema)
-	}
-
-	directory := "migrations/" + schema
-	entries, err := migrationFiles.ReadDir(directory)
+	names, err := migrationNames(schema)
 	if err != nil {
-		return fmt.Errorf("read %s migrations: %w", schema, err)
+		return err
 	}
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
-			names = append(names, entry.Name())
-		}
-	}
-	sort.Strings(names)
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -82,7 +68,7 @@ func Migrate(db *sql.DB, schema string) error {
 			continue
 		}
 
-		body, err := migrationFiles.ReadFile(directory + "/" + name)
+		body, err := migrationFiles.ReadFile("migrations/" + schema + "/" + name)
 		if err != nil {
 			return err
 		}
@@ -98,4 +84,26 @@ func Migrate(db *sql.DB, schema string) error {
 	}
 
 	return tx.Commit()
+}
+
+func migrationNames(schema string) ([]string, error) {
+	switch schema {
+	case "puzzles", "user", "library":
+	default:
+		return nil, fmt.Errorf("unknown database schema %q", schema)
+	}
+
+	directory := "migrations/" + schema
+	entries, err := migrationFiles.ReadDir(directory)
+	if err != nil {
+		return nil, fmt.Errorf("read %s migrations: %w", schema, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }

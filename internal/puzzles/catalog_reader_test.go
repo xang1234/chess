@@ -409,6 +409,37 @@ func TestLearnerRatingBoundsTrackActiveLichessGenerationAndFallback(t *testing.T
 	assertBounds(DefaultLearnerRatingBounds())
 }
 
+func TestLearnerRatingBoundsDoNotReadOccurrencePayloadTables(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("bounds-only", "lichess", "/bounds-only")
+	high := testTrainingPuzzle(source, "bounds-high", 2200)
+	high.Occurrence.Ordinal = 2
+	seedActiveReaderGeneration(
+		t,
+		store,
+		source,
+		testTrainingPuzzle(source, "bounds-low", 900),
+		high,
+	)
+	if _, err := store.Writer.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Writer.Exec(`DROP TABLE puzzle_occurrences`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Writer.Exec(`DROP TABLE puzzle_cores`); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := catalog.LearnerRatingBounds(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (RatingBounds{Minimum: 900, Maximum: 2200}); got != want {
+		t.Fatalf("LearnerRatingBounds() = %+v, want %+v", got, want)
+	}
+}
+
 func TestRatedCandidatesPreferOnlySourcesInsideRatingWindow(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
 	alpha := testSource("alpha", "csv", "/rated-window-alpha")

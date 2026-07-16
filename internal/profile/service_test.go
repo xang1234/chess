@@ -176,7 +176,24 @@ func TestServiceValidatesSettingsAgainstActiveLichessRange(t *testing.T) {
 	}
 	if len(filters.Sources) != 1 || filters.Sources[0].ID != "lichess" ||
 		filters.Sources[0].MinimumRating != 1000 || filters.Sources[0].MaximumRating != 2000 ||
-		filters.MaximumSolutionPlies != 5 || len(filters.Themes) != 2 {
+		filters.MaximumSolutionPlies != 5 || len(filters.Themes) != 2 ||
+		filters.LearnerRatingBounds != (puzzles.RatingBounds{Minimum: 1000, Maximum: 2000}) {
 		t.Fatalf("filters=%+v", filters)
+	}
+}
+
+func TestPracticeFiltersUseDefaultLearnerBoundsWithoutCataloguedRatings(t *testing.T) {
+	userDB := openProfileStore(t)
+	filters, err := NewService(
+		userDB,
+		&profileTestCatalog{},
+		training.NewUserStore(userDB),
+	).PracticeFilters(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filters.LearnerRatingBounds != puzzles.DefaultLearnerRatingBounds() {
+		t.Fatalf("learner rating bounds = %+v, want fallback %+v",
+			filters.LearnerRatingBounds, puzzles.DefaultLearnerRatingBounds())
 	}
 }

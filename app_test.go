@@ -28,6 +28,28 @@ type bindingEmitter struct {
 	finished chan importjob.Result
 }
 
+type fakeNativeDialogs struct {
+	openPath string
+	open     func(runtime.OpenDialogOptions)
+}
+
+func (d fakeNativeDialogs) OpenFileDialog(
+	_ context.Context,
+	options runtime.OpenDialogOptions,
+) (string, error) {
+	if d.open != nil {
+		d.open(options)
+	}
+	return d.openPath, nil
+}
+
+func (fakeNativeDialogs) SaveFileDialog(
+	context.Context,
+	runtime.SaveDialogOptions,
+) (string, error) {
+	return "", nil
+}
+
 func (i bindingImporter) Import(
 	_ context.Context,
 	sourceID string,
@@ -50,7 +72,7 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer services.Close()
-	app := NewApp(services)
+	app := NewNormalController(services)
 
 	if _, err := app.StartPuzzleImport(importjob.ImportRequest{}); err == nil {
 		t.Fatal("StartPuzzleImport() unexpectedly accepted an empty request")
@@ -67,27 +89,27 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 }
 
 func TestChoosePuzzleImportFileUsesCompressedCSVFilter(t *testing.T) {
-	previous := openPuzzleImportFile
-	t.Cleanup(func() { openPuzzleImportFile = previous })
-	openPuzzleImportFile = func(_ context.Context, options runtime.OpenDialogOptions) (string, error) {
-		if options.Title != "Choose a Lichess puzzle database" {
-			t.Fatalf("Title = %q", options.Title)
-		}
-		if len(options.Filters) != 1 || options.Filters[0].Pattern != "*.csv.zst" {
-			t.Fatalf("Filters = %+v", options.Filters)
-		}
-		return "/tmp/lichess.csv.zst", nil
+	dialogs := fakeNativeDialogs{
+		openPath: "/tmp/lichess.csv.zst",
+		open: func(options runtime.OpenDialogOptions) {
+			if options.Title != "Choose a Lichess puzzle database" {
+				t.Fatalf("Title = %q", options.Title)
+			}
+			if len(options.Filters) != 1 || options.Filters[0].Pattern != "*.csv.zst" {
+				t.Fatalf("Filters = %+v", options.Filters)
+			}
+		},
 	}
-
-	path, err := (&App{ctx: context.Background()}).ChoosePuzzleImportFile()
+	path, err := (&NormalController{actions: &controllerActions{
+		ctx: context.Background(), dialogs: dialogs,
+	}}).ChoosePuzzleImportFile()
 	if err != nil || path != "/tmp/lichess.csv.zst" {
 		t.Fatalf("ChoosePuzzleImportFile() = %q, %v", path, err)
 	}
 
-	openPuzzleImportFile = func(context.Context, runtime.OpenDialogOptions) (string, error) {
-		return "", nil
-	}
-	path, err = (&App{ctx: context.Background()}).ChoosePuzzleImportFile()
+	path, err = (&NormalController{
+		actions: &controllerActions{ctx: context.Background(), dialogs: fakeNativeDialogs{}},
+	}).ChoosePuzzleImportFile()
 	if err != nil || path != "" {
 		t.Fatalf("cancelled ChoosePuzzleImportFile() = %q, %v", path, err)
 	}
@@ -100,7 +122,7 @@ func TestAppImportBindingsPreserveTypedAndLegacyFlows(t *testing.T) {
 		importjob.KindLichess: importer,
 	}, nil, emitter)
 	defer jobs.Close()
-	app := NewApp(&appservices.Services{ImportJobs: jobs})
+	app := NewNormalController(&appservices.Services{ImportJobs: jobs})
 
 	request := importjob.ImportRequest{
 		Kind: importjob.KindLichess, SourceID: "school", Path: "/school.csv.zst",
@@ -163,7 +185,7 @@ func TestRecoveryModePreservesCorruptData(t *testing.T) {
 	if !errors.As(err, &recoveryErr) {
 		t.Fatalf("OpenApplication() err=%v", err)
 	}
-	app := NewRecoveryApp(services, recoveryErr)
+	app := NewRecoveryController(services, recoveryErr)
 	state := app.GetRecoveryState()
 	if !state.Required || state.Path != paths.UserDB || state.Detail == "" {
 		t.Fatalf("recovery state=%+v", state)
@@ -181,8 +203,8 @@ func TestAppProfileBindingsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer services.Close()
-	app := NewApp(services)
-	app.ctx = context.Background()
+	app := NewNormalController(services)
+	app.actions.ctx = context.Background()
 
 	profile, err := app.GetProfile()
 	if err != nil || profile != nil {
@@ -195,5 +217,13 @@ func TestAppProfileBindingsRoundTrip(t *testing.T) {
 	profile, err = app.GetProfile()
 	if err != nil || profile == nil || *profile != want {
 		t.Fatalf("GetProfile()=%+v err=%v", profile, err)
+	}
+	filters, err := app.GetPracticeFilters()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filters.LearnerRatingBounds != puzzles.DefaultLearnerRatingBounds() {
+		t.Fatalf("GetPracticeFilters() learner bounds = %+v, want fallback %+v",
+			filters.LearnerRatingBounds, puzzles.DefaultLearnerRatingBounds())
 	}
 }

@@ -562,28 +562,61 @@ func (c *SQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSumm
 // rated Lichess sources. A catalogue without rated Lichess occurrences keeps
 // the stable application defaults used before catalogue-backed bounds existed.
 func (c *SQLiteCatalog) LearnerRatingBounds(ctx context.Context) (RatingBounds, error) {
-	summaries, err := c.ActiveSourceSummaries(ctx)
+	tx, err := c.readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return RatingBounds{}, err
+		return RatingBounds{}, fmt.Errorf("begin learner rating bounds read: %w", err)
 	}
-	bounds := DefaultLearnerRatingBounds()
-	available := false
-	for _, summary := range summaries {
-		if summary.Kind != "lichess" || summary.MinimumRating == nil || summary.MaximumRating == nil {
-			continue
-		}
-		if !available || *summary.MinimumRating < bounds.Minimum {
-			bounds.Minimum = *summary.MinimumRating
-		}
-		if !available || *summary.MaximumRating > bounds.Maximum {
-			bounds.Maximum = *summary.MaximumRating
-		}
-		available = true
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT
+		   (SELECT rated.rating_key
+		    FROM occurrence_ratings AS rated
+		    WHERE rated.generation_id = head.generation_id
+		      AND rated.rating_key <> ?
+		    ORDER BY rated.rating_key, rated.fingerprint
+		    LIMIT 1),
+		   (SELECT rated.rating_key
+		    FROM occurrence_ratings AS rated
+		    WHERE rated.generation_id = head.generation_id
+		      AND rated.rating_key <> ?
+		    ORDER BY rated.rating_key DESC, rated.fingerprint DESC
+		    LIMIT 1)
+		 FROM source_heads AS head
+		 JOIN source_generations AS generation
+		   ON generation.source_id = head.source_id
+		  AND generation.generation_id = head.generation_id
+		 JOIN sources AS source ON source.source_id = head.source_id
+		 WHERE generation.status = 'sealed' AND source.kind = 'lichess'`,
+		nullPuzzleRatingKey,
+		nullPuzzleRatingKey,
+	)
+	if err != nil {
+		return RatingBounds{}, fmt.Errorf("query learner rating bounds: %w", err)
 	}
-	if !available {
-		return DefaultLearnerRatingBounds(), nil
+	summaries := make([]SourceSummary, 0)
+	for rows.Next() {
+		var minimum, maximum sql.NullInt64
+		if err := rows.Scan(&minimum, &maximum); err != nil {
+			rows.Close()
+			return RatingBounds{}, fmt.Errorf("scan learner rating bounds: %w", err)
+		}
+		summaries = append(summaries, SourceSummary{
+			Kind:          "lichess",
+			MinimumRating: generationIntPointer(minimum),
+			MaximumRating: generationIntPointer(maximum),
+		})
 	}
-	return bounds, nil
+	if err := rows.Close(); err != nil {
+		return RatingBounds{}, fmt.Errorf("close learner rating bounds: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return RatingBounds{}, fmt.Errorf("iterate learner rating bounds: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return RatingBounds{}, fmt.Errorf("finish learner rating bounds read: %w", err)
+	}
+	return LearnerRatingBoundsFromSourceSummaries(summaries), nil
 }
 
 func (c *SQLiteCatalog) ActiveThemes(ctx context.Context) ([]string, error) {

@@ -59,9 +59,10 @@ type PracticeSource struct {
 }
 
 type PracticeFilters struct {
-	Sources              []PracticeSource `json:"sources"`
-	Themes               []string         `json:"themes"`
-	MaximumSolutionPlies int              `json:"maximumSolutionPlies"`
+	Sources              []PracticeSource     `json:"sources"`
+	Themes               []string             `json:"themes"`
+	MaximumSolutionPlies int                  `json:"maximumSolutionPlies"`
+	LearnerRatingBounds  puzzles.RatingBounds `json:"learnerRatingBounds"`
 }
 
 type ProfileCatalogPort interface {
@@ -149,8 +150,9 @@ func (s *Service) PracticeFilters(ctx context.Context) (PracticeFilters, error) 
 		return PracticeFilters{}, err
 	}
 	result := PracticeFilters{
-		Sources: make([]PracticeSource, 0, len(summaries)),
-		Themes:  append([]string{}, themes...),
+		Sources:             make([]PracticeSource, 0, len(summaries)),
+		Themes:              append([]string{}, themes...),
+		LearnerRatingBounds: puzzles.LearnerRatingBoundsFromSourceSummaries(summaries),
 	}
 	for _, summary := range summaries {
 		source := PracticeSource{

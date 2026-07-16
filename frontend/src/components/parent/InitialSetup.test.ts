@@ -6,15 +6,31 @@ import { fakeAPI } from '../../test-fakes'
 test('asks for a starting rating and session size', async () => {
   let saved: unknown
   setAPIForTests(fakeAPI({
+    getPracticeFilters: async () => ({
+      sources: [],
+      themes: [],
+      maximumSolutionPlies: 0,
+      learnerRatingBounds: { minimum: 3200, maximum: 3600 }
+    }),
     updateProfile: async (profile) => { saved = profile }
   }))
   render(InitialSetup)
 
-  const rating = screen.getByLabelText('Starting rating')
+  const rating = await screen.findByLabelText('Starting rating')
   const size = screen.getByLabelText('Puzzles per session')
-  await fireEvent.input(rating, { target: { value: '1250' } })
+  expect(rating).toHaveAttribute('min', '3200')
+  expect(rating).toHaveAttribute('max', '3600')
+  expect(rating).toHaveValue(3200)
+  expect(screen.getByText('Available rating range: 3200–3600')).toBeInTheDocument()
+
+  await fireEvent.input(rating, { target: { value: '3100' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Learner rating must be between 3200 and 3600')
+  expect(saved).toBeUndefined()
+
+  await fireEvent.input(rating, { target: { value: '3250' } })
   await fireEvent.change(size, { target: { value: '15' } })
   await fireEvent.click(screen.getByRole('button', { name: 'Save and continue' }))
 
-  await waitFor(() => expect(saved).toEqual({ learnerRating: 1250, sessionSize: 15 }))
+  await waitFor(() => expect(saved).toEqual({ learnerRating: 3250, sessionSize: 15 }))
 })

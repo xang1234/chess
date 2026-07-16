@@ -10,22 +10,22 @@ import (
 	"chess-trainer/internal/storage"
 )
 
-func newApplication() (*App, *appservices.Services, error) {
+func newApplication() (*ApplicationRuntime, error) {
 	paths, err := storage.DefaultPaths()
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve application data paths: %w", err)
+		return nil, fmt.Errorf("resolve application data paths: %w", err)
 	}
 	return newApplicationAt(paths)
 }
 
-func newApplicationAt(paths storage.Paths) (*App, *appservices.Services, error) {
+func newApplicationAt(paths storage.Paths) (*ApplicationRuntime, error) {
 	services, err := appservices.OpenApplication(paths)
 	if err == nil {
-		return NewApp(services), services, nil
+		return newNormalRuntime(services), nil
 	}
 	var recoveryErr *appservices.RecoveryRequiredError
 	if !errors.As(err, &recoveryErr) {
-		return nil, nil, fmt.Errorf("open application services: %w", err)
+		return nil, fmt.Errorf("open application services: %w", err)
 	}
-	return NewRecoveryApp(services, recoveryErr), services, nil
+	return newRecoveryRuntime(services, recoveryErr), nil
 }

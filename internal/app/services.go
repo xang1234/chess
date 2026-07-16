@@ -36,7 +36,20 @@ type Services struct {
 	quiesceResult error
 	closeOnce     sync.Once
 	closeResult   error
+	stateMu       sync.RWMutex
+	state         runtimeState
 }
+
+var ErrRuntimeUnavailable = errors.New("application services are unavailable until restart")
+
+type runtimeState uint8
+
+const (
+	runtimeRunning runtimeState = iota
+	runtimeQuiescing
+	runtimeQuiesced
+	runtimeClosed
+)
 
 // RecoveryRequiredError marks startup failures for which the application can
 // safely offer only backup, restore, data-folder, and quit operations.
@@ -84,8 +97,8 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 		return nil, err
 	}
 	services.Backup = backup.NewService(paths, services.QuiesceForRestore)
-	if err := storage.CheckDurableIntegrity(paths); err != nil {
-		return recoverFrom("", err)
+	if path, err := preflightStores(paths); err != nil {
+		return recoverFrom(path, err)
 	}
 	services.UserDB, err = openStore(paths.UserDB, "user")
 	if err != nil {
@@ -131,6 +144,19 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 	return services, nil
 }
 
+func preflightStores(paths storage.Paths) (string, error) {
+	if err := storage.PreflightMigrations(paths.UserDB, "user"); err != nil {
+		return paths.UserDB, fmt.Errorf("preflight user database: %w", err)
+	}
+	if _, err := storage.ProbePuzzleStore(paths.PuzzlesDB); err != nil {
+		return paths.PuzzlesDB, fmt.Errorf("preflight puzzle database: %w", err)
+	}
+	if err := storage.PreflightMigrations(paths.LibraryDB, "library"); err != nil {
+		return paths.LibraryDB, fmt.Errorf("preflight library database: %w", err)
+	}
+	return "", nil
+}
+
 func recoveryRequired(path string, err error) *RecoveryRequiredError {
 	var integrityErr *storage.IntegrityError
 	if errors.As(err, &integrityErr) {
@@ -173,6 +199,7 @@ func openStore(path string, schema string) (*sql.DB, error) {
 func (s *Services) Close() error {
 	s.closeOnce.Do(func() {
 		s.closeResult = errors.Join(s.QuiesceForRestore(), s.closeDataRootLock())
+		s.setRuntimeState(runtimeClosed)
 	})
 	return s.closeResult
 }
@@ -182,6 +209,7 @@ func (s *Services) Close() error {
 // only when the application itself shuts down.
 func (s *Services) QuiesceForRestore() error {
 	s.quiesceOnce.Do(func() {
+		s.setRuntimeState(runtimeQuiescing)
 		if s.ImportJobs != nil {
 			s.ImportJobs.Close()
 		}
@@ -195,8 +223,24 @@ func (s *Services) QuiesceForRestore() error {
 			}
 		}
 		s.quiesceResult = errors.Join(closeErrors...)
+		s.setRuntimeState(runtimeQuiesced)
 	})
 	return s.quiesceResult
+}
+
+func (s *Services) EnsureRunning() error {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	if s.state != runtimeRunning {
+		return ErrRuntimeUnavailable
+	}
+	return nil
+}
+
+func (s *Services) setRuntimeState(state runtimeState) {
+	s.stateMu.Lock()
+	s.state = state
+	s.stateMu.Unlock()
 }
 
 func (s *Services) closeDataRootLock() error {

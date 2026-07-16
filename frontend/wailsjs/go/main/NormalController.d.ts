@@ -3,7 +3,6 @@
 import {importjob} from '../models';
 import {profile} from '../models';
 import {training} from '../models';
-import {main} from '../models';
 import {domain} from '../models';
 
 export function CancelImport(arg1:string):Promise<void>;
@@ -19,8 +18,6 @@ export function GetParentSummary():Promise<profile.Summary>;
 export function GetPracticeFilters():Promise<profile.PracticeFilters>;
 
 export function GetProfile():Promise<training.Profile>;
-
-export function GetRecoveryState():Promise<main.RecoveryState>;
 
 export function OpenDataFolder():Promise<void>;
 

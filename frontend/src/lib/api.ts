@@ -1,25 +1,6 @@
-import {
-  CancelImport,
-  ChoosePuzzleImportFile,
-  CreateBackup,
-  GetImportResult,
-  GetParentSummary,
-  GetPracticeFilters,
-  GetProfile,
-  GetRecoveryState,
-  OpenDataFolder,
-  PauseSession,
-  PlayMove,
-  ResumeSession,
-  RevealSolution,
-  RestoreBackup,
-  StartFreePractice,
-  StartGuided,
-  StartLichessImport,
-  UpdateProfile,
-  UseHint,
-  Quit
-} from '../../wailsjs/go/main/App'
+import { GetApplicationMode } from '../../wailsjs/go/main/ModeController'
+import * as Normal from '../../wailsjs/go/main/NormalController'
+import * as Recovery from '../../wailsjs/go/main/RecoveryController'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 
 export type Profile = {
@@ -86,10 +67,16 @@ export type PracticeSource = {
   maximumPlies: number
 }
 
+export type RatingBounds = {
+  minimum: number
+  maximum: number
+}
+
 export type PracticeFilters = {
   sources: PracticeSource[]
   themes: string[]
   maximumSolutionPlies: number
+  learnerRatingBounds: RatingBounds
 }
 
 export type PracticeRequest = {
@@ -129,6 +116,8 @@ export type RecoveryState = {
   detail?: string
 }
 
+export type ApplicationMode = 'normal' | 'recovery'
+
 export type ImportProgress = {
   jobId: string
   rowsRead: number
@@ -150,6 +139,7 @@ export type ImportResult = {
 }
 
 export interface AppAPI {
+  getApplicationMode(): Promise<ApplicationMode>
   getProfile(): Promise<Profile | null>
   updateProfile(profile: Profile): Promise<void>
   resumeSession(): Promise<SessionView | null>
@@ -174,33 +164,50 @@ export interface AppAPI {
   onImportFinished(listener: (result: ImportResult) => void): () => void
 }
 
+let productionMode: Promise<ApplicationMode> | null = null
+
+function getProductionMode(): Promise<ApplicationMode> {
+  productionMode ??= GetApplicationMode() as Promise<ApplicationMode>
+  return productionMode
+}
+
 const productionAPI: AppAPI = {
-  getProfile: async () => (await GetProfile()) as Profile | null,
-  updateProfile: async (profile) => UpdateProfile(profile),
-  resumeSession: async () => (await ResumeSession()) as SessionView | null,
-  startGuided: async () => (await StartGuided()) as SessionView,
-  startFreePractice: async (request) => (await StartFreePractice(request)) as SessionView,
-  playMove: async (sessionId, uci) => (await PlayMove(sessionId, uci)) as MoveResult,
-  useHint: async (sessionId) => (await UseHint(sessionId)) as HintResult,
-  revealSolution: async (sessionId) => (await RevealSolution(sessionId)) as MoveResult,
-  pauseSession: PauseSession,
-  getParentSummary: async () => (await GetParentSummary()) as ParentSummary,
-  getPracticeFilters: async () => (await GetPracticeFilters()) as PracticeFilters,
-  getRecoveryState: async () => (await GetRecoveryState()) as RecoveryState,
-  createBackup: CreateBackup,
-  restoreBackup: RestoreBackup,
-  openDataFolder: async () => OpenDataFolder(),
-  quit: async () => Quit(),
-  choosePuzzleImportFile: ChoosePuzzleImportFile,
-  startLichessImport: StartLichessImport,
-  cancelImport: CancelImport,
-  getImportResult: async (jobId) => (await GetImportResult(jobId)) as ImportResult,
+  getApplicationMode: getProductionMode,
+  getProfile: async () => (await Normal.GetProfile()) as Profile | null,
+  updateProfile: async (profile) => Normal.UpdateProfile(profile),
+  resumeSession: async () => (await Normal.ResumeSession()) as SessionView | null,
+  startGuided: async () => (await Normal.StartGuided()) as SessionView,
+  startFreePractice: async (request) => (await Normal.StartFreePractice(request)) as SessionView,
+  playMove: async (sessionId, uci) => (await Normal.PlayMove(sessionId, uci)) as MoveResult,
+  useHint: async (sessionId) => (await Normal.UseHint(sessionId)) as HintResult,
+  revealSolution: async (sessionId) => (await Normal.RevealSolution(sessionId)) as MoveResult,
+  pauseSession: Normal.PauseSession,
+  getParentSummary: async () => (await Normal.GetParentSummary()) as ParentSummary,
+  getPracticeFilters: async () => (await Normal.GetPracticeFilters()) as PracticeFilters,
+  getRecoveryState: async () => (await Recovery.GetRecoveryState()) as RecoveryState,
+  createBackup: async (includeLibrary) => (await getProductionMode()) === 'recovery'
+    ? Recovery.CreateBackup(includeLibrary)
+    : Normal.CreateBackup(includeLibrary),
+  restoreBackup: async (path) => (await getProductionMode()) === 'recovery'
+    ? Recovery.RestoreBackup(path)
+    : Normal.RestoreBackup(path),
+  openDataFolder: async () => (await getProductionMode()) === 'recovery'
+    ? Recovery.OpenDataFolder()
+    : Normal.OpenDataFolder(),
+  quit: async () => (await getProductionMode()) === 'recovery'
+    ? Recovery.Quit()
+    : Normal.Quit(),
+  choosePuzzleImportFile: Normal.ChoosePuzzleImportFile,
+  startLichessImport: Normal.StartLichessImport,
+  cancelImport: Normal.CancelImport,
+  getImportResult: async (jobId) => (await Normal.GetImportResult(jobId)) as ImportResult,
   onImportProgress: (listener) => EventsOn('import:progress', listener),
   onImportFinished: (listener) => EventsOn('import:finished', listener)
 }
 
 let previewProfile: Profile | null = null
 const previewAPI: AppAPI = {
+  getApplicationMode: async () => 'normal',
   getProfile: async () => previewProfile,
   updateProfile: async (profile) => { previewProfile = profile },
   resumeSession: async () => null,
@@ -250,7 +257,8 @@ const previewAPI: AppAPI = {
       hasRatingRange: true, maximumPlies: 12
     }],
     themes: ['fork', 'mate', 'pin'],
-    maximumSolutionPlies: 12
+    maximumSolutionPlies: 12,
+    learnerRatingBounds: { minimum: 400, maximum: 3000 }
   }),
   getRecoveryState: async () => ({ required: false }),
   createBackup: async () => '/Users/preview/Chess Trainer Backup.zip',

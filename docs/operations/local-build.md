@@ -49,12 +49,16 @@ cache that can be rebuilt by reimporting its source data.
 
 Startup still treats replacement conservatively:
 
-1. Acquire the data-root instance lock and migrate `user.sqlite` first.
-2. Recognize a legacy puzzle store only when its migration set and complete
+1. Acquire the data-root instance lock, then preflight every existing durable
+   store and the puzzle catalogue before changing any of them. Current durable
+   stores are checked in place without a copy; only stores with pending
+   migrations are snapshotted to a temporary directory and rehearsed there.
+2. After every store passes preflight, migrate `user.sqlite`.
+3. Recognize a legacy puzzle store only when its migration set and complete
    table/column signatures exactly match a supported legacy format.
-3. Backfill null attempt and queued-session provenance from matching legacy
+4. Backfill null attempt and queued-session provenance from matching legacy
    fingerprint/source rows, then close the legacy handle.
-4. Only after that backfill succeeds, remove the recognized `puzzles.sqlite`
+5. Only after that backfill succeeds, remove the recognized `puzzles.sqlite`
    and its exact WAL/SHM sidecars and create the current catalogue.
 
 An empty, unversioned, modified, corrupt, or newer puzzle store is not assumed
@@ -178,9 +182,10 @@ At startup the app runs SQLite integrity checks on durable user/library stores
 before opening repositories. Corruption, migration/open failures, and preserved
 incompatible puzzle schemas replace the normal interface with a recovery screen
 containing only **Restore backup**, **Open data folder**, and **Quit**. The
-single-instance lock remains owned by that recovery process. Puzzle startup uses
-the cheap conservative probe described above instead of scanning the complete
-catalogue.
+backend binds only those recovery capabilities—normal training/import methods
+are not exposed—and the single-instance lock remains owned by that recovery
+process. Puzzle startup uses the cheap conservative probe described above
+instead of scanning the complete catalogue.
 
 - Restore a validated `.zip` created by Chess Trainer, then relaunch.
 - `user.sqlite` is always in a backup; `library.sqlite` is included only when

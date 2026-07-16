@@ -2,8 +2,12 @@
 
 package main
 
-import appservices "chess-trainer/internal/app"
-
-func newApplication() (*App, *appservices.Services, error) {
-	return &App{}, nil, nil
+func newApplication() (*ApplicationRuntime, error) {
+	return &ApplicationRuntime{
+		bindings: []interface{}{
+			&ModeController{},
+			&NormalController{},
+			&RecoveryController{},
+		},
+	}, nil
 }
