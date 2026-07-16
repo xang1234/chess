@@ -20,29 +20,62 @@ import (
 )
 
 type Services struct {
-	Paths        storage.Paths
-	PuzzleStore  *storage.PuzzleStore
-	DataRootLock *storage.DataRootLock
-	UserDB       *sql.DB
-	LibraryDB    *sql.DB
-	Catalog      *puzzles.SQLiteCatalog
-	Importer     *puzzles.LichessImporter
-	ImportJobs   *importjob.Service
-	UserStore    *training.UserStore
-	Training     *training.Service
-	Profile      *profile.Service
-	Backup       *backup.Service
-	closeOnce    sync.Once
-	closeResult  error
+	Paths         storage.Paths
+	PuzzleStore   *storage.PuzzleStore
+	DataRootLock  *storage.DataRootLock
+	UserDB        *sql.DB
+	LibraryDB     *sql.DB
+	Catalog       *puzzles.SQLiteCatalog
+	Importer      *puzzles.LichessImporter
+	ImportJobs    *importjob.Service
+	UserStore     *training.UserStore
+	Training      *training.Service
+	Profile       *profile.Service
+	Backup        *backup.Service
+	quiesceOnce   sync.Once
+	quiesceResult error
+	closeOnce     sync.Once
+	closeResult   error
+}
+
+// RecoveryRequiredError marks startup failures for which the application can
+// safely offer only backup, restore, data-folder, and quit operations.
+type RecoveryRequiredError struct {
+	Path   string
+	Detail string
+	cause  error
+}
+
+func (e *RecoveryRequiredError) Error() string {
+	return fmt.Sprintf("application data recovery is required for %s: %s", e.Path, e.Detail)
+}
+
+func (e *RecoveryRequiredError) Unwrap() error {
+	return e.cause
 }
 
 func Open(paths storage.Paths) (*Services, error) {
+	services, err := OpenApplication(paths)
+	if err != nil {
+		if services == nil {
+			return nil, err
+		}
+		return nil, errors.Join(err, services.Close())
+	}
+	return services, nil
+}
+
+// OpenApplication preserves ownership of the data-root lock when startup finds
+// application data that requires recovery. The returned lifecycle must be
+// closed when the recovery application terminates.
+func OpenApplication(paths storage.Paths) (*Services, error) {
 	if err := paths.Ensure(); err != nil {
 		return nil, err
 	}
 	services := &Services{Paths: paths}
-	closeOnError := func(err error) (*Services, error) {
-		return nil, errors.Join(err, services.Close())
+	recoverFrom := func(path string, err error) (*Services, error) {
+		recoveryErr := recoveryRequired(path, err)
+		return services, errors.Join(recoveryErr, services.QuiesceForRestore())
 	}
 
 	var err error
@@ -50,30 +83,31 @@ func Open(paths storage.Paths) (*Services, error) {
 	if err != nil {
 		return nil, err
 	}
+	services.Backup = backup.NewService(paths, services.QuiesceForRestore)
 	if err := storage.CheckDurableIntegrity(paths); err != nil {
-		return closeOnError(err)
+		return recoverFrom("", err)
 	}
 	services.UserDB, err = openStore(paths.UserDB, "user")
 	if err != nil {
-		return closeOnError(err)
+		return recoverFrom(paths.UserDB, err)
 	}
 	if err := preparePuzzleStore(context.Background(), paths.PuzzlesDB, services.UserDB); err != nil {
-		return closeOnError(err)
+		return recoverFrom(paths.PuzzlesDB, err)
 	}
 	services.PuzzleStore, err = storage.OpenPuzzleStore(paths.PuzzlesDB)
 	if err != nil {
-		return closeOnError(err)
+		return recoverFrom(paths.PuzzlesDB, err)
 	}
 	services.Catalog = puzzles.NewSQLiteCatalog(
 		services.PuzzleStore.Reader,
 		services.PuzzleStore.Writer,
 	)
 	if err := services.Catalog.RecoverStartup(context.Background()); err != nil {
-		return closeOnError(err)
+		return recoverFrom(paths.PuzzlesDB, err)
 	}
 	services.LibraryDB, err = openStore(paths.LibraryDB, "library")
 	if err != nil {
-		return closeOnError(err)
+		return recoverFrom(paths.LibraryDB, err)
 	}
 
 	services.Importer = &puzzles.LichessImporter{
@@ -93,9 +127,17 @@ func Open(paths storage.Paths) (*Services, error) {
 		rand.New(rand.NewSource(time.Now().UnixNano())),
 	)
 	services.Profile = profile.NewService(services.UserDB, services.Catalog, services.UserStore)
-	services.Backup = backup.NewService(paths, services.Close)
 	services.ImportJobs.RequestCleanup()
 	return services, nil
+}
+
+func recoveryRequired(path string, err error) *RecoveryRequiredError {
+	var integrityErr *storage.IntegrityError
+	if errors.As(err, &integrityErr) {
+		path = integrityErr.Path
+		return &RecoveryRequiredError{Path: path, Detail: integrityErr.Detail, cause: err}
+	}
+	return &RecoveryRequiredError{Path: path, Detail: err.Error(), cause: err}
 }
 
 func preparePuzzleStore(ctx context.Context, path string, userDB *sql.DB) error {
@@ -130,6 +172,16 @@ func openStore(path string, schema string) (*sql.DB, error) {
 
 func (s *Services) Close() error {
 	s.closeOnce.Do(func() {
+		s.closeResult = errors.Join(s.QuiesceForRestore(), s.closeDataRootLock())
+	})
+	return s.closeResult
+}
+
+// QuiesceForRestore stops background work and closes every live database handle
+// without releasing the process-wide data-root lock. Close releases that lock
+// only when the application itself shuts down.
+func (s *Services) QuiesceForRestore() error {
+	s.quiesceOnce.Do(func() {
 		if s.ImportJobs != nil {
 			s.ImportJobs.Close()
 		}
@@ -142,10 +194,14 @@ func (s *Services) Close() error {
 				closeErrors = append(closeErrors, db.Close())
 			}
 		}
-		if s.DataRootLock != nil {
-			closeErrors = append(closeErrors, s.DataRootLock.Close())
-		}
-		s.closeResult = errors.Join(closeErrors...)
+		s.quiesceResult = errors.Join(closeErrors...)
 	})
-	return s.closeResult
+	return s.quiesceResult
+}
+
+func (s *Services) closeDataRootLock() error {
+	if s.DataRootLock == nil {
+		return nil
+	}
+	return s.DataRootLock.Close()
 }

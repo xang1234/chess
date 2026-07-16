@@ -32,6 +32,7 @@ func openProfileStore(t *testing.T) *sql.DB {
 type profileTestCatalog struct {
 	summaries []puzzles.SourceSummary
 	themes    []string
+	bounds    puzzles.RatingBounds
 }
 
 func (c *profileTestCatalog) ActiveSourceSummaries(context.Context) ([]puzzles.SourceSummary, error) {
@@ -42,9 +43,14 @@ func (c *profileTestCatalog) ActiveThemes(context.Context) ([]string, error) {
 	return append([]string(nil), c.themes...), nil
 }
 
+func (c *profileTestCatalog) LearnerRatingBounds(context.Context) (puzzles.RatingBounds, error) {
+	return c.bounds, nil
+}
+
 func seedProfileCatalogue() *profileTestCatalog {
 	minimum, maximum := 1000, 2000
 	return &profileTestCatalog{
+		bounds: puzzles.RatingBounds{Minimum: minimum, Maximum: maximum},
 		summaries: []puzzles.SourceSummary{{
 			SourceID: "lichess", Kind: "lichess", MinimumRating: &minimum,
 			MaximumRating: &maximum, MaximumSolutionPlies: 5,

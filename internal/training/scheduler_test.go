@@ -103,6 +103,10 @@ func (*schedulerCatalogFake) FreePracticeCandidates(
 	return nil, nil
 }
 
+func (*schedulerCatalogFake) LearnerRatingBounds(context.Context) (puzzles.RatingBounds, error) {
+	return puzzles.DefaultLearnerRatingBounds(), nil
+}
+
 type schedulerUserFake struct {
 	due         []ReviewState
 	recent      []string

@@ -17,8 +17,11 @@ type task5ProfileCatalog struct {
 	themes           []string
 	summariesErr     error
 	themesErr        error
+	bounds           puzzles.RatingBounds
+	boundsErr        error
 	summariesCalls   int
 	themesCalls      int
+	boundsCalls      int
 	panicIfConsulted bool
 }
 
@@ -36,6 +39,14 @@ func (c *task5ProfileCatalog) ActiveThemes(context.Context) ([]string, error) {
 	}
 	c.themesCalls++
 	return append([]string(nil), c.themes...), c.themesErr
+}
+
+func (c *task5ProfileCatalog) LearnerRatingBounds(context.Context) (puzzles.RatingBounds, error) {
+	if c.panicIfConsulted {
+		panic("historical profile reporting consulted the active puzzle catalogue")
+	}
+	c.boundsCalls++
+	return c.bounds, c.boundsErr
 }
 
 func TestThemePerformanceUsesAttemptSnapshotsOnly(t *testing.T) {
@@ -173,25 +184,9 @@ func TestPracticeFiltersUseActiveCataloguePort(t *testing.T) {
 	}
 }
 
-func TestRatingBoundsUseActiveSourceSummaries(t *testing.T) {
+func TestRatingBoundsUseCanonicalCatalogBoundary(t *testing.T) {
 	db := openTask5ProfileUserDB(t)
-	lichessOneMinimum, lichessOneMaximum := 800, 1800
-	lichessTwoMinimum, lichessTwoMaximum := 1000, 2400
-	otherMinimum, otherMaximum := 100, 5000
-	catalog := &task5ProfileCatalog{summaries: []puzzles.SourceSummary{
-		{
-			SourceID: "lichess-a", Kind: "lichess", MinimumRating: &lichessOneMinimum,
-			MaximumRating: &lichessOneMaximum,
-		},
-		{
-			SourceID: "lichess-b", Kind: "lichess", MinimumRating: &lichessTwoMinimum,
-			MaximumRating: &lichessTwoMaximum,
-		},
-		{
-			SourceID: "private", Kind: "pgn", MinimumRating: &otherMinimum,
-			MaximumRating: &otherMaximum,
-		},
-	}}
+	catalog := &task5ProfileCatalog{bounds: puzzles.RatingBounds{Minimum: 800, Maximum: 2400}}
 	service := NewService(db, catalog, training.NewUserStore(db))
 
 	if err := service.UpdateSettings(context.Background(), training.Profile{
@@ -206,8 +201,8 @@ func TestRatingBoundsUseActiveSourceSummaries(t *testing.T) {
 			t.Fatalf("out-of-range rating %.0f was accepted", rating)
 		}
 	}
-	if catalog.summariesCalls != 3 || catalog.themesCalls != 0 {
-		t.Fatalf("catalogue calls = summaries %d themes %d", catalog.summariesCalls, catalog.themesCalls)
+	if catalog.boundsCalls != 3 || catalog.summariesCalls != 0 || catalog.themesCalls != 0 {
+		t.Fatalf("catalogue calls = bounds %d summaries %d themes %d", catalog.boundsCalls, catalog.summariesCalls, catalog.themesCalls)
 	}
 }
 

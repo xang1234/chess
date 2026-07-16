@@ -226,6 +226,77 @@ func TestRatedCandidatesReturnOneDeterministicOccurrencePerFingerprint(t *testin
 	}
 }
 
+func TestRatedCandidatesRankAroundBandCenterBeforeLimit(t *testing.T) {
+	catalog, _ := openTestGenerationalCatalog(t)
+	alpha := testSource("alpha-ranked", "lichess", "/ranked-alpha")
+	beta := testSource("beta-ranked", "lichess", "/ranked-beta")
+	popularity10, popularity20, popularity50 := 10, 20, 50
+	plays100, plays200 := 100, 200
+
+	centerLowQuality := testTrainingPuzzle(alpha, "center-low-quality", 1500)
+	centerLowQuality.Occurrence.Popularity = &popularity10
+	centerLowQuality.Occurrence.PlayCount = &plays100
+	centerHighPlay := testTrainingPuzzle(alpha, "center-high-play", 1500)
+	centerHighPlay.Occurrence.Popularity = &popularity10
+	centerHighPlay.Occurrence.PlayCount = &plays200
+	centerHighPopularity := testTrainingPuzzle(alpha, "center-high-popularity", 1500)
+	centerHighPopularity.Occurrence.Popularity = &popularity20
+	centerHighPopularity.Occurrence.PlayCount = &plays100
+	lowerNear := testTrainingPuzzle(alpha, "lower-near", 1499)
+	lowerNear.Occurrence.Popularity = &popularity20
+	upperNear := testTrainingPuzzle(beta, "upper-near", 1501)
+	upperNear.Occurrence.Popularity = &popularity50
+	bandBottom := testTrainingPuzzle(alpha, "band-bottom", 1400)
+	for index, puzzle := range []*TrainingPuzzle{
+		&centerLowQuality, &centerHighPlay, &centerHighPopularity, &lowerNear, &bandBottom,
+	} {
+		puzzle.Occurrence.Ordinal = int64(index + 1)
+	}
+	upperNear.Occurrence.Ordinal = 1
+	sealAndActivate(t, beginGenerationImport(t, catalog, alpha),
+		centerLowQuality, centerHighPlay, centerHighPopularity, lowerNear, bandBottom)
+	sealAndActivate(t, beginGenerationImport(t, catalog, beta), upperNear)
+
+	got, err := catalog.RatedCandidates(context.Background(), 1400, 1600, nil, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"center-high-popularity",
+		"center-high-play",
+		"center-low-quality",
+		"upper-near",
+		"lower-near",
+	}
+	if fingerprints := candidateFingerprints(got); !reflect.DeepEqual(fingerprints, want) {
+		t.Fatalf("ranked candidates = %q, want center distance then quality %q", fingerprints, want)
+	}
+}
+
+func TestRatedCandidatesUseSourceThenFingerprintAsStableTieBreakers(t *testing.T) {
+	catalog, _ := openTestGenerationalCatalog(t)
+	alpha := testSource("alpha-tie", "lichess", "/tie-alpha")
+	beta := testSource("beta-tie", "lichess", "/tie-beta")
+	popularity, plays := 50, 1_000
+	alphaPuzzle := testTrainingPuzzle(alpha, "z-alpha-fingerprint", 1500)
+	alphaPuzzle.Occurrence.Popularity, alphaPuzzle.Occurrence.PlayCount = &popularity, &plays
+	betaPuzzle := testTrainingPuzzle(beta, "a-beta-fingerprint", 1500)
+	betaPuzzle.Occurrence.Popularity, betaPuzzle.Occurrence.PlayCount = &popularity, &plays
+	sealAndActivate(t, beginGenerationImport(t, catalog, beta), betaPuzzle)
+	sealAndActivate(t, beginGenerationImport(t, catalog, alpha), alphaPuzzle)
+
+	got, err := catalog.RatedCandidates(context.Background(), 1400, 1600, nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fingerprints := candidateFingerprints(got); !reflect.DeepEqual(
+		fingerprints,
+		[]string{"z-alpha-fingerprint", "a-beta-fingerprint"},
+	) {
+		t.Fatalf("stable candidate order = %q, want source then fingerprint", fingerprints)
+	}
+}
+
 func TestRatedCandidatesAreDrivenByRatingMembership(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
 	source := testSource("rated-membership", "test", "/rated-membership")
@@ -256,6 +327,86 @@ func TestRatedCandidatesAreDrivenByRatingMembership(t *testing.T) {
 	if fingerprints := candidateFingerprints(got); !reflect.DeepEqual(fingerprints, []string{"rated-included"}) {
 		t.Fatalf("rated candidates = %q, want rating membership only", fingerprints)
 	}
+}
+
+func TestActiveSourceSummaryRatingBoundsUseOrderedMembership(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("summary-membership", "lichess", "/summary-membership")
+	low := testTrainingPuzzle(source, "summary-low", 800)
+	middle := testTrainingPuzzle(source, "summary-middle", 1500)
+	high := testTrainingPuzzle(source, "summary-high", 2400)
+	middle.Occurrence.Ordinal = 2
+	high.Occurrence.Ordinal = 3
+	generationID := seedActiveReaderGeneration(t, store, source, low, middle, high)
+	if _, err := store.Writer.Exec(`DELETE FROM occurrence_ratings
+		WHERE generation_id = ? AND fingerprint IN ('summary-low', 'summary-high')`, generationID); err != nil {
+		t.Fatal(err)
+	}
+
+	summaries, err := catalog.ActiveSourceSummaries(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 || summaries[0].MinimumRating == nil || summaries[0].MaximumRating == nil ||
+		*summaries[0].MinimumRating != 1500 || *summaries[0].MaximumRating != 1500 {
+		t.Fatalf("active summaries = %+v, want bounds from ordered rating membership", summaries)
+	}
+}
+
+func TestLearnerRatingBoundsTrackActiveLichessGenerationAndFallback(t *testing.T) {
+	catalog, _ := openTestGenerationalCatalog(t)
+	ctx := context.Background()
+	assertBounds := func(want RatingBounds) {
+		t.Helper()
+		got, err := catalog.LearnerRatingBounds(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("LearnerRatingBounds() = %+v, want %+v", got, want)
+		}
+	}
+	assertBounds(DefaultLearnerRatingBounds())
+
+	other := testSource("private", "pgn", "/private")
+	sealAndActivate(t, beginGenerationImport(t, catalog, other), testTrainingPuzzle(other, "private-wide", 5000))
+	assertBounds(DefaultLearnerRatingBounds())
+
+	lichess := testSource("lichess", "lichess", "/lichess-old")
+	unrated := testTrainingPuzzle(lichess, "lichess-unrated", 0)
+	unrated.Occurrence.Rating = nil
+	high := testTrainingPuzzle(lichess, "lichess-old-high", 1800)
+	high.Occurrence.Ordinal = 2
+	sealAndActivate(t, beginGenerationImport(t, catalog, lichess),
+		testTrainingPuzzle(lichess, "lichess-old-low", 800), unrated, high)
+	assertBounds(RatingBounds{Minimum: 800, Maximum: 1800})
+
+	replacementSource := lichess
+	replacementSource.Path = "/lichess-new"
+	replacement := beginGenerationImport(t, catalog, replacementSource)
+	newHigh := testTrainingPuzzle(lichess, "lichess-new-high", 2400)
+	newHigh.Occurrence.Ordinal = 2
+	if err := replacement.Add(ctx, testTrainingPuzzle(lichess, "lichess-new-low", 1000)); err != nil {
+		t.Fatal(err)
+	}
+	if err := replacement.Add(ctx, newHigh); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := replacement.Seal(ctx, "new-checksum"); err != nil {
+		t.Fatal(err)
+	}
+	assertBounds(RatingBounds{Minimum: 800, Maximum: 1800})
+	if err := replacement.Activate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertBounds(RatingBounds{Minimum: 1000, Maximum: 2400})
+
+	nullSource := lichess
+	nullSource.Path = "/lichess-null"
+	nullPuzzle := testTrainingPuzzle(lichess, "lichess-null", 0)
+	nullPuzzle.Occurrence.Rating = nil
+	sealAndActivate(t, beginGenerationImport(t, catalog, nullSource), nullPuzzle)
+	assertBounds(DefaultLearnerRatingBounds())
 }
 
 func TestRatedCandidatesPreferOnlySourcesInsideRatingWindow(t *testing.T) {

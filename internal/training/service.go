@@ -414,13 +414,23 @@ func (s *Service) effectsForCompletion(
 			if err != nil {
 				return completionEffects{}, err
 			}
+			bounds, err := s.catalog.LearnerRatingBounds(ctx)
+			if err != nil {
+				return completionEffects{}, err
+			}
 			score := 1.0
 			if item.State.Revealed {
 				score = 0
 			} else if item.State.IncorrectMoves > 0 || item.State.HintsUsed > 0 {
 				score = 0.5
 			}
-			updated := UpdateRating(profile.LearnerRating, float64(*item.Snapshot.Rating), score, 400, 3000)
+			updated := UpdateRating(
+				profile.LearnerRating,
+				float64(*item.Snapshot.Rating),
+				score,
+				float64(bounds.Minimum),
+				float64(bounds.Maximum),
+			)
 			effects.NewRating = &updated
 		}
 	}

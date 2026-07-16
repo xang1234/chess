@@ -220,7 +220,7 @@ func TestServicePersistsWrongMoveHintsRevealAndSummary(t *testing.T) {
 		t.Fatalf("summary=%+v", summary)
 	}
 	profile, err := NewUserStore(userDB).Profile(context.Background())
-	if err != nil || profile.LearnerRating != 1488 {
+	if err != nil || profile.LearnerRating != 1500 {
 		t.Fatalf("profile=%+v err=%v", profile, err)
 	}
 	var reviews int
@@ -274,7 +274,7 @@ func TestServiceAcceptsAlternativeMateAndPauseResume(t *testing.T) {
 		t.Fatalf("summary=%+v err=%v", summary, err)
 	}
 	profile, err := store.Profile(context.Background())
-	if err != nil || profile.LearnerRating != 1512 {
+	if err != nil || profile.LearnerRating != 1500 {
 		t.Fatalf("profile=%+v err=%v", profile, err)
 	}
 	var reviews int

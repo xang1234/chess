@@ -76,10 +76,22 @@ batch finishes. A completed or cancelled import remains queryable by job ID,
 while the prior active generation stays readable until a sealed replacement is
 activated.
 
+Choose the compressed source with the native **Choose puzzle database** dialog;
+the production app does not require an absolute path to be typed or a Terminal
+to be opened. The current job and its event subscription belong to the root app,
+so progress, cancellation, and the terminal report remain available after
+navigating away from the import screen and returning during the same app run.
+
 Application shutdown first rejects new jobs, cancels active import and cleanup
 contexts, and waits for their registered goroutines. SQLite handles close only
 after that wait, and the data-root instance lock is released last. Do not
 force-remove catalogue files while the app is still shutting down.
+
+Restore uses the same ordering but deliberately keeps the data-root instance
+lock after jobs and database handles are quiesced. The lock remains held while
+validated files are replaced or rolled back and is released only when the app
+terminates. A failed restore therefore leaves normal services quiesced; retry
+the restore or quit and relaunch rather than continuing training in that run.
 
 ## Performance-tagged catalogue gates
 
@@ -140,8 +152,10 @@ browser window.
 
 Use a backup from Parent view before testing restore against valuable data.
 
-1. Complete first-run setup and import a small `.csv.zst` fixture. Cancel a
-   second import and confirm the previous catalogue remains available.
+1. Complete first-run setup and choose a small `.csv.zst` fixture with the
+   native file dialog. During a second import, navigate home and back to Parent
+   view, confirm progress is still present, then cancel it and confirm the
+   previous catalogue remains available.
 2. Start guided training, make one move, force-quit the app, relaunch it, and
    confirm **Continue today's training** restores the same board and progress.
 3. Finish or pause the session. Confirm the home hub is interactive within
@@ -161,10 +175,12 @@ Use a backup from Parent view before testing restore against valuable data.
 ## Recovery mode
 
 At startup the app runs SQLite integrity checks on durable user/library stores
-before opening repositories. If one is corrupt, the normal interface is
-replaced by a recovery screen with only **Restore backup**,
-**Open data folder**, and **Quit**. Puzzle startup uses the cheap conservative
-probe described above instead of scanning the complete catalogue.
+before opening repositories. Corruption, migration/open failures, and preserved
+incompatible puzzle schemas replace the normal interface with a recovery screen
+containing only **Restore backup**, **Open data folder**, and **Quit**. The
+single-instance lock remains owned by that recovery process. Puzzle startup uses
+the cheap conservative probe described above instead of scanning the complete
+catalogue.
 
 - Restore a validated `.zip` created by Chess Trainer, then relaunch.
 - `user.sqlite` is always in a backup; `library.sqlite` is included only when

@@ -20,7 +20,7 @@ type App struct {
 	ctx      context.Context
 	services *appservices.Services
 	paths    storage.Paths
-	recovery *storage.IntegrityError
+	recovery *appservices.RecoveryRequiredError
 	backup   *backup.Service
 }
 
@@ -30,16 +30,18 @@ type RecoveryState struct {
 	Detail   string `json:"detail,omitempty"`
 }
 
+var openPuzzleImportFile = runtime.OpenFileDialog
+
 func NewApp(services *appservices.Services) *App {
 	return &App{
 		ctx: context.Background(), services: services, paths: services.Paths, backup: services.Backup,
 	}
 }
 
-func NewRecoveryApp(paths storage.Paths, integrity *storage.IntegrityError) *App {
+func NewRecoveryApp(services *appservices.Services, recovery *appservices.RecoveryRequiredError) *App {
 	return &App{
-		ctx: context.Background(), paths: paths, recovery: integrity,
-		backup: backup.NewService(paths, func() error { return nil }),
+		ctx: context.Background(), services: services, paths: services.Paths, recovery: recovery,
+		backup: services.Backup,
 	}
 }
 
@@ -98,7 +100,7 @@ func (a *App) Quit() {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	if a.services != nil {
+	if a.services != nil && a.services.ImportJobs != nil {
 		a.services.ImportJobs.SetEmitter(wailsEmitter{ctx: ctx})
 	}
 }
@@ -108,6 +110,15 @@ func (a *App) StartLichessImport(path string) (string, error) {
 		Kind:     importjob.KindLichess,
 		SourceID: "lichess",
 		Path:     path,
+	})
+}
+
+func (a *App) ChoosePuzzleImportFile() (string, error) {
+	return openPuzzleImportFile(a.ctx, runtime.OpenDialogOptions{
+		Title: "Choose a Lichess puzzle database",
+		Filters: []runtime.FileFilter{{
+			DisplayName: "Compressed CSV (*.csv.zst)", Pattern: "*.csv.zst",
+		}},
 	})
 }
 

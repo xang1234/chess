@@ -30,6 +30,16 @@ type task5CatalogFake struct {
 	resolveCalls  []task5ResolveCall
 	ratedCalls    int
 	practiceCalls int
+	ratingBounds  puzzles.RatingBounds
+	boundsCalls   int
+}
+
+func (f *task5CatalogFake) LearnerRatingBounds(context.Context) (puzzles.RatingBounds, error) {
+	f.boundsCalls++
+	if f.ratingBounds == (puzzles.RatingBounds{}) {
+		return puzzles.DefaultLearnerRatingBounds(), nil
+	}
+	return f.ratingBounds, nil
 }
 
 func (f *task5CatalogFake) Get(_ context.Context, key puzzles.PuzzleKey) (puzzles.TrainingPuzzle, error) {
@@ -742,6 +752,41 @@ func TestHintAndRatingUseStoredSnapshotAfterReimport(t *testing.T) {
 	want := UpdateRating(1500, 1000, 0.5, 400, 3000)
 	if profile.LearnerRating != want {
 		t.Fatalf("rating=%v, want %v from stored snapshot", profile.LearnerRating, want)
+	}
+}
+
+func TestCompletionClampsRatingToCurrentCatalogBounds(t *testing.T) {
+	_, store := openTask5UserStore(t)
+	if err := store.UpdateProfile(context.Background(), Profile{LearnerRating: 1500, SessionSize: 5}); err != nil {
+		t.Fatal(err)
+	}
+	puzzle := task5Puzzle("bounded-core", "lichess", "lichess", 2500, nil, "", "")
+	session, err := store.CreateSession(
+		context.Background(),
+		"guided",
+		[]ScheduledPuzzle{task5Scheduled(puzzle, ScheduledNew, true)},
+		time.Unix(10, 0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := &task5CatalogFake{
+		puzzles:      map[puzzles.PuzzleKey]puzzles.TrainingPuzzle{puzzle.Key(): puzzle},
+		ratingBounds: puzzles.RatingBounds{Minimum: 800, Maximum: 1505},
+	}
+	service := NewService(catalog, store, chessrules.Rules{}, rand.New(rand.NewSource(1)))
+	if _, err := service.PlayMove(context.Background(), session.ID, "e2e4"); err != nil {
+		t.Fatal(err)
+	}
+	profile, err := store.Profile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.LearnerRating != 1505 {
+		t.Fatalf("learner rating = %v, want active catalogue maximum 1505", profile.LearnerRating)
+	}
+	if catalog.boundsCalls != 1 {
+		t.Fatalf("rating-bound calls = %d, want 1 at completion", catalog.boundsCalls)
 	}
 }
 

@@ -8,14 +8,16 @@
   import FreePractice from './components/practice/FreePractice.svelte'
   import PuzzleScreen from './components/puzzle/PuzzleScreen.svelte'
   import { getAPI, type RecoveryState, type SessionView } from './lib/api'
+  import { createImportSession } from './lib/import-session'
   import { screen } from './lib/navigation'
 
   let loading = true
   let activeSession: SessionView | null = null
   let recoveryState: RecoveryState | null = null
   let error = ''
+  const importSession = createImportSession(getAPI)
 
-  onMount(async () => {
+  async function initialise(): Promise<void> {
     try {
       const recovery = await getAPI().getRecoveryState()
       if (recovery.required) {
@@ -35,6 +37,12 @@
     } finally {
       loading = false
     }
+  }
+
+  onMount(() => {
+    const disconnectImport = importSession.connect()
+    void initialise()
+    return disconnectImport
   })
 
   async function openTraining(): Promise<void> {
@@ -99,7 +107,7 @@
         on:parent={() => screen.set('parent')}
       />
     {:else if $screen === 'import'}
-      <ImportPanel />
+      <ImportPanel session={importSession} />
     {:else if $screen === 'puzzle' && activeSession}
       <PuzzleScreen
         session={activeSession}
@@ -113,7 +121,7 @@
     {:else}
       <section class="panel placeholder-panel">
         <h2>{$screen === 'puzzle' ? 'Puzzle board' : 'Game Library'}</h2>
-        <p>This area is the next part of the build.</p>
+        <p>{$screen === 'games' ? 'Game Library is planned for a future milestone.' : 'This area is the next part of the build.'}</p>
         <div class="button-row">
           <button class="secondary" type="button" on:click={() => screen.set('home')}>Back home</button>
         </div>

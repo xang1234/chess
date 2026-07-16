@@ -37,7 +37,7 @@
     <button class="hub-card" type="button" aria-label="Game Library" on:click={() => dispatch('games')}>
       <span class="card-icon" aria-hidden="true">♜</span>
       <strong>Game Library</strong>
-      <span>Replay saved chess games</span>
+      <span>Planned for a future milestone</span>
     </button>
   </div>
 

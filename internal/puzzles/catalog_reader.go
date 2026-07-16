@@ -126,18 +126,23 @@ func (c *SQLiteCatalog) RatedCandidates(
 		return nil, fmt.Errorf("iterate active puzzle source heads: %w", err)
 	}
 
-	query := strings.Builder{}
-	query.WriteString(`SELECT rated.fingerprint, rated.rating_key
+	queryForSide := func(descending bool) string {
+		query := strings.Builder{}
+		query.WriteString(`SELECT rated.fingerprint, rated.rating_key,
+		       occurrence.popularity, occurrence.play_count
 		FROM occurrence_ratings AS rated
+		JOIN puzzle_occurrences AS occurrence
+		  ON occurrence.generation_id = rated.generation_id
+		 AND occurrence.fingerprint = rated.fingerprint
 		WHERE rated.generation_id = ?
 		  AND rated.rating_key BETWEEN ? AND ?
 		  AND rated.rating_key <> ?`)
-	if len(excluded) > 0 {
-		query.WriteString(` AND rated.fingerprint NOT IN (`)
-		query.WriteString(generationPlaceholders(len(excluded)))
-		query.WriteString(`)`)
-	}
-	query.WriteString(` AND NOT EXISTS (
+		if len(excluded) > 0 {
+			query.WriteString(` AND rated.fingerprint NOT IN (`)
+			query.WriteString(generationPlaceholders(len(excluded)))
+			query.WriteString(`)`)
+		}
+		query.WriteString(` AND NOT EXISTS (
 			SELECT 1
 			FROM source_heads preferred_head
 			CROSS JOIN source_generations preferred_generation
@@ -154,47 +159,92 @@ func (c *SQLiteCatalog) RatedCandidates(
 			  AND preferred_head.source_id < ?
 			  AND preferred_generation.status = 'sealed'
 		)
-		ORDER BY rated.rating_key, rated.fingerprint
+		ORDER BY rated.rating_key `)
+		if descending {
+			query.WriteString(`DESC`)
+		} else {
+			query.WriteString(`ASC`)
+		}
+		query.WriteString(`,
+		         occurrence.popularity IS NULL,
+		         occurrence.popularity DESC,
+		         occurrence.play_count IS NULL,
+		         occurrence.play_count DESC,
+		         rated.fingerprint
 		LIMIT ?`)
+		return query.String()
+	}
 
 	type ratedCandidate struct {
-		key    PuzzleKey
-		rating int64
+		key        PuzzleKey
+		rating     int64
+		popularity *int
+		playCount  *int
 	}
-	candidates := make([]ratedCandidate, 0, len(heads)*limit)
+	candidates := make([]ratedCandidate, 0, len(heads)*limit*2)
+	centerFloor := int64(minimum) + (int64(maximum)-int64(minimum))/2
 	for _, head := range heads {
-		args := []any{head.generationID, minimum, maximum, nullPuzzleRatingKey}
-		for _, fingerprint := range excluded {
-			args = append(args, fingerprint)
-		}
-		args = append(args, minimum, maximum, head.sourceID, limit)
-		rows, err := tx.QueryContext(ctx, query.String(), args...)
-		if err != nil {
-			return nil, fmt.Errorf("query rated puzzle candidates for source %q: %w", head.sourceID, err)
-		}
-		for rows.Next() {
-			candidate := ratedCandidate{key: PuzzleKey{SourceID: head.sourceID}}
-			if err := rows.Scan(&candidate.key.Fingerprint, &candidate.rating); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("scan rated puzzle candidate: %w", err)
+		for _, side := range []struct {
+			minimum    int64
+			maximum    int64
+			descending bool
+		}{
+			{minimum: int64(minimum), maximum: min(int64(maximum), centerFloor), descending: true},
+			{minimum: max(int64(minimum), centerFloor+1), maximum: int64(maximum)},
+		} {
+			if side.minimum > side.maximum {
+				continue
 			}
-			candidates = append(candidates, candidate)
-		}
-		if err := rows.Close(); err != nil {
-			return nil, fmt.Errorf("close rated puzzle candidates: %w", err)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("iterate rated puzzle candidates: %w", err)
+			args := []any{head.generationID, side.minimum, side.maximum, nullPuzzleRatingKey}
+			for _, fingerprint := range excluded {
+				args = append(args, fingerprint)
+			}
+			args = append(args, minimum, maximum, head.sourceID, limit)
+			rows, err := tx.QueryContext(ctx, queryForSide(side.descending), args...)
+			if err != nil {
+				return nil, fmt.Errorf("query rated puzzle candidates for source %q: %w", head.sourceID, err)
+			}
+			for rows.Next() {
+				candidate := ratedCandidate{key: PuzzleKey{SourceID: head.sourceID}}
+				var popularity, playCount sql.NullInt64
+				if err := rows.Scan(
+					&candidate.key.Fingerprint,
+					&candidate.rating,
+					&popularity,
+					&playCount,
+				); err != nil {
+					rows.Close()
+					return nil, fmt.Errorf("scan rated puzzle candidate: %w", err)
+				}
+				candidate.popularity = generationIntPointer(popularity)
+				candidate.playCount = generationIntPointer(playCount)
+				candidates = append(candidates, candidate)
+			}
+			if err := rows.Close(); err != nil {
+				return nil, fmt.Errorf("close rated puzzle candidates: %w", err)
+			}
+			if err := rows.Err(); err != nil {
+				return nil, fmt.Errorf("iterate rated puzzle candidates: %w", err)
+			}
 		}
 	}
+	centerTwice := int64(minimum) + int64(maximum)
 	sort.Slice(candidates, func(left, right int) bool {
-		if candidates[left].rating != candidates[right].rating {
-			return candidates[left].rating < candidates[right].rating
+		leftDistance := ratingDistanceTwice(candidates[left].rating, centerTwice)
+		rightDistance := ratingDistanceTwice(candidates[right].rating, centerTwice)
+		if leftDistance != rightDistance {
+			return leftDistance < rightDistance
 		}
-		if candidates[left].key.Fingerprint != candidates[right].key.Fingerprint {
-			return candidates[left].key.Fingerprint < candidates[right].key.Fingerprint
+		if comparison := compareOptionalQuality(candidates[left].popularity, candidates[right].popularity); comparison != 0 {
+			return comparison > 0
 		}
-		return candidates[left].key.SourceID < candidates[right].key.SourceID
+		if comparison := compareOptionalQuality(candidates[left].playCount, candidates[right].playCount); comparison != 0 {
+			return comparison > 0
+		}
+		if candidates[left].key.SourceID != candidates[right].key.SourceID {
+			return candidates[left].key.SourceID < candidates[right].key.SourceID
+		}
+		return candidates[left].key.Fingerprint < candidates[right].key.Fingerprint
 	})
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
@@ -211,6 +261,31 @@ func (c *SQLiteCatalog) RatedCandidates(
 		return nil, fmt.Errorf("finish rated puzzle candidate read: %w", err)
 	}
 	return result, nil
+}
+
+func ratingDistanceTwice(rating, centerTwice int64) int64 {
+	distance := 2*rating - centerTwice
+	if distance < 0 {
+		return -distance
+	}
+	return distance
+}
+
+func compareOptionalQuality(left, right *int) int {
+	switch {
+	case left == nil && right == nil:
+		return 0
+	case left == nil:
+		return -1
+	case right == nil:
+		return 1
+	case *left < *right:
+		return -1
+	case *left > *right:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (c *SQLiteCatalog) FreePracticeCandidates(
@@ -423,8 +498,18 @@ func (c *SQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSumm
 		ctx,
 		`SELECT head.source_id,
 		        source.kind,
-		        MIN(occurrence.rating),
-		        MAX(occurrence.rating),
+		        (SELECT rated.rating_key
+		         FROM occurrence_ratings AS rated
+		         WHERE rated.generation_id = head.generation_id
+		           AND rated.rating_key <> ?
+		         ORDER BY rated.rating_key, rated.fingerprint
+		         LIMIT 1),
+		        (SELECT rated.rating_key
+		         FROM occurrence_ratings AS rated
+		         WHERE rated.generation_id = head.generation_id
+		           AND rated.rating_key <> ?
+		         ORDER BY rated.rating_key DESC, rated.fingerprint DESC
+		         LIMIT 1),
 		        COALESCE(MAX(core.solution_plies), 0)
 		 FROM source_heads head
 		 JOIN source_generations generation
@@ -437,6 +522,8 @@ func (c *SQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSumm
 		 WHERE generation.status = 'sealed'
 		 GROUP BY head.source_id, source.kind
 		 ORDER BY head.source_id`,
+		nullPuzzleRatingKey,
+		nullPuzzleRatingKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query active source summaries: %w", err)
@@ -469,6 +556,34 @@ func (c *SQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSumm
 		return nil, fmt.Errorf("finish active source summary read: %w", err)
 	}
 	return summaries, nil
+}
+
+// LearnerRatingBounds returns the combined range of the currently active,
+// rated Lichess sources. A catalogue without rated Lichess occurrences keeps
+// the stable application defaults used before catalogue-backed bounds existed.
+func (c *SQLiteCatalog) LearnerRatingBounds(ctx context.Context) (RatingBounds, error) {
+	summaries, err := c.ActiveSourceSummaries(ctx)
+	if err != nil {
+		return RatingBounds{}, err
+	}
+	bounds := DefaultLearnerRatingBounds()
+	available := false
+	for _, summary := range summaries {
+		if summary.Kind != "lichess" || summary.MinimumRating == nil || summary.MaximumRating == nil {
+			continue
+		}
+		if !available || *summary.MinimumRating < bounds.Minimum {
+			bounds.Minimum = *summary.MinimumRating
+		}
+		if !available || *summary.MaximumRating > bounds.Maximum {
+			bounds.Maximum = *summary.MaximumRating
+		}
+		available = true
+	}
+	if !available {
+		return DefaultLearnerRatingBounds(), nil
+	}
+	return bounds, nil
 }
 
 func (c *SQLiteCatalog) ActiveThemes(ctx context.Context) ([]string, error) {

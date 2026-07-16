@@ -19,6 +19,7 @@ type TrainingCatalogPort interface {
 	Resolve(context.Context, string, string) (puzzles.TrainingPuzzle, error)
 	RatedCandidates(context.Context, int, int, []string, int) ([]puzzles.TrainingPuzzle, error)
 	FreePracticeCandidates(context.Context, string, *int, *int, []string, *int, int) ([]puzzles.TrainingPuzzle, error)
+	LearnerRatingBounds(context.Context) (puzzles.RatingBounds, error)
 }
 
 type UserPort interface {

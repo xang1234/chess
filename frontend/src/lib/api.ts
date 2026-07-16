@@ -1,5 +1,6 @@
 import {
   CancelImport,
+  ChoosePuzzleImportFile,
   CreateBackup,
   GetImportResult,
   GetParentSummary,
@@ -143,6 +144,7 @@ export type ImportReport = {
 export type ImportResult = {
   jobId: string
   status: 'running' | 'succeeded' | 'failed' | 'cancelled'
+  progress?: { rowsRead: number; bytesRead: number }
   report: ImportReport
   error?: string
 }
@@ -164,6 +166,7 @@ export interface AppAPI {
   restoreBackup(path: string): Promise<void>
   openDataFolder(): Promise<void>
   quit(): Promise<void>
+  choosePuzzleImportFile(): Promise<string>
   startLichessImport(path: string): Promise<string>
   cancelImport(jobId: string): Promise<void>
   getImportResult(jobId: string): Promise<ImportResult>
@@ -188,6 +191,7 @@ const productionAPI: AppAPI = {
   restoreBackup: RestoreBackup,
   openDataFolder: async () => OpenDataFolder(),
   quit: async () => Quit(),
+  choosePuzzleImportFile: ChoosePuzzleImportFile,
   startLichessImport: StartLichessImport,
   cancelImport: CancelImport,
   getImportResult: async (jobId) => (await GetImportResult(jobId)) as ImportResult,
@@ -253,6 +257,7 @@ const previewAPI: AppAPI = {
   restoreBackup: async () => {},
   openDataFolder: async () => {},
   quit: async () => {},
+  choosePuzzleImportFile: async () => '/Users/preview/Downloads/lichess_db_puzzle.csv.zst',
   startLichessImport: async () => 'preview-import',
   cancelImport: async () => {},
   getImportResult: async (jobId) => ({

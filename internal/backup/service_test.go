@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -140,6 +141,61 @@ func TestServiceRejectsCorruptBackupWithoutTouchingLiveData(t *testing.T) {
 	var rating float64
 	if err := userDB.QueryRow(`SELECT learner_rating FROM profile WHERE id = 1`).Scan(&rating); err != nil || rating != 1400 {
 		t.Fatalf("live rating=%v err=%v", rating, err)
+	}
+}
+
+func TestRestoreKeepsCallerLockAcrossReplacementAndFailure(t *testing.T) {
+	paths := storage.PathsAt(filepath.Join(t.TempDir(), "data"))
+	t.Cleanup(func() { _ = os.Chmod(paths.LibraryDB, 0o700) })
+	userDB, libraryDB := openBackupStores(t, paths)
+	lock, err := storage.AcquireDataRootLock(paths.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	service := NewService(paths, func() error {
+		return errorsJoin(userDB.Close(), libraryDB.Close())
+	})
+	destination := filepath.Join(t.TempDir(), "trainer-backup.zip")
+	if err := service.Create(context.Background(), destination, true); err != nil {
+		t.Fatal(err)
+	}
+	service.replaceLive = func(extracted string, manifest Manifest) error {
+		assertDataRootLocked(t, paths.Root)
+		if err := os.Remove(filepath.Join(extracted, "user.sqlite")); err != nil {
+			t.Fatal(err)
+		}
+		library := filepath.Join(extracted, "library.sqlite")
+		if err := os.Remove(library); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(library, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(library, "blocker"), []byte("force rollback failure"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err := service.replaceDatabases(extracted, manifest)
+		assertDataRootLocked(t, paths.Root)
+		return err
+	}
+
+	err = service.Restore(context.Background(), destination)
+	if err == nil || !strings.Contains(err.Error(), "pre-restore data retained") {
+		t.Fatalf("Restore() error = %v, want retained pre-restore rollback failure", err)
+	}
+	assertDataRootLocked(t, paths.Root)
+}
+
+func assertDataRootLocked(t *testing.T, root string) {
+	t.Helper()
+	contender, err := storage.AcquireDataRootLock(root)
+	if contender != nil {
+		contender.Close()
+	}
+	if !errors.Is(err, storage.ErrDataRootLocked) {
+		t.Fatalf("AcquireDataRootLock() = %v, want locked", err)
 	}
 }
 

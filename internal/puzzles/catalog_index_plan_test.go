@@ -45,9 +45,13 @@ func TestReaderMembershipPlansUsePhysicalPrimaryKeys(t *testing.T) {
 	seedActiveReaderGeneration(t, store, beta, betaPuzzle)
 
 	plans := map[string][]string{
-		"rated preferred-source de-dup": catalogQueryPlanDetails(t, store.Reader, `
-			SELECT rated.fingerprint, rated.rating_key
+		"rated lower-center seek": catalogQueryPlanDetails(t, store.Reader, `
+			SELECT rated.fingerprint, rated.rating_key,
+			       occurrence.popularity, occurrence.play_count
 			FROM occurrence_ratings rated
+			JOIN puzzle_occurrences occurrence
+			  ON occurrence.generation_id = rated.generation_id
+			 AND occurrence.fingerprint = rated.fingerprint
 			WHERE rated.generation_id = ?
 			  AND rated.rating_key BETWEEN ? AND ?
 			  AND rated.rating_key <> ?
@@ -68,8 +72,42 @@ func TestReaderMembershipPlansUsePhysicalPrimaryKeys(t *testing.T) {
 			      AND preferred_head.source_id < ?
 			      AND preferred_generation.status = 'sealed'
 			  )
-			ORDER BY rated.rating_key, rated.fingerprint LIMIT ?`,
-			alphaGeneration, 1000, 2000, nullPuzzleRatingKey, 1000, 2000, alpha.ID, 25),
+			ORDER BY rated.rating_key DESC,
+			         occurrence.popularity IS NULL,
+			         occurrence.popularity DESC,
+			         occurrence.play_count IS NULL,
+			         occurrence.play_count DESC,
+			         rated.fingerprint LIMIT ?`,
+			alphaGeneration, 1000, 1500, nullPuzzleRatingKey, 1000, 2000, alpha.ID, 25),
+		"rated upper-center seek": catalogQueryPlanDetails(t, store.Reader, `
+			SELECT rated.fingerprint, rated.rating_key,
+			       occurrence.popularity, occurrence.play_count
+			FROM occurrence_ratings rated
+			JOIN puzzle_occurrences occurrence
+			  ON occurrence.generation_id = rated.generation_id
+			 AND occurrence.fingerprint = rated.fingerprint
+			WHERE rated.generation_id = ?
+			  AND rated.rating_key BETWEEN ? AND ?
+			  AND rated.rating_key <> ?
+			ORDER BY rated.rating_key ASC,
+			         occurrence.popularity IS NULL,
+			         occurrence.popularity DESC,
+			         occurrence.play_count IS NULL,
+			         occurrence.play_count DESC,
+			         rated.fingerprint LIMIT ?`,
+			alphaGeneration, 1501, 2000, nullPuzzleRatingKey, 25),
+		"summary minimum rating": catalogQueryPlanDetails(t, store.Reader, `
+			SELECT rated.rating_key
+			FROM occurrence_ratings rated
+			WHERE rated.generation_id = ? AND rated.rating_key <> ?
+			ORDER BY rated.rating_key, rated.fingerprint LIMIT 1`,
+			alphaGeneration, nullPuzzleRatingKey),
+		"summary maximum rating": catalogQueryPlanDetails(t, store.Reader, `
+			SELECT rated.rating_key
+			FROM occurrence_ratings rated
+			WHERE rated.generation_id = ? AND rated.rating_key <> ?
+			ORDER BY rated.rating_key DESC, rated.fingerprint DESC LIMIT 1`,
+			alphaGeneration, nullPuzzleRatingKey),
 		"free practice unranged": catalogQueryPlanDetails(t, store.Reader, `
 			SELECT rated.fingerprint
 			FROM occurrence_ratings rated
@@ -122,8 +160,14 @@ func TestReaderMembershipPlansUsePhysicalPrimaryKeys(t *testing.T) {
 			)
 			ORDER BY core.fingerprint LIMIT ?`, 1000),
 	}
-	assertQueryPlanContains(t, plans["rated preferred-source de-dup"], "preferred_occurrence USING PRIMARY KEY (fingerprint=? AND generation_id=?)")
-	assertQueryPlanContains(t, plans["rated preferred-source de-dup"], "rated USING PRIMARY KEY (generation_id=? AND rating_key>? AND rating_key<?)")
+	assertQueryPlanContains(t, plans["rated lower-center seek"], "preferred_occurrence USING PRIMARY KEY (fingerprint=? AND generation_id=?)")
+	assertQueryPlanContains(t, plans["rated lower-center seek"], "rated USING PRIMARY KEY (generation_id=? AND rating_key>? AND rating_key<?)")
+	assertQueryPlanContains(t, plans["rated lower-center seek"], "occurrence USING PRIMARY KEY (fingerprint=? AND generation_id=?)")
+	assertQueryPlanContains(t, plans["rated upper-center seek"], "rated USING PRIMARY KEY (generation_id=? AND rating_key>? AND rating_key<?)")
+	assertQueryPlanContains(t, plans["summary minimum rating"], "rated USING PRIMARY KEY (generation_id=?)")
+	assertQueryPlanNotContains(t, plans["summary minimum rating"], "USE TEMP B-TREE")
+	assertQueryPlanContains(t, plans["summary maximum rating"], "rated USING PRIMARY KEY (generation_id=?)")
+	assertQueryPlanNotContains(t, plans["summary maximum rating"], "USE TEMP B-TREE")
 	assertQueryPlanContains(t, plans["free practice unranged"], "rated USING PRIMARY KEY (generation_id=?)")
 	assertQueryPlanContains(t, plans["free practice ranged"], "rated USING PRIMARY KEY (generation_id=? AND rating_key>? AND rating_key<?)")
 	assertQueryPlanContains(t, plans["theme membership count"], "theme USING PRIMARY KEY (generation_id=? AND theme=?)")

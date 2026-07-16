@@ -12,6 +12,7 @@ import (
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
 	"chess-trainer/internal/training"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type bindingImportCall struct {
@@ -62,6 +63,33 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 	}
 	if _, err := app.GetImportResult("missing"); err == nil {
 		t.Fatal("GetImportResult() unexpectedly accepted an unknown job")
+	}
+}
+
+func TestChoosePuzzleImportFileUsesCompressedCSVFilter(t *testing.T) {
+	previous := openPuzzleImportFile
+	t.Cleanup(func() { openPuzzleImportFile = previous })
+	openPuzzleImportFile = func(_ context.Context, options runtime.OpenDialogOptions) (string, error) {
+		if options.Title != "Choose a Lichess puzzle database" {
+			t.Fatalf("Title = %q", options.Title)
+		}
+		if len(options.Filters) != 1 || options.Filters[0].Pattern != "*.csv.zst" {
+			t.Fatalf("Filters = %+v", options.Filters)
+		}
+		return "/tmp/lichess.csv.zst", nil
+	}
+
+	path, err := (&App{ctx: context.Background()}).ChoosePuzzleImportFile()
+	if err != nil || path != "/tmp/lichess.csv.zst" {
+		t.Fatalf("ChoosePuzzleImportFile() = %q, %v", path, err)
+	}
+
+	openPuzzleImportFile = func(context.Context, runtime.OpenDialogOptions) (string, error) {
+		return "", nil
+	}
+	path, err = (&App{ctx: context.Background()}).ChoosePuzzleImportFile()
+	if err != nil || path != "" {
+		t.Fatalf("cancelled ChoosePuzzleImportFile() = %q, %v", path, err)
 	}
 }
 
@@ -126,15 +154,16 @@ func TestRecoveryModePreservesCorruptData(t *testing.T) {
 	if err := os.WriteFile(paths.UserDB, []byte("corrupt user database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	services, err := appservices.Open(paths)
-	if services != nil {
-		t.Fatal("Open() returned services for corrupt data")
+	services, err := appservices.OpenApplication(paths)
+	if services == nil {
+		t.Fatal("OpenApplication() did not return recovery lifecycle")
 	}
-	var integrityErr *storage.IntegrityError
-	if !errors.As(err, &integrityErr) {
-		t.Fatalf("Open() err=%v", err)
+	defer services.Close()
+	var recoveryErr *appservices.RecoveryRequiredError
+	if !errors.As(err, &recoveryErr) {
+		t.Fatalf("OpenApplication() err=%v", err)
 	}
-	app := NewRecoveryApp(paths, integrityErr)
+	app := NewRecoveryApp(services, recoveryErr)
 	state := app.GetRecoveryState()
 	if !state.Required || state.Path != paths.UserDB || state.Detail == "" {
 		t.Fatalf("recovery state=%+v", state)

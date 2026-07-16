@@ -39,6 +39,7 @@ export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
     restoreBackup: async () => {},
     openDataFolder: async () => {},
     quit: async () => {},
+    choosePuzzleImportFile: async () => '/tmp/puzzles.csv.zst',
     startLichessImport: async () => 'job-1',
     cancelImport: async () => {},
     getImportResult: async (): Promise<ImportResult> => ({

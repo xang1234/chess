@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +13,73 @@ import (
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
 )
+
+func TestServicesQuiesceForRestoreKeepsInstanceLockUntilShutdown(t *testing.T) {
+	paths := storage.PathsAt(t.TempDir())
+	services, err := Open(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := services.QuiesceForRestore(); err != nil {
+		t.Fatal(err)
+	}
+	if err := services.QuiesceForRestore(); err != nil {
+		t.Fatalf("second QuiesceForRestore() = %v", err)
+	}
+	if err := services.UserDB.Ping(); err == nil {
+		t.Fatal("user database remained open after restore quiesce")
+	}
+	contender, err := storage.AcquireDataRootLock(paths.Root)
+	if contender != nil {
+		contender.Close()
+	}
+	if !errors.Is(err, storage.ErrDataRootLocked) {
+		t.Fatalf("lock acquisition after restore quiesce = %v, want locked", err)
+	}
+
+	if err := services.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := services.Close(); err != nil {
+		t.Fatalf("second Close() = %v", err)
+	}
+	contender, err = storage.AcquireDataRootLock(paths.Root)
+	if err != nil {
+		t.Fatalf("lock remains held after shutdown: %v", err)
+	}
+	if err := contender.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServicesRestoreKeepsInstanceLockAfterSuccessfulReplacement(t *testing.T) {
+	paths := storage.PathsAt(t.TempDir())
+	services, err := Open(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "backup.zip")
+	if err := services.Backup.Create(context.Background(), destination, true); err != nil {
+		services.Close()
+		t.Fatal(err)
+	}
+	if err := services.Backup.Restore(context.Background(), destination); err != nil {
+		services.Close()
+		t.Fatal(err)
+	}
+	contender, err := storage.AcquireDataRootLock(paths.Root)
+	if contender != nil {
+		contender.Close()
+	}
+	if !errors.Is(err, storage.ErrDataRootLocked) {
+		services.Close()
+		t.Fatalf("lock acquisition after replacement = %v, want locked", err)
+	}
+	if err := services.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestOpenCreatesAndClosesAllStores(t *testing.T) {
 	paths := storage.PathsAt(t.TempDir())

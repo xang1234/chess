@@ -6,6 +6,10 @@ export function CancelImport(arg1) {
   return window['go']['main']['App']['CancelImport'](arg1);
 }
 
+export function ChoosePuzzleImportFile() {
+  return window['go']['main']['App']['ChoosePuzzleImportFile']();
+}
+
 export function CreateBackup(arg1) {
   return window['go']['main']['App']['CreateBackup'](arg1);
 }

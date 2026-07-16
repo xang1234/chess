@@ -1,47 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getAPI, type ImportProgress, type ImportResult } from '../../lib/api'
+  import type { ImportSession } from '../../lib/import-session'
 
-  let path = ''
-  let jobId = ''
-  let running = false
-  let progress: ImportProgress = { jobId: '', rowsRead: 0, bytesRead: 0 }
-  let result: ImportResult | null = null
-  let error = ''
+  export let session: ImportSession
 
   const formatted = (value: number) => new Intl.NumberFormat().format(value)
+  const filename = (path: string) => path.split(/[\\/]/).pop() ?? path
 
   onMount(() => {
-    const stopProgress = getAPI().onImportProgress((event) => {
-      if (event.jobId === jobId) progress = event
-    })
-    const stopFinished = getAPI().onImportFinished((event) => {
-      if (event.jobId !== jobId) return
-      result = event
-      running = false
-      error = event.error ?? ''
-    })
-    return () => {
-      stopProgress()
-      stopFinished()
-    }
+    void session.refresh()
   })
-
-  async function start(): Promise<void> {
-    error = ''
-    result = null
-    progress = { jobId: '', rowsRead: 0, bytesRead: 0 }
-    try {
-      jobId = await getAPI().startLichessImport(path)
-      running = true
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause)
-    }
-  }
-
-  async function cancel(): Promise<void> {
-    if (jobId) await getAPI().cancelImport(jobId)
-  }
 </script>
 
 <section class="panel import-panel" aria-labelledby="import-title">
@@ -49,27 +17,51 @@
   <h2 id="import-title">Import Lichess puzzles</h2>
   <p class="muted">The compressed file is read directly. No decompressed copy is created.</p>
 
-  <label>
-    <span>Puzzle database file</span>
-    <input type="text" bind:value={path} placeholder="/path/to/lichess_db_puzzle.csv.zst" disabled={running} />
-  </label>
+  <div class="file-picker" aria-labelledby="puzzle-file-label">
+    <span id="puzzle-file-label">Puzzle database file</span>
+    <button
+      class="secondary"
+      type="button"
+      on:click={() => session.selectFile()}
+      disabled={$session.running || $session.busy}
+    >Choose puzzle database</button>
+    {#if $session.path}
+      <div class="selected-file" aria-live="polite">
+        <strong>{filename($session.path)}</strong>
+        <span>{$session.path}</span>
+      </div>
+    {:else}
+      <p class="muted">No file selected</p>
+    {/if}
+  </div>
 
-  {#if running}
+  {#if $session.running}
     <div class="progress-card" aria-live="polite">
-      <strong>{formatted(progress.rowsRead)} rows read</strong>
-      <span>{formatted(progress.bytesRead)} compressed bytes</span>
+      <strong>{formatted($session.progress.rowsRead)} rows read</strong>
+      <span>{formatted($session.progress.bytesRead)} compressed bytes</span>
     </div>
-    <button class="secondary" type="button" on:click={cancel}>Cancel import</button>
+    <button class="secondary" type="button" on:click={() => session.cancel()}>Cancel import</button>
   {:else}
-    <button class="primary" type="button" on:click={start} disabled={!path}>Import puzzles</button>
+    <button class="primary" type="button" on:click={() => session.start()} disabled={!$session.path || $session.busy}>Import puzzles</button>
   {/if}
 
-  {#if result && result.status === 'succeeded'}
+  {#if $session.result && $session.result.status === 'succeeded'}
     <div class="report-grid" aria-label="Import report">
-      <strong>{formatted(result.report.accepted)} accepted</strong>
-      <span>{formatted(result.report.duplicates)} duplicates</span>
-      <span>{formatted(result.report.rejected)} rejected</span>
+      <strong>{formatted($session.result.report.accepted)} accepted</strong>
+      <span>{formatted($session.result.report.duplicates)} duplicates</span>
+      <span>{formatted($session.result.report.rejected)} rejected</span>
     </div>
   {/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if $session.result && $session.result.status === 'cancelled'}
+    <p role="status">Import cancelled.</p>
+  {/if}
+  {#if $session.error}<p class="error" role="alert">{$session.error}</p>{/if}
 </section>
+
+<style>
+  .file-picker { display: grid; gap: 10px; }
+  .file-picker > span { font-weight: 700; }
+  .file-picker button { justify-self: start; }
+  .selected-file { display: grid; gap: 4px; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--ivory-100); }
+  .selected-file span { overflow-wrap: anywhere; color: var(--ink-700); font-size: 0.9rem; }
+</style>

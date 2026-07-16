@@ -13,9 +13,7 @@ import (
 )
 
 const (
-	defaultMinimumRating = 400
-	defaultMaximumRating = 3000
-	recentSessionLimit   = 20
+	recentSessionLimit = 20
 )
 
 type RatingPoint struct {
@@ -68,6 +66,7 @@ type PracticeFilters struct {
 
 type ProfileCatalogPort interface {
 	ActiveSourceSummaries(context.Context) ([]puzzles.SourceSummary, error)
+	LearnerRatingBounds(context.Context) (puzzles.RatingBounds, error)
 	ActiveThemes(context.Context) ([]string, error)
 }
 
@@ -97,15 +96,12 @@ func (s *Service) UpdateSettings(ctx context.Context, value training.Profile) er
 	if value.SessionSize != 5 && value.SessionSize != 10 && value.SessionSize != 15 {
 		return fmt.Errorf("session size must be 5, 10, or 15")
 	}
-	minimum, maximum, available, err := s.lichessRatingRange(ctx)
+	bounds, err := s.catalog.LearnerRatingBounds(ctx)
 	if err != nil {
 		return err
 	}
-	if !available {
-		minimum, maximum = defaultMinimumRating, defaultMaximumRating
-	}
-	if value.LearnerRating < float64(minimum) || value.LearnerRating > float64(maximum) {
-		return fmt.Errorf("learner rating must be between %d and %d", minimum, maximum)
+	if value.LearnerRating < float64(bounds.Minimum) || value.LearnerRating > float64(bounds.Maximum) {
+		return fmt.Errorf("learner rating must be between %d and %d", bounds.Minimum, bounds.Maximum)
 	}
 	return s.store.UpdateProfile(ctx, value)
 }
@@ -171,31 +167,6 @@ func (s *Service) PracticeFilters(ctx context.Context) (PracticeFilters, error) 
 		result.Sources = append(result.Sources, source)
 	}
 	return result, nil
-}
-
-func (s *Service) lichessRatingRange(ctx context.Context) (int, int, bool, error) {
-	summaries, err := s.catalog.ActiveSourceSummaries(ctx)
-	if err != nil {
-		return 0, 0, false, err
-	}
-	var minimum, maximum int
-	available := false
-	for _, summary := range summaries {
-		if summary.Kind != "lichess" || summary.MinimumRating == nil || summary.MaximumRating == nil {
-			continue
-		}
-		if !available || *summary.MinimumRating < minimum {
-			minimum = *summary.MinimumRating
-		}
-		if !available || *summary.MaximumRating > maximum {
-			maximum = *summary.MaximumRating
-		}
-		available = true
-	}
-	if !available {
-		return 0, 0, false, nil
-	}
-	return minimum, maximum, true, nil
 }
 
 func (s *Service) ratingTrend(ctx context.Context) ([]RatingPoint, error) {

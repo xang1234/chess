@@ -72,6 +72,7 @@ type CatalogReader interface {
 	RatedCandidates(context.Context, int, int, []string, int) ([]TrainingPuzzle, error)
 	FreePracticeCandidates(context.Context, string, *int, *int, []string, *int, int) ([]TrainingPuzzle, error)
 	ActiveSourceSummaries(context.Context) ([]SourceSummary, error)
+	LearnerRatingBounds(context.Context) (RatingBounds, error)
 	ActiveThemes(context.Context) ([]string, error)
 }
 

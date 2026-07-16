@@ -27,6 +27,13 @@ test.beforeEach(async ({ page }) => {
     let profile: { learnerRating: number; sessionSize: number } | null = null
     let activeSession: ReturnType<typeof session> | Record<string, unknown> | null = null
     let hintLevel = 0
+    let importedPath = ''
+    let holdImportOpen = false
+    let importResult: Record<string, unknown> = {
+      jobId: 'job-1', status: 'running',
+      progress: { jobId: 'job-1', rowsRead: 0, bytesRead: 0 },
+      report: { accepted: 0, duplicates: 0, rejected: 0 }
+    }
 
     const emit = (name: string, payload: unknown) => {
       for (const listener of listeners[name] ?? []) listener(payload)
@@ -40,6 +47,15 @@ test.beforeEach(async ({ page }) => {
       },
       EventsOff(name: string) { delete listeners[name] },
       EventsOffAll() { for (const name of Object.keys(listeners)) delete listeners[name] }
+    }
+    ;(window as any).__importTest = {
+      holdOpen() { holdImportOpen = true },
+      selectedPath() { return importedPath },
+      progress(rowsRead: number, bytesRead: number) {
+        const progress = { jobId: 'job-1', rowsRead, bytesRead }
+        importResult = { ...importResult, progress }
+        emit('import:progress', progress)
+      }
     }
     ;(window as any).go = { main: { App: {
       GetRecoveryState: async () => ({ required: false }),
@@ -116,20 +132,32 @@ test.beforeEach(async ({ page }) => {
           total: 2, completed: 2, firstTry: 0, usedHint: 1, revealed: 1
         }]
       }),
-      StartLichessImport: async () => {
+      ChoosePuzzleImportFile: async () => '/Users/family/Downloads/lichess_db_puzzle.csv.zst',
+      StartLichessImport: async (path: string) => {
+        importedPath = path
+        importResult = {
+          jobId: 'job-1', status: 'running',
+          progress: { jobId: 'job-1', rowsRead: 0, bytesRead: 0 },
+          report: { accepted: 0, duplicates: 0, rejected: 0 }
+        }
+        if (holdImportOpen) return 'job-1'
         setTimeout(() => {
           emit('import:progress', { jobId: 'job-1', rowsRead: 10_000, bytesRead: 2048 })
-          emit('import:finished', {
+          importResult = {
             jobId: 'job-1', status: 'succeeded',
             report: { accepted: 9800, duplicates: 150, rejected: 50 }
-          })
+          }
+          emit('import:finished', importResult)
         }, 20)
         return 'job-1'
       },
-      CancelImport: async () => {},
-      GetImportResult: async () => ({
-        jobId: 'job-1', status: 'succeeded', report: { accepted: 9800, duplicates: 150, rejected: 50 }
-      }),
+      CancelImport: async () => {
+        importResult = {
+          jobId: 'job-1', status: 'cancelled', report: { accepted: 0, duplicates: 0, rejected: 0 }
+        }
+        emit('import:finished', importResult)
+      },
+      GetImportResult: async () => importResult,
       CreateBackup: async () => '/tmp/backup.zip',
       RestoreBackup: async () => {},
       OpenDataFolder: async () => {},
@@ -149,7 +177,9 @@ test('runs setup, import, guided training, practice, and parent progress', async
 
   await page.getByRole('button', { name: 'Parent settings' }).click()
   await page.getByRole('button', { name: 'Import puzzles' }).click()
-  await page.getByLabel('Puzzle database file').fill('/tmp/lichess.csv.zst')
+  await page.getByRole('button', { name: 'Choose puzzle database' }).click()
+  await expect(page.getByText('lichess_db_puzzle.csv.zst', { exact: true })).toBeVisible()
+  await expect(page.getByText('/Users/family/Downloads/lichess_db_puzzle.csv.zst')).toBeVisible()
   await page.getByRole('button', { name: 'Import puzzles' }).click()
   await expect(page.getByText('9,800 accepted')).toBeVisible()
   await expect(page.getByText('150 duplicates')).toBeVisible()
@@ -194,4 +224,27 @@ test('runs setup, import, guided training, practice, and parent progress', async
   await expect(metrics.getByText('25%', { exact: true })).toBeVisible()
   await expect(page.getByRole('cell', { name: 'fork' })).toBeVisible()
   await expect(page.getByRole('cell', { name: 'Guided' })).toBeVisible()
+})
+
+test('keeps an active import observable across navigation and can cancel it', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Starting rating').fill('1250')
+  await page.getByRole('button', { name: 'Save and continue' }).click()
+  await page.evaluate(() => (window as any).__importTest.holdOpen())
+
+  await page.getByRole('button', { name: 'Parent settings' }).click()
+  await page.getByRole('button', { name: 'Import puzzles' }).click()
+  await page.getByRole('button', { name: 'Choose puzzle database' }).click()
+  await page.getByRole('button', { name: 'Import puzzles' }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).__importTest.selectedPath()))
+    .toBe('/Users/family/Downloads/lichess_db_puzzle.csv.zst')
+
+  await page.getByRole('button', { name: 'Chess Trainer home' }).click()
+  await page.evaluate(() => (window as any).__importTest.progress(10_000, 2048))
+  await page.getByRole('button', { name: 'Parent settings' }).click()
+  await page.getByRole('button', { name: 'Import puzzles' }).click()
+
+  await expect(page.getByText('10,000 rows read')).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel import' }).click()
+  await expect(page.getByText('Import cancelled.')).toBeVisible()
 })

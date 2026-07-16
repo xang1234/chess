@@ -50,3 +50,12 @@ type SourceSummary struct {
 	MaximumRating        *int
 	MaximumSolutionPlies int
 }
+
+type RatingBounds struct {
+	Minimum int
+	Maximum int
+}
+
+func DefaultLearnerRatingBounds() RatingBounds {
+	return RatingBounds{Minimum: 400, Maximum: 3000}
+}

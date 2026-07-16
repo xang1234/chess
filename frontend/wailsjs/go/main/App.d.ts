@@ -8,6 +8,8 @@ import {domain} from '../models';
 
 export function CancelImport(arg1:string):Promise<void>;
 
+export function ChoosePuzzleImportFile():Promise<string>;
+
 export function CreateBackup(arg1:boolean):Promise<string>;
 
 export function GetImportResult(arg1:string):Promise<importjob.Result>;
