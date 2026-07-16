@@ -3,11 +3,7 @@ package main
 import (
 	"context"
 	"embed"
-	"errors"
 	"log"
-
-	appservices "chess-trainer/internal/app"
-	"chess-trainer/internal/storage"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -18,24 +14,13 @@ import (
 var assets embed.FS
 
 func main() {
-	paths, err := storage.DefaultPaths()
+	app, services, err := newApplication()
 	if err != nil {
-		log.Printf("resolve application data paths: %v", err)
+		log.Printf("initialize application: %v", err)
 		return
 	}
-	services, err := appservices.Open(paths)
-	var app *App
-	if err != nil {
-		var integrityErr *storage.IntegrityError
-		if !errors.As(err, &integrityErr) {
-			log.Printf("open application services: %v", err)
-			return
-		}
-		log.Printf("opening recovery mode: %v", integrityErr)
-		app = NewRecoveryApp(paths, integrityErr)
-	} else {
+	if services != nil {
 		defer services.Close()
-		app = NewApp(services)
 	}
 
 	err = wails.Run(&options.App{
