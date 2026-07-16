@@ -1,7 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { getAPI, type Profile, type RatingBounds } from '../../lib/api'
+  import type { Profile, RatingBounds } from '../../lib/api'
+  import { useNormalAPI } from '../../lib/api-context'
 
+  const api = useNormalAPI()
   const dispatch = createEventDispatcher<{ complete: Profile }>()
   let learnerRating = 1200
   let sessionSize: 5 | 10 | 15 = 10
@@ -12,7 +14,7 @@
 
   onMount(async () => {
     try {
-      const filters = await getAPI().getPracticeFilters()
+      const filters = await api.getPracticeFilters()
       learnerRatingBounds = filters.learnerRatingBounds
       learnerRating = Math.min(
         Math.max(learnerRating, learnerRatingBounds.minimum),
@@ -35,7 +37,7 @@
     error = ''
     const profile: Profile = { learnerRating, sessionSize }
     try {
-      await getAPI().updateProfile(profile)
+      await api.updateProfile(profile)
       dispatch('complete', profile)
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)

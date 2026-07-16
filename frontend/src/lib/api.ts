@@ -138,8 +138,14 @@ export type ImportResult = {
   error?: string
 }
 
-export interface AppAPI {
-  getApplicationMode(): Promise<ApplicationMode>
+interface BackupAPI {
+  createBackup(includeLibrary: boolean): Promise<string>
+  restoreBackup(path: string): Promise<void>
+  openDataFolder(): Promise<void>
+  quit(): Promise<void>
+}
+
+export interface NormalAPI extends BackupAPI {
   getProfile(): Promise<Profile | null>
   updateProfile(profile: Profile): Promise<void>
   resumeSession(): Promise<SessionView | null>
@@ -151,11 +157,6 @@ export interface AppAPI {
   pauseSession(sessionId: string): Promise<void>
   getParentSummary(): Promise<ParentSummary>
   getPracticeFilters(): Promise<PracticeFilters>
-  getRecoveryState(): Promise<RecoveryState>
-  createBackup(includeLibrary: boolean): Promise<string>
-  restoreBackup(path: string): Promise<void>
-  openDataFolder(): Promise<void>
-  quit(): Promise<void>
   choosePuzzleImportFile(): Promise<string>
   startLichessImport(path: string): Promise<string>
   cancelImport(jobId: string): Promise<void>
@@ -164,6 +165,14 @@ export interface AppAPI {
   onImportFinished(listener: (result: ImportResult) => void): () => void
 }
 
+export interface RecoveryAPI extends BackupAPI {
+  getRecoveryState(): Promise<RecoveryState>
+}
+
+export type ApplicationAPI =
+  | { mode: 'normal'; api: NormalAPI }
+  | { mode: 'recovery'; api: RecoveryAPI }
+
 let productionMode: Promise<ApplicationMode> | null = null
 
 function getProductionMode(): Promise<ApplicationMode> {
@@ -171,8 +180,7 @@ function getProductionMode(): Promise<ApplicationMode> {
   return productionMode
 }
 
-const productionAPI: AppAPI = {
-  getApplicationMode: getProductionMode,
+const productionNormalAPI: NormalAPI = {
   getProfile: async () => (await Normal.GetProfile()) as Profile | null,
   updateProfile: async (profile) => Normal.UpdateProfile(profile),
   resumeSession: async () => (await Normal.ResumeSession()) as SessionView | null,
@@ -184,19 +192,10 @@ const productionAPI: AppAPI = {
   pauseSession: Normal.PauseSession,
   getParentSummary: async () => (await Normal.GetParentSummary()) as ParentSummary,
   getPracticeFilters: async () => (await Normal.GetPracticeFilters()) as PracticeFilters,
-  getRecoveryState: async () => (await Recovery.GetRecoveryState()) as RecoveryState,
-  createBackup: async (includeLibrary) => (await getProductionMode()) === 'recovery'
-    ? Recovery.CreateBackup(includeLibrary)
-    : Normal.CreateBackup(includeLibrary),
-  restoreBackup: async (path) => (await getProductionMode()) === 'recovery'
-    ? Recovery.RestoreBackup(path)
-    : Normal.RestoreBackup(path),
-  openDataFolder: async () => (await getProductionMode()) === 'recovery'
-    ? Recovery.OpenDataFolder()
-    : Normal.OpenDataFolder(),
-  quit: async () => (await getProductionMode()) === 'recovery'
-    ? Recovery.Quit()
-    : Normal.Quit(),
+  createBackup: Normal.CreateBackup,
+  restoreBackup: Normal.RestoreBackup,
+  openDataFolder: Normal.OpenDataFolder,
+  quit: Normal.Quit,
   choosePuzzleImportFile: Normal.ChoosePuzzleImportFile,
   startLichessImport: Normal.StartLichessImport,
   cancelImport: Normal.CancelImport,
@@ -205,9 +204,23 @@ const productionAPI: AppAPI = {
   onImportFinished: (listener) => EventsOn('import:finished', listener)
 }
 
+const productionRecoveryAPI: RecoveryAPI = {
+  getRecoveryState: async () => (await Recovery.GetRecoveryState()) as RecoveryState,
+  createBackup: Recovery.CreateBackup,
+  restoreBackup: Recovery.RestoreBackup,
+  openDataFolder: Recovery.OpenDataFolder,
+  quit: Recovery.Quit
+}
+
+async function loadProductionApplicationAPI(): Promise<ApplicationAPI> {
+  const mode = await getProductionMode()
+  return mode === 'recovery'
+    ? { mode, api: productionRecoveryAPI }
+    : { mode, api: productionNormalAPI }
+}
+
 let previewProfile: Profile | null = null
-const previewAPI: AppAPI = {
-  getApplicationMode: async () => 'normal',
+const previewNormalAPI: NormalAPI = {
   getProfile: async () => previewProfile,
   updateProfile: async (profile) => { previewProfile = profile },
   resumeSession: async () => null,
@@ -260,7 +273,6 @@ const previewAPI: AppAPI = {
     maximumSolutionPlies: 12,
     learnerRatingBounds: { minimum: 400, maximum: 3000 }
   }),
-  getRecoveryState: async () => ({ required: false }),
   createBackup: async () => '/Users/preview/Chess Trainer Backup.zip',
   restoreBackup: async () => {},
   openDataFolder: async () => {},
@@ -275,17 +287,10 @@ const previewAPI: AppAPI = {
   onImportFinished: () => () => {}
 }
 
-const defaultAPI = typeof window !== 'undefined' && window.go ? productionAPI : previewAPI
-let currentAPI = defaultAPI
+const isProduction = typeof window !== 'undefined' && window.go
 
-export function getAPI(): AppAPI {
-  return currentAPI
-}
-
-export function setAPIForTests(api: AppAPI): void {
-  currentAPI = api
-}
-
-export function resetAPIForTests(): void {
-  currentAPI = defaultAPI
+export function loadApplicationAPI(): Promise<ApplicationAPI> {
+  return isProduction
+    ? loadProductionApplicationAPI()
+    : Promise.resolve({ mode: 'normal', api: previewNormalAPI })
 }

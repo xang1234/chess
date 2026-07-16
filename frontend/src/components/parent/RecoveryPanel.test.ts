@@ -1,17 +1,16 @@
 import { fireEvent, render, screen } from '@testing-library/svelte'
 import { vi } from 'vitest'
-import { setAPIForTests } from '../../lib/api'
-import { fakeAPI } from '../../test-fakes'
+import { fakeRecoveryAPI, withRecoveryAPI } from '../../test-fakes'
 import RecoveryPanel from './RecoveryPanel.svelte'
 
 test('offers only safe recovery actions for a damaged database', async () => {
   const restoreBackup = vi.fn().mockResolvedValue(undefined)
   const openDataFolder = vi.fn().mockResolvedValue(undefined)
   const quit = vi.fn().mockResolvedValue(undefined)
-  setAPIForTests(fakeAPI({ restoreBackup, openDataFolder, quit }))
+  const api = fakeRecoveryAPI({ restoreBackup, openDataFolder, quit })
   render(RecoveryPanel, {
     state: { required: true, path: '/data/user.sqlite', detail: 'database disk image is malformed' }
-  })
+  }, withRecoveryAPI(api))
 
   expect(screen.getByText('Your chess data needs recovery')).toBeInTheDocument()
   expect(screen.getAllByRole('button')).toHaveLength(3)

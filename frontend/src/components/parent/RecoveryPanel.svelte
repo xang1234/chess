@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { RecoveryState } from '../../lib/api'
-  import { getAPI } from '../../lib/api'
+  import { useRecoveryAPI } from '../../lib/api-context'
 
   export let state: RecoveryState
+  const api = useRecoveryAPI()
   let restoring = false
   let error = ''
 
@@ -10,7 +11,7 @@
     restoring = true
     error = ''
     try {
-      await getAPI().restoreBackup('')
+      await api.restoreBackup('')
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
     } finally {
@@ -34,8 +35,8 @@
     <button class="primary" type="button" disabled={restoring} on:click={restore}>
       {restoring ? 'Restoring…' : 'Restore backup'}
     </button>
-    <button class="secondary" type="button" on:click={() => getAPI().openDataFolder()}>Open data folder</button>
-    <button class="quiet-action" type="button" on:click={() => getAPI().quit()}>Quit</button>
+    <button class="secondary" type="button" on:click={() => api.openDataFolder()}>Open data folder</button>
+    <button class="quiet-action" type="button" on:click={() => api.quit()}>Quit</button>
   </div>
 </section>
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,12 @@ import (
 	"chess-trainer/internal/storage"
 )
 
+func TestServicesDoesNotExposeBackupImplementation(t *testing.T) {
+	if _, exposed := reflect.TypeOf(Services{}).FieldByName("Backup"); exposed {
+		t.Fatal("Services exposes the backup implementation instead of owning backup operations")
+	}
+}
+
 func TestServicesQuiesceForRestoreKeepsInstanceLockUntilShutdown(t *testing.T) {
 	paths := storage.PathsAt(t.TempDir())
 	services, err := Open(paths)
@@ -21,11 +28,11 @@ func TestServicesQuiesceForRestoreKeepsInstanceLockUntilShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := services.QuiesceForRestore(); err != nil {
+	if err := services.quiesceForRestore(); err != nil {
 		t.Fatal(err)
 	}
-	if err := services.QuiesceForRestore(); err != nil {
-		t.Fatalf("second QuiesceForRestore() = %v", err)
+	if err := services.quiesceForRestore(); err != nil {
+		t.Fatalf("second quiesceForRestore() = %v", err)
 	}
 	if err := services.UserDB.Ping(); err == nil {
 		t.Fatal("user database remained open after restore quiesce")
@@ -53,6 +60,78 @@ func TestServicesQuiesceForRestoreKeepsInstanceLockUntilShutdown(t *testing.T) {
 	}
 }
 
+func TestServicesQuiesceWaitsForActiveOperationLease(t *testing.T) {
+	services, err := Open(storage.PathsAt(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+
+	release, err := services.AcquireOperation()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	quiesced := make(chan error, 1)
+	go func() { quiesced <- services.quiesceForRestore() }()
+	select {
+	case err := <-quiesced:
+		t.Fatalf("QuiesceForRestore returned while an operation lease was active: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	release()
+	select {
+	case err := <-quiesced:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("QuiesceForRestore did not continue after the operation lease was released")
+	}
+}
+
+func TestServicesRestoreRejectsQuiescedNormalRuntime(t *testing.T) {
+	services, err := Open(storage.PathsAt(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+
+	if err := services.quiesceForRestore(); err != nil {
+		t.Fatal(err)
+	}
+	if err := services.RestoreBackup(context.Background(), "/missing.zip"); !errors.Is(err, ErrRuntimeUnavailable) {
+		t.Fatalf("RestoreBackup() after quiesce = %v, want runtime unavailable", err)
+	}
+}
+
+func TestServicesCloseWaitsForMaintenanceTransaction(t *testing.T) {
+	services, err := Open(storage.PathsAt(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.maintenanceMu.Lock()
+
+	closed := make(chan error, 1)
+	go func() { closed <- services.Close() }()
+	select {
+	case err := <-closed:
+		t.Fatalf("Close returned while a maintenance transaction was active: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	services.maintenanceMu.Unlock()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not continue after the maintenance transaction completed")
+	}
+}
+
 func TestServicesRestoreKeepsInstanceLockAfterSuccessfulReplacement(t *testing.T) {
 	paths := storage.PathsAt(t.TempDir())
 	services, err := Open(paths)
@@ -60,11 +139,11 @@ func TestServicesRestoreKeepsInstanceLockAfterSuccessfulReplacement(t *testing.T
 		t.Fatal(err)
 	}
 	destination := filepath.Join(t.TempDir(), "backup.zip")
-	if err := services.Backup.Create(context.Background(), destination, true); err != nil {
+	if err := services.CreateBackup(context.Background(), destination, true); err != nil {
 		services.Close()
 		t.Fatal(err)
 	}
-	if err := services.Backup.Restore(context.Background(), destination); err != nil {
+	if err := services.RestoreBackup(context.Background(), destination); err != nil {
 		services.Close()
 		t.Fatal(err)
 	}

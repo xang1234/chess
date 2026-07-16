@@ -1,4 +1,13 @@
-import type { AppAPI, ImportResult, Profile, SessionView } from './lib/api'
+import type {
+  ApplicationAPI,
+  ImportResult,
+  NormalAPI,
+  Profile,
+  RecoveryAPI,
+  SessionView
+} from './lib/api'
+import NormalAPIProvider from './test-providers/NormalAPIProvider.svelte'
+import RecoveryAPIProvider from './test-providers/RecoveryAPIProvider.svelte'
 
 const emptySession: SessionView = {
   sessionId: 'session-1',
@@ -8,9 +17,8 @@ const emptySession: SessionView = {
   total: 1
 }
 
-export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
+export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
   return {
-    getApplicationMode: async () => 'normal',
     getProfile: async () => null,
     updateProfile: async (_profile: Profile) => {},
     resumeSession: async () => null,
@@ -40,7 +48,6 @@ export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
       maximumSolutionPlies: 1,
       learnerRatingBounds: { minimum: 400, maximum: 3000 }
     }),
-    getRecoveryState: async () => ({ required: false }),
     createBackup: async () => '/tmp/Chess Trainer Backup.zip',
     restoreBackup: async () => {},
     openDataFolder: async () => {},
@@ -56,5 +63,38 @@ export function fakeAPI(overrides: Partial<AppAPI> = {}): AppAPI {
     onImportProgress: () => () => {},
     onImportFinished: () => () => {},
     ...overrides
+  }
+}
+
+export function fakeRecoveryAPI(overrides: Partial<RecoveryAPI> = {}): RecoveryAPI {
+  return {
+    getRecoveryState: async () => ({ required: true }),
+    createBackup: async () => '/tmp/Chess Trainer Backup.zip',
+    restoreBackup: async () => {},
+    openDataFolder: async () => {},
+    quit: async () => {},
+    ...overrides
+  }
+}
+
+export function normalApplication(api: NormalAPI): ApplicationAPI {
+  return { mode: 'normal', api }
+}
+
+export function recoveryApplication(api: RecoveryAPI): ApplicationAPI {
+  return { mode: 'recovery', api }
+}
+
+export function withNormalAPI(api: NormalAPI) {
+  return {
+    wrapper: NormalAPIProvider,
+    wrapperProps: { api }
+  }
+}
+
+export function withRecoveryAPI(api: RecoveryAPI) {
+  return {
+    wrapper: RecoveryAPIProvider,
+    wrapperProps: { api }
   }
 }

@@ -15,6 +15,7 @@ type RecoveryState struct {
 type RecoveryController struct {
 	actions  *controllerActions
 	recovery *appservices.RecoveryRequiredError
+	services *appservices.Services
 }
 
 func NewRecoveryController(
@@ -22,7 +23,9 @@ func NewRecoveryController(
 	recovery *appservices.RecoveryRequiredError,
 ) *RecoveryController {
 	return &RecoveryController{
-		actions: newControllerActions(services.Paths, services.Backup), recovery: recovery,
+		actions:  newControllerActions(services.Paths),
+		recovery: recovery,
+		services: services,
 	}
 }
 
@@ -39,11 +42,29 @@ func (c *RecoveryController) GetRecoveryState() RecoveryState {
 }
 
 func (c *RecoveryController) CreateBackup(includeLibrary bool) (string, error) {
-	return c.actions.createBackup(includeLibrary)
+	destination, err := c.actions.chooseBackupDestination()
+	if err != nil || destination == "" {
+		return destination, err
+	}
+	if err := c.services.CreateBackup(c.actions.ctx, destination, includeLibrary); err != nil {
+		return "", err
+	}
+	return destination, nil
 }
 
 func (c *RecoveryController) RestoreBackup(path string) error {
-	return c.actions.restoreBackup(path)
+	if path == "" {
+		var err error
+		path, err = c.actions.chooseRestoreSource()
+		if err != nil || path == "" {
+			return err
+		}
+	}
+	if err := c.services.RestoreBackup(c.actions.ctx, path); err != nil {
+		return err
+	}
+	c.actions.finishRestore()
+	return nil
 }
 
 func (c *RecoveryController) OpenDataFolder() {

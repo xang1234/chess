@@ -1,8 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { vi } from 'vitest'
 import type { HintResult, MoveResult, SessionView } from '../../lib/api'
-import { setAPIForTests } from '../../lib/api'
-import { fakeAPI } from '../../test-fakes'
+import { fakeAPI, withNormalAPI } from '../../test-fakes'
 import PuzzleScreen from './PuzzleScreen.svelte'
 
 const sourceFen = '4k3/4p3/8/8/8/8/4P3/4K3 b - - 0 1'
@@ -34,7 +33,8 @@ function session(currentFen = puzzleFen): SessionView {
 }
 
 test('shows the source position before enabling the puzzle position', async () => {
-  render(PuzzleScreen, { session: session() })
+  const api = fakeAPI()
+  render(PuzzleScreen, { session: session() }, withNormalAPI(api))
 
   expect(screen.getByRole('gridcell', { name: 'Black pawn on e7' })).toBeDisabled()
   expect(screen.getByText('Watch the last move…')).toBeInTheDocument()
@@ -59,8 +59,12 @@ test('keeps the position after a wrong move and applies the returned FEN after a
     puzzleCompleted: false
   }
   playMove.mockResolvedValueOnce(wrong).mockResolvedValueOnce(correct)
-  setAPIForTests(fakeAPI({ playMove }))
-  render(PuzzleScreen, { session: { ...session(), current: { ...session().current!, sourceFen: undefined, preludeUci: undefined } } })
+  const api = fakeAPI({ playMove })
+  render(
+    PuzzleScreen,
+    { session: { ...session(), current: { ...session().current!, sourceFen: undefined, preludeUci: undefined } } },
+    withNormalAPI(api)
+  )
 
   await fireEvent.click(screen.getByRole('gridcell', { name: 'White pawn on e2' }))
   await fireEvent.click(screen.getByRole('gridcell', { name: 'Empty e3' }))
@@ -86,10 +90,10 @@ test('reveals hints progressively and only offers the solution after level three
     .mockResolvedValueOnce(hints[0])
     .mockResolvedValueOnce(hints[1])
     .mockResolvedValueOnce(hints[2])
-  setAPIForTests(fakeAPI({ useHint }))
+  const api = fakeAPI({ useHint })
   const { container } = render(PuzzleScreen, {
     session: { ...session(), current: { ...session().current!, sourceFen: undefined, preludeUci: undefined } }
-  })
+  }, withNormalAPI(api))
 
   expect(screen.queryByRole('button', { name: 'Show solution' })).not.toBeInTheDocument()
   await fireEvent.click(screen.getByRole('button', { name: 'Hint' }))
@@ -131,8 +135,8 @@ test('advances to the returned session when the hinted puzzle is unavailable', a
     canReveal: false
   }
   const useHint = vi.fn().mockResolvedValue(unavailable)
-  setAPIForTests(fakeAPI({ useHint }))
-  render(PuzzleScreen, { session: first })
+  const api = fakeAPI({ useHint })
+  render(PuzzleScreen, { session: first }, withNormalAPI(api))
 
   expect(screen.getByText('Puzzle 1 of 2')).toBeInTheDocument()
   await fireEvent.click(screen.getByRole('button', { name: 'Hint' }))
@@ -143,10 +147,10 @@ test('advances to the returned session when the hinted puzzle is unavailable', a
 
 test('pauses to home and presents a child-friendly completion summary', async () => {
   const pauseSession = vi.fn().mockResolvedValue(undefined)
-  setAPIForTests(fakeAPI({ pauseSession }))
+  const api = fakeAPI({ pauseSession })
   const { component } = render(PuzzleScreen, {
     session: { ...session(), current: { ...session().current!, sourceFen: undefined, preludeUci: undefined } }
-  })
+  }, withNormalAPI(api))
   let wentHome = false
   component.$on('home', () => { wentHome = true })
 

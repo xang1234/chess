@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import InitialSetup from './InitialSetup.svelte'
-import { setAPIForTests } from '../../lib/api'
-import { fakeAPI } from '../../test-fakes'
+import type { Profile } from '../../lib/api'
+import { fakeAPI, withNormalAPI } from '../../test-fakes'
 
 test('asks for a starting rating and session size', async () => {
-  let saved: unknown
-  setAPIForTests(fakeAPI({
+  let saved: Profile | undefined
+  const api = fakeAPI({
     getPracticeFilters: async () => ({
       sources: [],
       themes: [],
@@ -13,8 +13,8 @@ test('asks for a starting rating and session size', async () => {
       learnerRatingBounds: { minimum: 3200, maximum: 3600 }
     }),
     updateProfile: async (profile) => { saved = profile }
-  }))
-  render(InitialSetup)
+  })
+  render(InitialSetup, {}, withNormalAPI(api))
 
   const rating = await screen.findByLabelText('Starting rating')
   const size = screen.getByLabelText('Puzzles per session')

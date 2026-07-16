@@ -1,9 +1,11 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { getAPI, type ParentSummary, type Profile, type RatingBounds } from '../../lib/api'
+  import type { ParentSummary, Profile, RatingBounds } from '../../lib/api'
+  import { useNormalAPI } from '../../lib/api-context'
   import BackupPanel from './BackupPanel.svelte'
 
   const dispatch = createEventDispatcher<{ import: void }>()
+  const api = useNormalAPI()
   let profile: Profile | null = null
   let summary: ParentSummary | null = null
   let learnerRating = 1200
@@ -22,9 +24,9 @@
   onMount(async () => {
     try {
       const [loadedProfile, loadedSummary, filters] = await Promise.all([
-        getAPI().getProfile(),
-        getAPI().getParentSummary(),
-        getAPI().getPracticeFilters()
+        api.getProfile(),
+        api.getParentSummary(),
+        api.getPracticeFilters()
       ])
       profile = loadedProfile
       summary = loadedSummary
@@ -64,7 +66,7 @@
     saved = false
     error = ''
     try {
-      await getAPI().updateProfile({ learnerRating, sessionSize })
+      await api.updateProfile({ learnerRating, sessionSize })
       saved = true
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)

@@ -1,7 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { getAPI, type PracticeFilters, type PracticeSource, type SessionView } from '../../lib/api'
+  import type { PracticeFilters, PracticeSource, SessionView } from '../../lib/api'
+  import { useNormalAPI } from '../../lib/api-context'
 
+  const api = useNormalAPI()
   const dispatch = createEventDispatcher<{ start: SessionView }>()
   let filters: PracticeFilters | null = null
   let sourceId = ''
@@ -18,7 +20,7 @@
 
   onMount(async () => {
     try {
-      filters = await getAPI().getPracticeFilters()
+      filters = await api.getPracticeFilters()
       if (filters.sources.length > 0) selectSource(filters.sources[0])
       maximumSolutionPlies = Math.max(1, filters.maximumSolutionPlies)
     } catch (cause) {
@@ -52,7 +54,7 @@
     starting = true
     error = ''
     try {
-      const session = await getAPI().startFreePractice({
+      const session = await api.startFreePractice({
         sourceId,
         ...(useRating ? { minimumRating, maximumRating } : {}),
         themes,

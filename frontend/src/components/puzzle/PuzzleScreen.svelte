@@ -1,10 +1,11 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from 'svelte'
   import type { HintResult, SessionView } from '../../lib/api'
-  import { getAPI } from '../../lib/api'
+  import { useNormalAPI } from '../../lib/api-context'
   import ChessBoard from '../chess/ChessBoard.svelte'
 
   export let session: SessionView
+  const api = useNormalAPI()
 
   const dispatch = createEventDispatcher<{
     home: { completed: boolean }
@@ -85,7 +86,7 @@
     error = ''
     wrongMove = []
     try {
-      const result = await getAPI().playMove(session.sessionId, uci)
+      const result = await api.playMove(session.sessionId, uci)
       acceptSession(result.session, result.correct ? uci : '')
       if (!result.correct) {
         wrongMove = uci.slice(0, 4).match(/.{2}/g) ?? []
@@ -101,7 +102,7 @@
     inputDisabled = true
     error = ''
     try {
-      const result = await getAPI().useHint(session.sessionId)
+      const result = await api.useHint(session.sessionId)
       acceptSession(result.session)
       hint = result.level > 0 ? result : null
       statusMessage = result.text
@@ -115,7 +116,7 @@
     inputDisabled = true
     error = ''
     try {
-      const result = await getAPI().revealSolution(session.sessionId)
+      const result = await api.revealSolution(session.sessionId)
       acceptSession(result.session)
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
@@ -127,7 +128,7 @@
     inputDisabled = true
     error = ''
     try {
-      await getAPI().pauseSession(session.sessionId)
+      await api.pauseSession(session.sessionId)
       dispatch('home', { completed: false })
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)

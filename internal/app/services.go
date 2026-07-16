@@ -31,13 +31,14 @@ type Services struct {
 	UserStore     *training.UserStore
 	Training      *training.Service
 	Profile       *profile.Service
-	Backup        *backup.Service
+	backup        *backup.Service
 	quiesceOnce   sync.Once
 	quiesceResult error
 	closeOnce     sync.Once
 	closeResult   error
 	stateMu       sync.RWMutex
 	state         runtimeState
+	maintenanceMu sync.Mutex
 }
 
 var ErrRuntimeUnavailable = errors.New("application services are unavailable until restart")
@@ -48,6 +49,7 @@ const (
 	runtimeRunning runtimeState = iota
 	runtimeQuiescing
 	runtimeQuiesced
+	runtimeRecovery
 	runtimeClosed
 )
 
@@ -88,7 +90,9 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 	services := &Services{Paths: paths}
 	recoverFrom := func(path string, err error) (*Services, error) {
 		recoveryErr := recoveryRequired(path, err)
-		return services, errors.Join(recoveryErr, services.QuiesceForRestore())
+		quiesceErr := services.quiesceForRestore()
+		services.setRuntimeState(runtimeRecovery)
+		return services, errors.Join(recoveryErr, quiesceErr)
 	}
 
 	var err error
@@ -96,7 +100,7 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 	if err != nil {
 		return nil, err
 	}
-	services.Backup = backup.NewService(paths, services.QuiesceForRestore)
+	services.backup = backup.NewService(paths)
 	if path, err := preflightStores(paths); err != nil {
 		return recoverFrom(path, err)
 	}
@@ -198,18 +202,22 @@ func openStore(path string, schema string) (*sql.DB, error) {
 
 func (s *Services) Close() error {
 	s.closeOnce.Do(func() {
-		s.closeResult = errors.Join(s.QuiesceForRestore(), s.closeDataRootLock())
+		s.maintenanceMu.Lock()
+		defer s.maintenanceMu.Unlock()
+		s.closeResult = errors.Join(s.quiesceForRestore(), s.closeDataRootLock())
 		s.setRuntimeState(runtimeClosed)
 	})
 	return s.closeResult
 }
 
-// QuiesceForRestore stops background work and closes every live database handle
+// quiesceForRestore stops background work and closes every live database handle
 // without releasing the process-wide data-root lock. Close releases that lock
 // only when the application itself shuts down.
-func (s *Services) QuiesceForRestore() error {
+func (s *Services) quiesceForRestore() error {
 	s.quiesceOnce.Do(func() {
-		s.setRuntimeState(runtimeQuiescing)
+		s.stateMu.Lock()
+		defer s.stateMu.Unlock()
+		s.state = runtimeQuiescing
 		if s.ImportJobs != nil {
 			s.ImportJobs.Close()
 		}
@@ -223,24 +231,71 @@ func (s *Services) QuiesceForRestore() error {
 			}
 		}
 		s.quiesceResult = errors.Join(closeErrors...)
-		s.setRuntimeState(runtimeQuiesced)
+		s.state = runtimeQuiesced
 	})
 	return s.quiesceResult
 }
 
-func (s *Services) EnsureRunning() error {
-	s.stateMu.RLock()
-	defer s.stateMu.RUnlock()
-	if s.state != runtimeRunning {
+func (s *Services) CreateBackup(
+	ctx context.Context,
+	destination string,
+	includeLibrary bool,
+) error {
+	s.maintenanceMu.Lock()
+	defer s.maintenanceMu.Unlock()
+	if state := s.runtimeState(); state != runtimeRunning && state != runtimeRecovery {
 		return ErrRuntimeUnavailable
 	}
-	return nil
+	return s.backup.Create(ctx, destination, includeLibrary)
+}
+
+func (s *Services) RestoreBackup(ctx context.Context, source string) (resultErr error) {
+	s.maintenanceMu.Lock()
+	defer s.maintenanceMu.Unlock()
+	state := s.runtimeState()
+	if state != runtimeRunning && state != runtimeRecovery {
+		return ErrRuntimeUnavailable
+	}
+	prepared, err := s.backup.PrepareRestore(ctx, source)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, prepared.Close())
+	}()
+	if state == runtimeRunning {
+		if err := s.quiesceForRestore(); err != nil {
+			return fmt.Errorf("close live databases: %w", err)
+		}
+	}
+	return prepared.Install()
+}
+
+// AcquireOperation keeps the runtime in its running state until release is
+// called. Restore and shutdown quiescing take the exclusive side of this gate,
+// so database handles cannot be closed underneath an admitted operation.
+func (s *Services) AcquireOperation() (release func(), err error) {
+	s.stateMu.RLock()
+	if s.state != runtimeRunning {
+		s.stateMu.RUnlock()
+		return nil, ErrRuntimeUnavailable
+	}
+	var once sync.Once
+	return func() {
+		once.Do(s.stateMu.RUnlock)
+	}, nil
 }
 
 func (s *Services) setRuntimeState(state runtimeState) {
 	s.stateMu.Lock()
 	s.state = state
 	s.stateMu.Unlock()
+}
+
+func (s *Services) runtimeState() runtimeState {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.state
 }
 
 func (s *Services) closeDataRootLock() error {

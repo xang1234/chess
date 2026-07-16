@@ -10,12 +10,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"chess-trainer/internal/storage"
 )
+
+func TestServiceDoesNotOwnRestoreOrchestration(t *testing.T) {
+	if _, exposed := reflect.TypeOf((*Service)(nil)).MethodByName("Restore"); exposed {
+		t.Fatal("backup.Service exposes full restore orchestration")
+	}
+}
 
 func openBackupStores(t *testing.T, paths storage.Paths) (*sql.DB, *sql.DB) {
 	t.Helper()
@@ -56,11 +63,7 @@ func TestServiceCreatesAndRestoresValidatedBackup(t *testing.T) {
 	if _, err := libraryDB.Exec(`INSERT INTO library_metadata(key, value) VALUES ('fixture', 'original')`); err != nil {
 		t.Fatal(err)
 	}
-	closed := false
-	service := NewService(paths, func() error {
-		closed = true
-		return errorsJoin(userDB.Close(), libraryDB.Close())
-	})
+	service := NewService(paths)
 	service.now = func() time.Time { return time.Unix(123, 0) }
 	destination := filepath.Join(t.TempDir(), "trainer-backup.zip")
 
@@ -82,11 +85,16 @@ func TestServiceCreatesAndRestoresValidatedBackup(t *testing.T) {
 	if _, err := libraryDB.Exec(`UPDATE library_metadata SET value = 'mutated' WHERE key = 'fixture'`); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Restore(context.Background(), destination); err != nil {
+	prepared, err := service.PrepareRestore(context.Background(), destination)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !closed {
-		t.Fatal("restore did not close live databases before replacement")
+	defer prepared.Close()
+	if err := errorsJoin(userDB.Close(), libraryDB.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepared.Install(); err != nil {
+		t.Fatal(err)
 	}
 
 	restoredUser, restoredLibrary := openBackupStores(t, paths)
@@ -120,11 +128,7 @@ func TestServiceRejectsCorruptBackupWithoutTouchingLiveData(t *testing.T) {
 	) VALUES (1, 1400, 5, 1, 1)`); err != nil {
 		t.Fatal(err)
 	}
-	closed := false
-	service := NewService(paths, func() error {
-		closed = true
-		return errorsJoin(userDB.Close(), libraryDB.Close())
-	})
+	service := NewService(paths)
 	valid := filepath.Join(t.TempDir(), "valid.zip")
 	corrupt := filepath.Join(t.TempDir(), "corrupt.zip")
 	if err := service.Create(context.Background(), valid, false); err != nil {
@@ -132,15 +136,70 @@ func TestServiceRejectsCorruptBackupWithoutTouchingLiveData(t *testing.T) {
 	}
 	corruptZipEntry(t, valid, corrupt, "user.sqlite")
 
-	if err := service.Restore(context.Background(), corrupt); err == nil {
-		t.Fatal("Restore() accepted a corrupt database")
-	}
-	if closed {
-		t.Fatal("corrupt restore closed or replaced live databases")
+	if prepared, err := service.PrepareRestore(context.Background(), corrupt); err == nil {
+		prepared.Close()
+		t.Fatal("PrepareRestore() accepted a corrupt database")
 	}
 	var rating float64
 	if err := userDB.QueryRow(`SELECT learner_rating FROM profile WHERE id = 1`).Scan(&rating); err != nil || rating != 1400 {
 		t.Fatalf("live rating=%v err=%v", rating, err)
+	}
+}
+
+func TestServiceRejectsRestoreThatExceedsAvailableSpace(t *testing.T) {
+	service := NewService(storage.PathsAt(t.TempDir()))
+	files := map[string]*zip.File{
+		"user.sqlite": {FileHeader: zip.FileHeader{UncompressedSize64: 1024}},
+	}
+	service.availableBytes = func(string) (uint64, error) {
+		return 0, nil
+	}
+	err := service.ensureRestoreSpace(files, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "not enough free disk space") {
+		t.Fatalf("ensureRestoreSpace() = %v, want insufficient-space error", err)
+	}
+}
+
+func TestServiceEnforcesExtractionByteLimit(t *testing.T) {
+	source := zipFileWithContents(t, "user.sqlite", bytes.Repeat([]byte("x"), 32))
+	service := NewService(storage.PathsAt(t.TempDir()))
+	destination := filepath.Join(t.TempDir(), "user.sqlite")
+	err := service.extractFile(source, destination, 8)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("extractFile() = %v, want size-limit error", err)
+	}
+}
+
+func TestReplaceDatabasesRollsBackInstalledFileWhenChmodFails(t *testing.T) {
+	paths := storage.PathsAt(filepath.Join(t.TempDir(), "data"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("original user database")
+	if err := os.WriteFile(paths.UserDB, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	extracted := t.TempDir()
+	if err := os.WriteFile(filepath.Join(extracted, "user.sqlite"), []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(paths)
+	chmodErr := errors.New("injected chmod failure")
+	service.chmod = func(string, os.FileMode) error { return chmodErr }
+	err := service.replaceDatabases(
+		extracted,
+		Manifest{Files: map[string]string{"user.sqlite": "unused"}},
+	)
+	if !errors.Is(err, chmodErr) {
+		t.Fatalf("replaceDatabases() = %v, want injected chmod failure", err)
+	}
+	restored, readErr := os.ReadFile(paths.UserDB)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(restored, original) {
+		t.Fatalf("live database after rollback = %q, want original", restored)
 	}
 }
 
@@ -187,7 +246,7 @@ func TestReplaceDatabasesRetainsPreRestoreWhenRollbackCannotRestoreDatabase(t *t
 	}
 	t.Cleanup(func() { _ = os.Chmod(paths.LibraryDB, 0o700) })
 
-	service := NewService(paths, nil)
+	service := NewService(paths)
 	service.now = func() time.Time { return time.Date(2026, 7, 15, 10, 30, 0, 0, time.UTC) }
 	preRestore := filepath.Join(paths.BackupsDir, "pre-restore-"+service.now().Format("20060102-150405"))
 	err = service.replaceDatabases(extracted, Manifest{Files: map[string]string{
@@ -304,7 +363,7 @@ func assertManagedDestinationRejected(t *testing.T, paths storage.Paths, destina
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(paths, nil)
+	service := NewService(paths)
 	if err := service.Create(context.Background(), destination, true); err == nil {
 		t.Errorf("Create() accepted managed database destination %q", destination)
 	}
@@ -341,6 +400,35 @@ func readManifest(t *testing.T, path string) Manifest {
 	}
 	t.Fatal("manifest.json is missing")
 	return Manifest{}
+}
+
+func zipFileWithContents(t *testing.T, name string, contents []byte) *zip.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fixture.zip")
+	output, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(output)
+	entry, err := writer.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write(contents); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	return reader.File[0]
 }
 
 func corruptZipEntry(t *testing.T, source, destination, entryName string) {

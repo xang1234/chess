@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { getAPI } from '../../lib/api'
+  import { useNormalAPI } from '../../lib/api-context'
+
+  const api = useNormalAPI()
 
   let includeLibrary = false
   let busy = false
@@ -11,7 +13,7 @@
     message = ''
     error = ''
     try {
-      const path = await getAPI().createBackup(includeLibrary)
+      const path = await api.createBackup(includeLibrary)
       if (path) message = 'Backup saved'
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
@@ -25,7 +27,7 @@
     message = ''
     error = ''
     try {
-      await getAPI().restoreBackup('')
+      await api.restoreBackup('')
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
     } finally {

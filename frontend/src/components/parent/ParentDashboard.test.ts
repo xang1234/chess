@@ -1,12 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { vi } from 'vitest'
-import { setAPIForTests } from '../../lib/api'
-import { fakeAPI } from '../../test-fakes'
+import { fakeAPI, withNormalAPI } from '../../test-fakes'
 import ParentDashboard from './ParentDashboard.svelte'
 
 test('shows progress and saves parent settings', async () => {
   const updateProfile = vi.fn().mockResolvedValue(undefined)
-  setAPIForTests(fakeAPI({
+  const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 3250, sessionSize: 10 }),
     getPracticeFilters: async () => ({
       sources: [],
@@ -34,8 +33,8 @@ test('shows progress and saves parent settings', async () => {
         total: 10, completed: 10, firstTry: 7, usedHint: 1, revealed: 0
       }]
     })
-  }))
-  const { component } = render(ParentDashboard)
+  })
+  const { component } = render(ParentDashboard, {}, withNormalAPI(api))
   let openImport = false
   component.$on('import', () => { openImport = true })
 

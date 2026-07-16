@@ -20,7 +20,7 @@ type NormalController struct {
 
 func NewNormalController(services *appservices.Services) *NormalController {
 	return &NormalController{
-		actions: newControllerActions(services.Paths, services.Backup), services: services,
+		actions: newControllerActions(services.Paths), services: services,
 	}
 }
 
@@ -30,17 +30,29 @@ func (c *NormalController) startup(ctx context.Context) {
 }
 
 func (c *NormalController) CreateBackup(includeLibrary bool) (string, error) {
-	if err := c.services.EnsureRunning(); err != nil {
+	destination, err := c.actions.chooseBackupDestination()
+	if err != nil || destination == "" {
+		return destination, err
+	}
+	if err := c.services.CreateBackup(c.actions.ctx, destination, includeLibrary); err != nil {
 		return "", err
 	}
-	return c.actions.createBackup(includeLibrary)
+	return destination, nil
 }
 
 func (c *NormalController) RestoreBackup(path string) error {
-	if err := c.services.EnsureRunning(); err != nil {
+	if path == "" {
+		var err error
+		path, err = c.actions.chooseRestoreSource()
+		if err != nil || path == "" {
+			return err
+		}
+	}
+	if err := c.services.RestoreBackup(c.actions.ctx, path); err != nil {
 		return err
 	}
-	return c.actions.restoreBackup(path)
+	c.actions.finishRestore()
+	return nil
 }
 
 func (c *NormalController) OpenDataFolder() {
@@ -69,101 +81,107 @@ func (c *NormalController) ChoosePuzzleImportFile() (string, error) {
 }
 
 func (c *NormalController) StartPuzzleImport(request importjob.ImportRequest) (string, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return "", err
-	}
-	return c.services.ImportJobs.Start(c.actions.ctx, request)
+	return runNormalOperation(c, func() (string, error) {
+		return c.services.ImportJobs.Start(c.actions.ctx, request)
+	})
 }
 
 func (c *NormalController) CancelImport(jobID string) error {
-	if err := c.services.EnsureRunning(); err != nil {
-		return err
-	}
-	return c.services.ImportJobs.Cancel(jobID)
+	return runNormalAction(c, func() error {
+		return c.services.ImportJobs.Cancel(jobID)
+	})
 }
 
 func (c *NormalController) GetImportResult(jobID string) (importjob.Result, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return importjob.Result{}, err
-	}
-	return c.services.ImportJobs.Result(jobID)
+	return runNormalOperation(c, func() (importjob.Result, error) {
+		return c.services.ImportJobs.Result(jobID)
+	})
 }
 
 func (c *NormalController) StartGuided() (domain.SessionView, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return domain.SessionView{}, err
-	}
-	return c.services.Training.StartGuided(c.actions.ctx)
+	return runNormalOperation(c, func() (domain.SessionView, error) {
+		return c.services.Training.StartGuided(c.actions.ctx)
+	})
 }
 
 func (c *NormalController) StartFreePractice(request training.PracticeRequest) (domain.SessionView, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return domain.SessionView{}, err
-	}
-	return c.services.Training.StartFreePractice(c.actions.ctx, request)
+	return runNormalOperation(c, func() (domain.SessionView, error) {
+		return c.services.Training.StartFreePractice(c.actions.ctx, request)
+	})
 }
 
 func (c *NormalController) ResumeSession() (*domain.SessionView, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return nil, err
-	}
-	return c.services.Training.Resume(c.actions.ctx)
+	return runNormalOperation(c, func() (*domain.SessionView, error) {
+		return c.services.Training.Resume(c.actions.ctx)
+	})
 }
 
 func (c *NormalController) PlayMove(sessionID, uci string) (domain.MoveResult, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return domain.MoveResult{}, err
-	}
-	return c.services.Training.PlayMove(c.actions.ctx, sessionID, uci)
+	return runNormalOperation(c, func() (domain.MoveResult, error) {
+		return c.services.Training.PlayMove(c.actions.ctx, sessionID, uci)
+	})
 }
 
 func (c *NormalController) UseHint(sessionID string) (domain.HintResult, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return domain.HintResult{}, err
-	}
-	return c.services.Training.UseHint(c.actions.ctx, sessionID)
+	return runNormalOperation(c, func() (domain.HintResult, error) {
+		return c.services.Training.UseHint(c.actions.ctx, sessionID)
+	})
 }
 
 func (c *NormalController) RevealSolution(sessionID string) (domain.MoveResult, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return domain.MoveResult{}, err
-	}
-	return c.services.Training.Reveal(c.actions.ctx, sessionID)
+	return runNormalOperation(c, func() (domain.MoveResult, error) {
+		return c.services.Training.Reveal(c.actions.ctx, sessionID)
+	})
 }
 
 func (c *NormalController) PauseSession(sessionID string) error {
-	if err := c.services.EnsureRunning(); err != nil {
-		return err
-	}
-	return c.services.Training.Pause(c.actions.ctx, sessionID)
+	return runNormalAction(c, func() error {
+		return c.services.Training.Pause(c.actions.ctx, sessionID)
+	})
 }
 
 func (c *NormalController) GetProfile() (*training.Profile, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return nil, err
-	}
-	return c.services.Profile.Get(c.actions.ctx)
+	return runNormalOperation(c, func() (*training.Profile, error) {
+		return c.services.Profile.Get(c.actions.ctx)
+	})
 }
 
 func (c *NormalController) UpdateProfile(value training.Profile) error {
-	if err := c.services.EnsureRunning(); err != nil {
-		return err
-	}
-	return c.services.Profile.UpdateSettings(c.actions.ctx, value)
+	return runNormalAction(c, func() error {
+		return c.services.Profile.UpdateSettings(c.actions.ctx, value)
+	})
 }
 
 func (c *NormalController) GetParentSummary() (profile.Summary, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return profile.Summary{}, err
-	}
-	return c.services.Profile.Summary(c.actions.ctx)
+	return runNormalOperation(c, func() (profile.Summary, error) {
+		return c.services.Profile.Summary(c.actions.ctx)
+	})
 }
 
 func (c *NormalController) GetPracticeFilters() (profile.PracticeFilters, error) {
-	if err := c.services.EnsureRunning(); err != nil {
-		return profile.PracticeFilters{}, err
+	return runNormalOperation(c, func() (profile.PracticeFilters, error) {
+		return c.services.Profile.PracticeFilters(c.actions.ctx)
+	})
+}
+
+func runNormalOperation[T any](
+	controller *NormalController,
+	operation func() (T, error),
+) (T, error) {
+	var zero T
+	release, err := controller.services.AcquireOperation()
+	if err != nil {
+		return zero, err
 	}
-	return c.services.Profile.PracticeFilters(c.actions.ctx)
+	defer release()
+	return operation()
+}
+
+func runNormalAction(controller *NormalController, operation func() error) error {
+	_, err := runNormalOperation(controller, func() (struct{}, error) {
+		return struct{}{}, operation()
+	})
+	return err
 }
 
 type wailsEmitter struct {

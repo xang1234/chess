@@ -10,16 +10,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"chess-trainer/internal/storage"
 )
 
-const manifestVersion = 1
+const (
+	manifestVersion     = 1
+	restoreSafetyMargin = 64 * 1024 * 1024
+)
 
 var databaseNames = map[string]string{
 	"user.sqlite":    "profile",
@@ -33,13 +38,27 @@ type Manifest struct {
 }
 
 type Service struct {
-	paths     storage.Paths
-	closeLive func() error
-	now       func() time.Time
+	paths          storage.Paths
+	now            func() time.Time
+	availableBytes func(string) (uint64, error)
+	chmod          func(string, os.FileMode) error
 }
 
-func NewService(paths storage.Paths, closeLive func() error) *Service {
-	return &Service{paths: paths, closeLive: closeLive, now: time.Now}
+type PreparedRestore struct {
+	service   *Service
+	temporary string
+	manifest  Manifest
+	closeOnce sync.Once
+	closeErr  error
+}
+
+func NewService(paths storage.Paths) *Service {
+	return &Service{
+		paths:          paths,
+		now:            time.Now,
+		availableBytes: storage.AvailableBytes,
+		chmod:          os.Chmod,
+	}
 }
 
 func (s *Service) Create(ctx context.Context, destination string, includeLibrary bool) error {
@@ -130,29 +149,33 @@ func canonicalPath(path string) (string, error) {
 	return filepath.Join(parent, filepath.Base(absolute)), nil
 }
 
-func (s *Service) Restore(ctx context.Context, source string) error {
+func (s *Service) PrepareRestore(ctx context.Context, source string) (*PreparedRestore, error) {
 	if strings.TrimSpace(source) == "" {
-		return errors.New("backup path is required")
+		return nil, errors.New("backup path is required")
 	}
 	if err := s.paths.Ensure(); err != nil {
-		return err
+		return nil, err
 	}
 	temporary, err := os.MkdirTemp(s.paths.Root, ".backup-restore-")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer os.RemoveAll(temporary)
-	manifest, err := extractAndValidate(ctx, source, temporary)
+	manifest, err := s.extractAndValidate(ctx, source, temporary)
 	if err != nil {
-		return err
+		return nil, errors.Join(err, os.RemoveAll(temporary))
 	}
-	if s.closeLive == nil {
-		return errors.New("database close callback is not configured")
-	}
-	if err := s.closeLive(); err != nil {
-		return fmt.Errorf("close live databases: %w", err)
-	}
-	return s.replaceDatabases(temporary, manifest)
+	return &PreparedRestore{service: s, temporary: temporary, manifest: manifest}, nil
+}
+
+func (r *PreparedRestore) Install() error {
+	return r.service.replaceDatabases(r.temporary, r.manifest)
+}
+
+func (r *PreparedRestore) Close() error {
+	r.closeOnce.Do(func() {
+		r.closeErr = os.RemoveAll(r.temporary)
+	})
+	return r.closeErr
 }
 
 func vacuumInto(ctx context.Context, source, destination string) error {
@@ -241,7 +264,11 @@ func writeArchiveFile(writer *zip.Writer, name, source string) error {
 	return err
 }
 
-func extractAndValidate(ctx context.Context, source, destination string) (Manifest, error) {
+func (s *Service) extractAndValidate(
+	ctx context.Context,
+	source string,
+	destination string,
+) (Manifest, error) {
 	reader, err := zip.OpenReader(source)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("open backup: %w", err)
@@ -276,10 +303,9 @@ func extractAndValidate(ctx context.Context, source, destination string) (Manife
 	if len(files) != len(manifest.Files)+1 {
 		return Manifest{}, errors.New("backup file list does not match its manifest")
 	}
-	for _, name := range sortedKeys(manifest.Files) {
-		if err := ctx.Err(); err != nil {
-			return Manifest{}, err
-		}
+	archiveDatabases := make(map[string]*zip.File, len(manifest.Files))
+	names := sortedKeys(manifest.Files)
+	for _, name := range names {
 		if _, allowed := databaseNames[name]; !allowed {
 			return Manifest{}, fmt.Errorf("manifest contains unexpected file %q", name)
 		}
@@ -287,8 +313,18 @@ func extractAndValidate(ctx context.Context, source, destination string) (Manife
 		if archiveFile == nil {
 			return Manifest{}, fmt.Errorf("manifest file %q is missing", name)
 		}
+		archiveDatabases[name] = archiveFile
+	}
+	if err := s.ensureRestoreSpace(archiveDatabases, destination); err != nil {
+		return Manifest{}, err
+	}
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, err
+		}
+		archiveFile := archiveDatabases[name]
 		extracted := filepath.Join(destination, name)
-		if err := extractFile(archiveFile, extracted); err != nil {
+		if err := s.extractFile(archiveFile, extracted, archiveFile.UncompressedSize64); err != nil {
 			return Manifest{}, err
 		}
 		digest, err := fileDigest(extracted)
@@ -303,6 +339,31 @@ func extractAndValidate(ctx context.Context, source, destination string) (Manife
 		}
 	}
 	return manifest, nil
+}
+
+func (s *Service) ensureRestoreSpace(
+	files map[string]*zip.File,
+	destination string,
+) error {
+	required := uint64(restoreSafetyMargin)
+	for _, file := range files {
+		if file.UncompressedSize64 > math.MaxUint64-required {
+			return errors.New("backup is too large to restore safely")
+		}
+		required += file.UncompressedSize64
+	}
+	available, err := s.availableBytes(destination)
+	if err != nil {
+		return fmt.Errorf("inspect restore disk space: %w", err)
+	}
+	if available < required {
+		return fmt.Errorf(
+			"not enough free disk space to restore backup: have %d bytes, need %d bytes",
+			available,
+			required,
+		)
+	}
+	return nil
 }
 
 func decodeManifest(file *zip.File) (Manifest, error) {
@@ -323,7 +384,14 @@ func decodeManifest(file *zip.File) (Manifest, error) {
 	return manifest, nil
 }
 
-func extractFile(source *zip.File, destination string) (resultErr error) {
+func (s *Service) extractFile(
+	source *zip.File,
+	destination string,
+	maxBytes uint64,
+) (resultErr error) {
+	if maxBytes >= math.MaxInt64 {
+		return fmt.Errorf("backup file %q exceeds the supported extraction size", source.Name)
+	}
 	opened, err := source.Open()
 	if err != nil {
 		return err
@@ -334,12 +402,30 @@ func extractFile(source *zip.File, destination string) (resultErr error) {
 		return err
 	}
 	defer func() {
-		if closeErr := output.Close(); resultErr == nil {
+		closeErr := output.Close()
+		if resultErr == nil {
 			resultErr = closeErr
 		}
+		if resultErr != nil {
+			_ = os.Remove(destination)
+		}
 	}()
-	_, err = io.Copy(output, opened)
-	return err
+	written, err := io.Copy(output, io.LimitReader(opened, int64(maxBytes)+1))
+	if err != nil {
+		return err
+	}
+	if uint64(written) > maxBytes {
+		return fmt.Errorf("backup file %q exceeds its allowed extraction size", source.Name)
+	}
+	if uint64(written) != source.UncompressedSize64 {
+		return fmt.Errorf(
+			"backup file %q extracted %d bytes, expected %d",
+			source.Name,
+			written,
+			source.UncompressedSize64,
+		)
+	}
+	return nil
 }
 
 func validateDatabase(path, requiredTable string) error {
@@ -430,10 +516,10 @@ func (s *Service) replaceDatabases(extracted string, manifest Manifest) error {
 		if err := os.Rename(filepath.Join(extracted, name), live); err != nil {
 			return rollback(err)
 		}
-		if err := os.Chmod(live, 0o600); err != nil {
+		installed = append(installed, name)
+		if err := s.chmod(live, 0o600); err != nil {
 			return rollback(err)
 		}
-		installed = append(installed, name)
 	}
 	return nil
 }

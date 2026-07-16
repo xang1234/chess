@@ -63,22 +63,24 @@ func TestNormalRuntimeBindsOnlyModeAndNormalCapabilities(t *testing.T) {
 	}
 }
 
-func TestNormalControllerRejectsOperationsAfterServicesQuiesce(t *testing.T) {
+func TestNormalControllerRejectsOperationsAfterServicesClose(t *testing.T) {
 	services, err := appservices.Open(storage.PathsAt(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	controller := NewNormalController(services)
-	if err := services.QuiesceForRestore(); err != nil {
+	if err := services.Close(); err != nil {
 		t.Fatal(err)
 	}
-	defer services.Close()
 
 	if _, err := controller.GetProfile(); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
-		t.Fatalf("GetProfile() after quiesce = %v, want runtime unavailable", err)
+		t.Fatalf("GetProfile() after close = %v, want runtime unavailable", err)
 	}
 	if _, err := controller.StartGuided(); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
-		t.Fatalf("StartGuided() after quiesce = %v, want runtime unavailable", err)
+		t.Fatalf("StartGuided() after close = %v, want runtime unavailable", err)
+	}
+	if err := controller.RestoreBackup("/missing.zip"); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
+		t.Fatalf("RestoreBackup() after close = %v, want runtime unavailable", err)
 	}
 }
 

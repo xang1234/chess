@@ -1,5 +1,5 @@
 import { writable, type Readable } from 'svelte/store'
-import type { AppAPI, ImportProgress, ImportResult } from './api'
+import type { ImportProgress, ImportResult, NormalAPI } from './api'
 
 export type ImportSessionState = {
   path: string
@@ -34,7 +34,7 @@ function mergeProgress(
   }
 }
 
-export function createImportSession(api: () => AppAPI): ImportSession {
+export function createImportSession(api: () => NormalAPI): ImportSession {
   const state = writable<ImportSessionState>({
     path: '',
     jobId: '',

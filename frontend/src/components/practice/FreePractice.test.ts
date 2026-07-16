@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { vi } from 'vitest'
-import { setAPIForTests, type SessionView } from '../../lib/api'
-import { fakeAPI } from '../../test-fakes'
+import type { SessionView } from '../../lib/api'
+import { fakeAPI, withNormalAPI } from '../../test-fakes'
 import FreePractice from './FreePractice.svelte'
 
 test('starts practice with the selected source, rating, themes, and length filters', async () => {
@@ -9,7 +9,7 @@ test('starts practice with the selected source, rating, themes, and length filte
     sessionId: 'practice-1', mode: 'practice', status: 'active', currentIndex: 0, total: 5
   }
   const startFreePractice = vi.fn().mockResolvedValue(started)
-  setAPIForTests(fakeAPI({
+  const api = fakeAPI({
     getPracticeFilters: async () => ({
       sources: [{
         id: 'lichess', kind: 'lichess', minimumRating: 800, maximumRating: 2200,
@@ -20,8 +20,8 @@ test('starts practice with the selected source, rating, themes, and length filte
       learnerRatingBounds: { minimum: 800, maximum: 2200 }
     }),
     startFreePractice
-  }))
-  const { component } = render(FreePractice)
+  })
+  const { component } = render(FreePractice, {}, withNormalAPI(api))
   let emitted: SessionView | null = null
   component.$on('start', (event) => { emitted = event.detail })
 

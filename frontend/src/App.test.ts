@@ -2,31 +2,35 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { vi } from 'vitest'
 import App from './App.svelte'
 import type { ImportProgress, ImportResult } from './lib/api'
-import { setAPIForTests } from './lib/api'
-import { fakeAPI } from './test-fakes'
+import {
+  fakeAPI,
+  fakeRecoveryAPI,
+  normalApplication,
+  recoveryApplication
+} from './test-fakes'
 
 test('renders the product name and initial setup for a new learner', async () => {
-  setAPIForTests(fakeAPI({ getProfile: async () => null }))
-  render(App)
+  const api = fakeAPI({ getProfile: async () => null })
+  render(App, { loadAPI: async () => normalApplication(api) })
   expect(screen.getByText('Chess Trainer')).toBeInTheDocument()
   await waitFor(() => expect(screen.getByText('Set up today’s training')).toBeInTheDocument())
 })
 
 test('shows Continue on the home hub when a session is active', async () => {
-  setAPIForTests(fakeAPI({
+  const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
     resumeSession: async () => ({
       sessionId: 'active-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
     })
-  }))
-  render(App)
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
   await waitFor(() => {
     expect(screen.getByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
   })
 })
 
 test('uses catalogued learner bounds on the parent settings screen', async () => {
-  setAPIForTests(fakeAPI({
+  const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 3300, sessionSize: 10 }),
     getPracticeFilters: async () => ({
       sources: [],
@@ -34,8 +38,8 @@ test('uses catalogued learner bounds on the parent settings screen', async () =>
       maximumSolutionPlies: 0,
       learnerRatingBounds: { minimum: 3200, maximum: 3600 }
     })
-  }))
-  render(App)
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
 
   await fireEvent.click(await screen.findByRole('button', { name: 'Parent settings' }))
   const rating = await screen.findByLabelText('Current learner rating')
@@ -44,7 +48,7 @@ test('uses catalogued learner bounds on the parent settings screen', async () =>
 })
 
 test('opens the board-first puzzle screen from the home hub', async () => {
-  setAPIForTests(fakeAPI({
+  const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
     startGuided: async () => ({
       sessionId: 'session-1', mode: 'guided', status: 'active', currentIndex: 0, total: 1,
@@ -61,8 +65,8 @@ test('opens the board-first puzzle screen from the home hub', async () => {
         canReveal: false
       }
     })
-  }))
-  render(App)
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
 
   await fireEvent.click(await screen.findByRole('button', { name: "Start today's training" }))
   await waitFor(() => expect(screen.getByText('Find the best move')).toBeInTheDocument())
@@ -70,24 +74,17 @@ test('opens the board-first puzzle screen from the home hub', async () => {
 })
 
 test('opens only the recovery surface when startup integrity fails', async () => {
-  const getProfile = vi.fn(async () => null)
-  const onImportProgress = vi.fn(() => () => {})
-  setAPIForTests(fakeAPI({
-    getApplicationMode: async () => 'recovery',
+  const api = fakeRecoveryAPI({
     getRecoveryState: async () => ({
       required: true,
       path: '/data/user.sqlite',
       detail: 'database disk image is malformed'
-    }),
-    getProfile,
-    onImportProgress
-  }))
-  render(App)
+    })
+  })
+  render(App, { loadAPI: async () => recoveryApplication(api) })
 
   await waitFor(() => expect(screen.getByText('Your chess data needs recovery')).toBeInTheDocument())
   expect(screen.queryByRole('button', { name: 'Chess Trainer home' })).not.toBeInTheDocument()
-  expect(getProfile).not.toHaveBeenCalled()
-  expect(onImportProgress).not.toHaveBeenCalled()
 })
 
 test('keeps monitoring an active import while navigating away and reconciles it on return', async () => {
@@ -99,7 +96,7 @@ test('keeps monitoring an active import while navigating away and reconciles it 
     progress: { rowsRead: 10_000, bytesRead: 2048 },
     report: { accepted: 0, duplicates: 0, rejected: 0 }
   }))
-  setAPIForTests(fakeAPI({
+  const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
     choosePuzzleImportFile: async () => '/tmp/lichess.csv.zst',
     getImportResult,
@@ -111,8 +108,8 @@ test('keeps monitoring an active import while navigating away and reconciles it 
       finishedListener = listener
       return () => {}
     }
-  }))
-  render(App)
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
 
   await fireEvent.click(await screen.findByRole('button', { name: 'Parent settings' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
