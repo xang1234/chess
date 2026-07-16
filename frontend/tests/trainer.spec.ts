@@ -61,11 +61,20 @@ test.beforeEach(async ({ page }) => {
       PauseSession: async () => {},
       UseHint: async () => {
         hintLevel++
-        if (hintLevel === 1) return { level: 1, text: 'Look for: fork', canReveal: false }
+        if (hintLevel === 1) {
+          return { session: activeSession, level: 1, text: 'Look for: fork', canReveal: false }
+        }
         if (hintLevel === 2) {
-          return { level: 2, text: 'Start with this piece.', sourceSquare: 'e2', canReveal: false }
+          return {
+            session: activeSession,
+            level: 2,
+            text: 'Start with this piece.',
+            sourceSquare: 'e2',
+            canReveal: false
+          }
         }
         return {
+          session: activeSession,
           level: 3,
           text: 'Try this destination.',
           sourceSquare: 'e2',

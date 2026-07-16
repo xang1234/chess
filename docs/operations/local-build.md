@@ -9,7 +9,7 @@ stored under `~/Library/Application Support/Chess Trainer/`.
 - macOS with Xcode Command Line Tools
 - Go 1.25 or newer
 - Node.js 20 or newer
-- Wails v2 (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+- Wails v2.12.0 (the commands below run the pinned CLI through `go run`)
 
 From the repository root, install the frontend packages once:
 
@@ -19,58 +19,122 @@ npm --prefix frontend ci
 
 ## Automated verification
 
-Run the unit, race, browser, and production-frontend checks:
+Run the ordinary backend suite, the full race suite, and the frontend checks:
 
 ```bash
-go test -race ./...
-npm --prefix frontend test -- --run
+go test ./... -count=1
+go test -race ./... -count=1
+npm --prefix frontend test -- --run --single-thread
 npm --prefix frontend run check
-npm --prefix frontend run test:e2e
 npm --prefix frontend run build
+npm --prefix frontend run test:e2e
 ```
 
 Expected results:
 
-- Go reports `ok` for every package. The opt-in full-import test explicitly
-  skips when `CHESS_TRAINER_LICHESS_PATH` is unset.
+- Go reports `ok` for every package. Performance-tagged tests, including the
+  real Lichess import, are excluded from ordinary and race runs.
 - Vitest reports all component and library tests passing.
 - `svelte-check` reports zero errors and zero warnings.
 - Playwright passes the trainer flow in Chromium and WebKit.
 - Vite creates `frontend/dist` without TypeScript or bundling errors.
 
-## Full Lichess catalogue acceptance
+## Puzzle catalogue storage and startup
 
-Point the opt-in test at the downloaded compressed database. No decompressed
-CSV is written; the importer streams the `.zst` directly into a temporary
-SQLite catalogue. A current multi-million-row database can take tens of
-minutes because every solution line is legality-checked. Keep at least 13 GiB
-free for the current 288 MiB download; the app checks its conservative staging
-reserve before starting.
+`user.sqlite` is durable learner history. It contains settings, sessions,
+attempts, review state, and rating history and is never recreated as part of
+puzzle-catalogue recovery. `library.sqlite` is durable when the optional game
+library is used. `puzzles.sqlite` is different: it is a disposable, versioned
+cache that can be rebuilt by reimporting its source data.
+
+Startup still treats replacement conservatively:
+
+1. Acquire the data-root instance lock and migrate `user.sqlite` first.
+2. Recognize a legacy puzzle store only when its migration set and complete
+   table/column signatures exactly match a supported legacy format.
+3. Backfill null attempt and queued-session provenance from matching legacy
+   fingerprint/source rows, then close the legacy handle.
+4. Only after that backfill succeeds, remove the recognized `puzzles.sqlite`
+   and its exact WAL/SHM sidecars and create the current catalogue.
+
+An empty, unversioned, modified, corrupt, or newer puzzle store is not assumed
+to be disposable. The app preserves the database and sidecars and reports the
+incompatibility so an operator can inspect or move them aside deliberately.
+It never applies this recreation path to `user.sqlite` or `library.sqlite`.
+
+Normal puzzle startup probes schema version and required tables; it does not
+run `PRAGMA quick_check` or otherwise scan the full catalogue. Full integrity
+checks remain explicit diagnostic/restore operations. Startup integrity checks
+for the durable user and library stores are unchanged.
+
+## Import, cleanup, and shutdown behavior
+
+Only one puzzle import runs at a time. Import writes and bounded inactive-
+generation cleanup share one writer gate, so they never overlap. A newly
+reserved import prevents further cleanup batches after the current bounded
+batch finishes. A completed or cancelled import remains queryable by job ID,
+while the prior active generation stays readable until a sealed replacement is
+activated.
+
+Application shutdown first rejects new jobs, cancels active import and cleanup
+contexts, and waits for their registered goroutines. SQLite handles close only
+after that wait, and the data-root instance lock is released last. Do not
+force-remove catalogue files while the app is still shutting down.
+
+## Performance-tagged catalogue gates
+
+Performance assertions are intentionally separate from ordinary correctness
+and race tests. Run the synthetic activation and candidate-query gates with:
 
 ```bash
-CHESS_TRAINER_LICHESS_PATH="/absolute/path/Lichess Puzzle Database.csv.zst" \
-  go test ./internal/puzzles \
-  -run TestFullLichessImport \
-  -count=1 \
-  -timeout=45m \
-  -v
+go test -tags=performance ./internal/puzzles \
+  -run 'Test(GenerationActivation|ActiveCandidateQuery)' \
+  -count=1
 ```
 
-Expected result: more than one million puzzles accepted, less than 0.1% of
-rows rejected, bounded heap and RSS growth, a rated-candidate query below
-250 ms, and `PASS`. The source directory must not gain a decompressed `.csv`.
+The synthetic gates require activation to finish within five seconds and a
+warmed representative candidate query within 250 ms.
+
+### Full Lichess catalogue acceptance
+
+Point the opt-in test at the downloaded compressed database. No decompressed
+CSV is written; the importer streams the `.zst` through disposable
+catalogue-local staging databases before sealing a generation. A current
+multi-million-row database can take tens of minutes because every solution
+line is legality-checked. Keep at least 13 GiB free for the current 288 MiB
+download; the app checks its conservative staging reserve before starting.
+
+```bash
+: "${CHESS_TRAINER_LICHESS_PATH:?set CHESS_TRAINER_LICHESS_PATH to the downloaded .zst file}"
+CHESS_TRAINER_LICHESS_PATH="$CHESS_TRAINER_LICHESS_PATH" \
+  go test -tags=performance ./internal/puzzles \
+  -run '^TestFullLichessImport$' -count=1 -timeout=65m
+```
+
+The test itself requires total import below one hour, activation below five
+seconds, more than one million accepted occurrences, less than 0.1% rejected,
+bounded heap/RSS growth, source-aware candidates, the prior head remaining
+readable during import, and no decompressed `.csv` beside the source.
 
 ## Build the macOS application
 
 ```bash
-"$(go env GOPATH)/bin/wails" build -clean
+go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build
+perl -pi -e 's/[ \t]+$//' frontend/wailsjs/go/models.ts
+perl -0pi -e 's/\s+\z/\n/' frontend/wailsjs/go/models.ts
+chmod 0644 frontend/wailsjs/runtime/package.json \
+  frontend/wailsjs/runtime/runtime.d.ts \
+  frontend/wailsjs/runtime/runtime.js
+git diff --check
 codesign --verify --deep --strict --verbose=2 "build/bin/Chess Trainer.app"
 open "build/bin/Chess Trainer.app"
 ```
 
-Expected result: Wails creates `build/bin/Chess Trainer.app`, `codesign`
-reports that it is valid on disk and satisfies its designated requirement,
-and Finder launches it by double-click without a terminal or browser window.
+Expected result: the pinned Wails build creates
+`build/bin/Chess Trainer.app`, generated bindings remain normalized,
+`codesign` reports that the app is valid on disk and satisfies its designated
+requirement, and Finder launches it by double-click without a terminal or
+browser window.
 
 ## Manual acceptance checklist
 
@@ -96,14 +160,16 @@ Use a backup from Parent view before testing restore against valuable data.
 
 ## Recovery mode
 
-At startup the app runs SQLite integrity checks before opening repositories.
-If a database is corrupt, the normal interface is replaced by a recovery
-screen with only **Restore backup**, **Open data folder**, and **Quit**.
+At startup the app runs SQLite integrity checks on durable user/library stores
+before opening repositories. If one is corrupt, the normal interface is
+replaced by a recovery screen with only **Restore backup**,
+**Open data folder**, and **Quit**. Puzzle startup uses the cheap conservative
+probe described above instead of scanning the complete catalogue.
 
 - Restore a validated `.zip` created by Chess Trainer, then relaunch.
 - `user.sqlite` is always in a backup; `library.sqlite` is included only when
   selected during backup.
-- `puzzles.sqlite` is replaceable and intentionally excluded. If it is the
-  corrupt file, quit, move it out of the data folder, relaunch, and reimport
-  the compressed Lichess source.
+- `puzzles.sqlite` is replaceable and intentionally excluded. If its preserved
+  file is corrupt or incompatible, quit, retain or move it for diagnosis,
+  relaunch with the path absent, and reimport the compressed Lichess source.
 - Restore keeps timestamped pre-restore copies in the `backups` directory.
