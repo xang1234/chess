@@ -1,5 +1,6 @@
 import {
   groupLegalMoves,
+  moveKeyboardCursor,
   moveSquares,
   parseUCI,
   promotionChoices
@@ -26,6 +27,26 @@ describe('parseUCI', () => {
 
   it('accepts a structurally valid four-character promotion route', () => {
     expect(parseUCI('a7a8')).toEqual({ from: 'a7', to: 'a8' })
+  })
+})
+
+describe('keyboard cursor movement', () => {
+  it('moves by screen direction for white and clamps at board edges', () => {
+    expect(moveKeyboardCursor('e4', 'ArrowUp', 'white')).toBe('e5')
+    expect(moveKeyboardCursor('e4', 'ArrowDown', 'white')).toBe('e3')
+    expect(moveKeyboardCursor('e4', 'ArrowLeft', 'white')).toBe('d4')
+    expect(moveKeyboardCursor('e4', 'ArrowRight', 'white')).toBe('f4')
+    expect(moveKeyboardCursor('a8', 'ArrowUp', 'white')).toBe('a8')
+    expect(moveKeyboardCursor('a8', 'ArrowLeft', 'white')).toBe('a8')
+  })
+
+  it('reverses screen directions for black orientation', () => {
+    expect(moveKeyboardCursor('e4', 'ArrowUp', 'black')).toBe('e3')
+    expect(moveKeyboardCursor('e4', 'ArrowDown', 'black')).toBe('e5')
+    expect(moveKeyboardCursor('e4', 'ArrowLeft', 'black')).toBe('f4')
+    expect(moveKeyboardCursor('e4', 'ArrowRight', 'black')).toBe('d4')
+    expect(moveKeyboardCursor('h1', 'ArrowUp', 'black')).toBe('h1')
+    expect(moveKeyboardCursor('h1', 'ArrowLeft', 'black')).toBe('h1')
   })
 })
 

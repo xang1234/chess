@@ -52,3 +52,25 @@ export function moveSquares(value: string): [Square, Square] {
   const parsed = parseUCI(value)
   return [parsed.from, parsed.to]
 }
+
+export function moveKeyboardCursor(
+  square: Square,
+  arrow: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight',
+  orientation: 'white' | 'black'
+): Square {
+  const direction = orientation === 'white' ? 1 : -1
+  const deltas = {
+    ArrowUp: [0, direction],
+    ArrowDown: [0, -direction],
+    ArrowLeft: [-direction, 0],
+    ArrowRight: [direction, 0]
+  } as const
+  const [fileDelta, rankDelta] = deltas[arrow]
+  const file = clamp(square.charCodeAt(0) - 97 + fileDelta, 0, 7)
+  const rank = clamp(Number(square[1]) + rankDelta, 1, 8)
+  return `${String.fromCharCode(97 + file)}${rank}` as Square
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value))
+}

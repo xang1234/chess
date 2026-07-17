@@ -1,4 +1,4 @@
-import { orientSquares, parseFEN } from './fen'
+import { describeSquare, orientSquares, parseFEN } from './fen'
 
 test('parses standard and sparse FEN placement', () => {
   const standard = parseFEN('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')
@@ -21,4 +21,10 @@ test('orients black from h1 through a8', () => {
   expect(squares).toHaveLength(64)
   expect(squares[0]).toBe('h1')
   expect(squares[63]).toBe('a8')
+})
+
+test('describes occupied and empty semantic squares', () => {
+  const board = parseFEN('4k3/8/8/8/8/8/4P3/4K3 w - - 0 1')
+  expect(describeSquare('e2', board.e2)).toBe('White pawn on e2')
+  expect(describeSquare('d4', board.d4)).toBe('Empty d4')
 })

@@ -49,3 +49,9 @@ export function orientSquares(color: 'white' | 'black'): string[] {
     : ['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a']
   return ranks.flatMap((rank) => files.map((file) => `${file}${rank}`))
 }
+
+export function describeSquare(square: string, piece: Piece | undefined): string {
+  if (!piece) return `Empty ${square}`
+  const color = piece.color === 'white' ? 'White' : 'Black'
+  return `${color} ${piece.role} on ${square}`
+}

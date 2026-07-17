@@ -39,11 +39,14 @@ test('shows the source position before enabling the puzzle position', async () =
   const api = fakeAPI()
   render(PuzzleScreen, { session: session() }, withNormalAPI(api))
 
-  expect(screen.getByRole('gridcell', { name: 'Black pawn on e7' })).toBeDisabled()
+  const board = screen.getByRole('grid', { name: 'Chess board, white side' })
+  expect(screen.getByRole('gridcell', { name: 'Black pawn on e7' })).toBeInTheDocument()
+  expect(board).toHaveAttribute('aria-disabled', 'true')
   expect(screen.getByText('Watch the last move…')).toBeInTheDocument()
 
   await waitFor(() => {
-    expect(screen.getByRole('gridcell', { name: 'Black pawn on e5' })).not.toBeDisabled()
+    expect(screen.getByRole('gridcell', { name: 'Black pawn on e5' })).toBeInTheDocument()
+    expect(board).toHaveAttribute('aria-disabled', 'false')
   }, { timeout: 1500 })
   expect(screen.getByText('Find the best move')).toBeInTheDocument()
 })
@@ -69,13 +72,19 @@ test('keeps the position after a wrong move and applies the returned FEN after a
     withNormalAPI(api)
   )
 
-  await fireEvent.click(screen.getByRole('gridcell', { name: 'White pawn on e2' }))
-  await fireEvent.click(screen.getByRole('gridcell', { name: 'Empty e3' }))
+  const board = screen.getByRole('grid', { name: 'Chess board, white side' })
+  await fireEvent.keyDown(board, { key: 'ArrowUp' })
+  await fireEvent.keyDown(board, { key: 'Enter' })
+  await fireEvent.keyDown(board, { key: 'ArrowUp' })
+  await fireEvent.keyDown(board, { key: 'Enter' })
   await waitFor(() => expect(screen.getByText('Try again')).toBeInTheDocument())
   expect(screen.getByRole('gridcell', { name: 'White pawn on e2' })).toBeInTheDocument()
 
-  await fireEvent.click(screen.getByRole('gridcell', { name: 'White pawn on e2' }))
-  await fireEvent.click(screen.getByRole('gridcell', { name: 'Empty e4' }))
+  await fireEvent.keyDown(board, { key: 'ArrowDown' })
+  await fireEvent.keyDown(board, { key: 'Enter' })
+  await fireEvent.keyDown(board, { key: 'ArrowUp' })
+  await fireEvent.keyDown(board, { key: 'ArrowUp' })
+  await fireEvent.keyDown(board, { key: 'Enter' })
   await waitFor(() => {
     expect(screen.getByRole('gridcell', { name: 'White pawn on e4' })).toBeInTheDocument()
   })
@@ -102,10 +111,10 @@ test('reveals hints progressively and only offers the solution after level three
   await fireEvent.click(screen.getByRole('button', { name: 'Hint' }))
   expect(await screen.findByText('Look for: fork')).toBeInTheDocument()
   await fireEvent.click(screen.getByRole('button', { name: 'Hint' }))
-  await waitFor(() => expect(container.querySelector('[data-square="e2"]')).toHaveClass('hint-source'))
+  await waitFor(() => expect(container.querySelector('square[data-key="e2"]')).toHaveClass('hint-source'))
   expect(screen.queryByRole('button', { name: 'Show solution' })).not.toBeInTheDocument()
   await fireEvent.click(screen.getByRole('button', { name: 'Hint' }))
-  await waitFor(() => expect(container.querySelector('[data-square="e4"]')).toHaveClass('hint-target'))
+  await waitFor(() => expect(container.querySelector('square[data-key="e4"]')).toHaveClass('hint-target'))
   expect(screen.getByRole('button', { name: 'Show solution' })).toBeInTheDocument()
 })
 

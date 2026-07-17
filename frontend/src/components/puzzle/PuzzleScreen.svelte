@@ -2,6 +2,7 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte'
   import type { HintResult, SessionView } from '../../lib/api'
   import { useNormalAPI } from '../../lib/api-context'
+  import { moveSquares, type Square } from '../../lib/uci'
   import ChessBoard from '../chess/ChessBoard.svelte'
 
   export let session: SessionView
@@ -16,8 +17,9 @@
   let statusMessage = ''
   let error = ''
   let hint: HintResult | null = null
-  let lastMove: string[] = []
-  let wrongMove: string[] = []
+  let lastMove: [Square, Square] | undefined
+  let wrongMove: [Square, Square] | undefined
+  let boardComponent: ChessBoard
   let preludeTimer: ReturnType<typeof setTimeout> | undefined
 
   $: current = session.current
@@ -31,11 +33,21 @@
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   }
 
+  function showPosition(
+    nextFen: string,
+    nextLastMove?: [Square, Square],
+    animate = false
+  ): void {
+    shownFen = nextFen
+    lastMove = nextLastMove
+    boardComponent?.setPosition(nextFen, nextLastMove, animate)
+  }
+
   function preparePuzzle(view: SessionView): void {
     clearTimeout(preludeTimer)
     hint = null
-    lastMove = []
-    wrongMove = []
+    lastMove = undefined
+    wrongMove = undefined
     statusMessage = ''
     error = ''
     if (!view.current) {
@@ -44,18 +56,21 @@
       return
     }
     if (hasPrelude(view) && !reducedMotion()) {
-      shownFen = view.current.sourceFen!
+      showPosition(view.current.sourceFen!)
       inputDisabled = true
       statusMessage = 'Watch the last move…'
       preludeTimer = setTimeout(() => {
-        shownFen = view.current?.currentFen ?? ''
-        lastMove = view.current?.preludeUci?.slice(0, 4).match(/.{2}/g) ?? []
+        const nextFen = view.current?.currentFen ?? ''
+        const nextLastMove = view.current?.preludeUci
+          ? moveSquares(view.current.preludeUci)
+          : undefined
+        showPosition(nextFen, nextLastMove, true)
         inputDisabled = false
         statusMessage = ''
       }, 550)
       return
     }
-    shownFen = view.current.currentFen
+    showPosition(view.current.currentFen)
     inputDisabled = false
   }
 
@@ -73,8 +88,7 @@
       preparePuzzle(next)
       return
     }
-    shownFen = next.current.currentFen
-    lastMove = move.slice(0, 4).match(/.{2}/g) ?? []
+    showPosition(next.current.currentFen, move ? moveSquares(move) : undefined)
     inputDisabled = false
   }
 
@@ -84,16 +98,17 @@
     inputDisabled = true
     statusMessage = ''
     error = ''
-    wrongMove = []
+    wrongMove = undefined
     try {
       const result = await api.playMove(session.sessionId, uci)
       acceptSession(result.session, result.correct ? uci : '')
       if (!result.correct) {
-        wrongMove = uci.slice(0, 4).match(/.{2}/g) ?? []
+        wrongMove = moveSquares(uci)
         statusMessage = result.message ?? 'Try again'
       }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause)
+      boardComponent?.setPosition(shownFen, lastMove, false)
       inputDisabled = false
     }
   }
@@ -136,6 +151,10 @@
     }
   }
 
+  function optionalSquare(value: string | undefined): Square | undefined {
+    return value && /^[a-h][1-8]$/.test(value) ? value as Square : undefined
+  }
+
   onMount(() => preparePuzzle(session))
   onDestroy(() => clearTimeout(preludeTimer))
 </script>
@@ -157,13 +176,16 @@
 {:else if current}
   <section class="puzzle-layout" aria-label={`Puzzle ${current.puzzleNumber} of ${current.puzzleTotal}`}>
     <ChessBoard
+      bind:this={boardComponent}
       fen={shownFen}
       orientation={current.solver}
-      disabled={inputDisabled}
+      legalMoves={current.legalMoves}
+      inputEnabled={!inputDisabled}
       {lastMove}
       {wrongMove}
-      hintSource={hint?.sourceSquare ?? ''}
-      hintTarget={hint?.targetSquare ?? ''}
+      hintSource={optionalSquare(hint?.sourceSquare)}
+      hintTarget={optionalSquare(hint?.targetSquare)}
+      reducedMotion={reducedMotion()}
       on:move={play}
     />
 
