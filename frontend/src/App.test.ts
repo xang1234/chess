@@ -62,7 +62,8 @@ test('opens the board-first puzzle screen from the home hub', async () => {
         puzzleTotal: 1,
         hintLevel: 0,
         incorrectMoves: 0,
-        canReveal: false
+        canReveal: false,
+        legalMoves: ['e1d1', 'e1d2', 'e1f1', 'e1f2', 'e2e3', 'e2e4']
       }
     })
   })

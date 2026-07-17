@@ -9,12 +9,33 @@ import type {
 import NormalAPIProvider from './test-providers/NormalAPIProvider.svelte'
 import RecoveryAPIProvider from './test-providers/RecoveryAPIProvider.svelte'
 
+export const fakeStartingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+export const fakeLegalMoves = [
+  'a2a3', 'a2a4', 'b1a3', 'b1c3', 'b2b3', 'b2b4',
+  'c2c3', 'c2c4', 'd2d3', 'd2d4', 'e2e3', 'e2e4',
+  'f2f3', 'f2f4', 'g1f3', 'g1h3', 'g2g3', 'g2g4',
+  'h2h3', 'h2h4'
+]
+
 const emptySession: SessionView = {
   sessionId: 'session-1',
   mode: 'guided',
   status: 'active',
   currentIndex: 0,
-  total: 1
+  total: 1,
+  current: {
+    fingerprint: 'puzzle-1',
+    displayedFen: fakeStartingFen,
+    currentFen: fakeStartingFen,
+    solver: 'white',
+    currentPath: [],
+    puzzleNumber: 1,
+    puzzleTotal: 1,
+    hintLevel: 0,
+    incorrectMoves: 0,
+    canReveal: false,
+    legalMoves: [...fakeLegalMoves]
+  }
 }
 
 export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
@@ -31,7 +52,16 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
       text: 'Look for a forcing move.',
       canReveal: false
     }),
-    revealSolution: async () => ({ session: emptySession, correct: true, puzzleCompleted: true }),
+    revealSolution: async () => ({
+      session: emptySession,
+      correct: true,
+      puzzleCompleted: true,
+      appliedMoves: [{
+        uci: 'e2e4',
+        resultingFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+      }],
+      finalFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+    }),
     pauseSession: async () => {},
     getParentSummary: async () => ({
       learnerRating: 1200,

@@ -21,7 +21,10 @@ export type PuzzleView = {
   hintLevel: number
   incorrectMoves: number
   canReveal: boolean
+  legalMoves: string[]
 }
+
+export type AppliedMove = { uci: string; resultingFen: string }
 
 export type SessionSummary = {
   total: number
@@ -47,6 +50,8 @@ export type MoveResult = {
   correct: boolean
   puzzleCompleted: boolean
   message?: string
+  appliedMoves?: AppliedMove[]
+  finalFen?: string
 }
 
 export type HintResult = {
@@ -220,40 +225,143 @@ async function loadProductionApplicationAPI(): Promise<ApplicationAPI> {
 }
 
 let previewProfile: Profile | null = null
+const previewStartingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+const previewLegalMoves = [
+  'a2a3', 'a2a4', 'b1a3', 'b1c3', 'b2b3', 'b2b4',
+  'c2c3', 'c2c4', 'd2d3', 'd2d4', 'e2e3', 'e2e4',
+  'f2f3', 'f2f4', 'g1f3', 'g1h3', 'g2g3', 'g2g4',
+  'h2h3', 'h2h4'
+]
+const previewPuzzles = [
+  {
+    fingerprint: 'preview-puzzle-1',
+    correctMove: 'e2e4',
+    wrongMove: 'e2e3',
+    finalFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
+  },
+  {
+    fingerprint: 'preview-puzzle-2',
+    correctMove: 'd2d4',
+    wrongMove: 'd2d3',
+    finalFen: 'rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1'
+  }
+] as const
+
+let previewSession: SessionView | null = null
+let previewIncorrect = new Set<number>()
+
+function previewPuzzle(index: number): PuzzleView {
+  const puzzle = previewPuzzles[index]
+  return {
+    fingerprint: puzzle.fingerprint,
+    displayedFen: previewStartingFen,
+    currentFen: previewStartingFen,
+    solver: 'white',
+    currentPath: [],
+    puzzleNumber: index + 1,
+    puzzleTotal: previewPuzzles.length,
+    hintLevel: 0,
+    incorrectMoves: previewIncorrect.has(index) ? 1 : 0,
+    canReveal: false,
+    legalMoves: [...previewLegalMoves]
+  }
+}
+
+function previewActiveSession(
+  index: number,
+  mode: 'guided' | 'practice' = 'guided'
+): SessionView {
+  return {
+    sessionId: mode === 'practice' ? 'preview-practice' : 'preview-session',
+    mode,
+    status: 'active',
+    currentIndex: index,
+    total: previewPuzzles.length,
+    current: previewPuzzle(index)
+  }
+}
+
+function previewCompletedSession(session: SessionView): SessionView {
+  return {
+    sessionId: session.sessionId,
+    mode: session.mode,
+    status: 'completed',
+    currentIndex: previewPuzzles.length,
+    total: previewPuzzles.length,
+    summary: {
+      total: previewPuzzles.length,
+      firstTry: previewPuzzles.length - previewIncorrect.size,
+      retried: previewIncorrect.size,
+      usedHint: 0,
+      revealed: 0,
+      unavailable: 0
+    }
+  }
+}
+
+function clonePreviewSession(session: SessionView): SessionView {
+  return JSON.parse(JSON.stringify(session)) as SessionView
+}
+
+function completePreviewPuzzle(): MoveResult {
+  if (!previewSession?.current || previewSession.status !== 'active') {
+    throw new Error('preview session is not active')
+  }
+  const index = previewSession.currentIndex
+  const puzzle = previewPuzzles[index]
+  const appliedMoves = [{ uci: puzzle.correctMove, resultingFen: puzzle.finalFen }]
+  previewSession = index + 1 < previewPuzzles.length
+    ? previewActiveSession(index + 1, previewSession.mode as 'guided' | 'practice')
+    : previewCompletedSession(previewSession)
+  return {
+    session: clonePreviewSession(previewSession),
+    correct: true,
+    puzzleCompleted: true,
+    appliedMoves,
+    finalFen: puzzle.finalFen
+  }
+}
+
 const previewNormalAPI: NormalAPI = {
   getProfile: async () => previewProfile,
   updateProfile: async (profile) => { previewProfile = profile },
-  resumeSession: async () => null,
-  startGuided: async () => ({
-    sessionId: 'preview-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
-  }),
-  startFreePractice: async () => ({
-    sessionId: 'preview-practice', mode: 'practice', status: 'active', currentIndex: 0, total: 5
-  }),
-  playMove: async () => ({
-    session: {
-      sessionId: 'preview-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
-    },
-    correct: false,
-    puzzleCompleted: false,
-    message: 'Try again'
-  }),
+  resumeSession: async () => previewSession ? clonePreviewSession(previewSession) : null,
+  startGuided: async () => {
+    previewIncorrect = new Set()
+    previewSession = previewActiveSession(0)
+    return clonePreviewSession(previewSession)
+  },
+  startFreePractice: async () => {
+    previewIncorrect = new Set()
+    previewSession = previewActiveSession(0, 'practice')
+    return clonePreviewSession(previewSession)
+  },
+  playMove: async (sessionId, uci) => {
+    if (!previewSession?.current || previewSession.sessionId !== sessionId ||
+      previewSession.status !== 'active') {
+      throw new Error('preview session is not active')
+    }
+    const puzzle = previewPuzzles[previewSession.currentIndex]
+    if (uci === puzzle.correctMove) return completePreviewPuzzle()
+    if (uci !== puzzle.wrongMove) {
+      throw new Error(`move ${uci} is not configured in the preview puzzle`)
+    }
+    previewIncorrect.add(previewSession.currentIndex)
+    previewSession.current.incorrectMoves = 1
+    return {
+      session: clonePreviewSession(previewSession),
+      correct: false,
+      puzzleCompleted: false,
+      message: 'Try again'
+    }
+  },
   useHint: async () => ({
-    session: {
-      sessionId: 'preview-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
-    },
+    session: clonePreviewSession(previewSession ?? previewActiveSession(0)),
     level: 1,
     text: 'Look for a forcing move.',
     canReveal: false
   }),
-  revealSolution: async () => ({
-    session: {
-      sessionId: 'preview-session', mode: 'guided', status: 'complete', currentIndex: 10, total: 10,
-      summary: { total: 10, firstTry: 7, retried: 2, usedHint: 1, revealed: 0, unavailable: 0 }
-    },
-    correct: true,
-    puzzleCompleted: true
-  }),
+  revealSolution: async () => completePreviewPuzzle(),
   pauseSession: async () => {},
   getParentSummary: async () => ({
     learnerRating: previewProfile?.learnerRating ?? 1200,

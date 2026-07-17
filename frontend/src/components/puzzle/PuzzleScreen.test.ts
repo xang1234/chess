@@ -7,6 +7,8 @@ import PuzzleScreen from './PuzzleScreen.svelte'
 const sourceFen = '4k3/4p3/8/8/8/8/4P3/4K3 b - - 0 1'
 const puzzleFen = '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2'
 const advancedFen = '4k3/8/8/4p3/4P3/8/8/4K3 b - - 0 2'
+const puzzleLegalMoves = ['e1d1', 'e1d2', 'e1f1', 'e1f2', 'e2e3', 'e2e4']
+const advancedLegalMoves = ['e8d7', 'e8d8', 'e8e7', 'e8f7', 'e8f8']
 
 function session(currentFen = puzzleFen): SessionView {
   return {
@@ -27,7 +29,8 @@ function session(currentFen = puzzleFen): SessionView {
       puzzleTotal: 1,
       hintLevel: 0,
       incorrectMoves: 0,
-      canReveal: false
+      canReveal: false,
+      legalMoves: currentFen === advancedFen ? advancedLegalMoves : puzzleLegalMoves
     }
   }
 }
