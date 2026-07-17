@@ -4,17 +4,28 @@ Chess Trainer is a local macOS Wails application. It does not need a hosted web
 server and does not expose an HTTP listener in a production build. User data is
 stored under `~/Library/Application Support/Chess Trainer/`.
 
-## Prerequisites
+## Prerequisites and version policy
 
 - macOS with Xcode Command Line Tools
-- Go 1.25 or newer
+- Go 1.26.4 for verified local parity and every distributable build
 - Node.js 20 or newer
 - Wails v2.12.0 (the commands below run the pinned CLI through `go run`)
 
-From the repository root, install the frontend packages once:
+The `go 1.25.0` directive in `go.mod` is the application's language and module
+compatibility level; it is not the distributable-build toolchain version. The
+release verifier requires the exact Go 1.26.4 toolchain, checks its installed
+`LICENSE` and `PATENTS` against the reviewed copies under
+`third_party/legal/go1.26.4/`, and rejects automatic toolchain switching.
+
+From the repository root, populate dependencies from their lockfiles and verify
+the downloaded Go modules:
 
 ```bash
 npm --prefix frontend ci
+go mod download all
+go mod verify
+npm --prefix frontend run build
+npm --prefix frontend run verify:licenses
 ```
 
 ## Automated verification
@@ -24,10 +35,20 @@ Run the ordinary backend suite, the full race suite, and the frontend checks:
 ```bash
 go test ./... -count=1
 go test -race ./... -count=1
+go mod verify
+node frontend/scripts/generate-sounds.mjs --check
+node scripts/generate-third-party-notices.mjs --check
+npm --prefix frontend run build
+npm --prefix frontend run verify:licenses
+node --test scripts/verify-legal-assets.test.mjs
+node --test scripts/generate-third-party-notices.test.mjs
 npm --prefix frontend test -- --run --single-thread
 npm --prefix frontend run check
-npm --prefix frontend run build
 npm --prefix frontend run test:e2e
+node --test scripts/verify-release.test.mjs
+node --test scripts/build-corresponding-source.test.mjs
+node --test scripts/build-release.test.mjs
+bash -n scripts/build-release.sh
 ```
 
 Expected results:
@@ -38,6 +59,12 @@ Expected results:
 - `svelte-check` reports zero errors and zero warnings.
 - Playwright passes the trainer flow in Chromium and WebKit.
 - Vite creates `frontend/dist` without TypeScript or bundling errors.
+- Legal verification proves the public documents, complete GPL text, exact
+  Chessground/Svelte preferred-source archives, Go legal files, dependency
+  closure, and generated notices still match the committed locks.
+- Release-fixture tests prove every supported release subprocess sees fresh
+  release-scoped Go and npm caches and that cleanup runs after success or
+  failure.
 
 ## Puzzle catalogue storage and startup
 
@@ -134,8 +161,12 @@ readable during import, and no decompressed `.csv` beside the source.
 
 ## Build the macOS application
 
+For a local, unpublished test build, use the pinned Wails source and keep the
+default `development` build identity:
+
 ```bash
-go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build
+GOWORK=off GOTOOLCHAIN=local \
+  go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 build -clean -trimpath
 perl -pi -e 's/[ \t]+$//' frontend/wailsjs/go/models.ts
 perl -0pi -e 's/\s+\z/\n/' frontend/wailsjs/go/models.ts
 chmod 0644 frontend/wailsjs/runtime/package.json \
@@ -151,6 +182,17 @@ Expected result: the pinned Wails build creates
 `codesign` reports that the app is valid on disk and satisfies its designated
 requirement, and Finder launches it by double-click without a terminal or
 browser window.
+
+The local build is not a supported public distributable: it reports source
+identity `development` and does not prove that a matching tag is public. For a
+binary you intend to share, follow `docs/operations/release.md` and use only
+`scripts/build-release.sh <public-tag>`. That wrapper creates empty disposable
+`GOMODCACHE`, `GOCACHE`, and npm cache directories beneath a temporary release
+root, extracts the exact commit into an isolated build tree, fixes
+`GOWORK=off`, `GOTOOLCHAIN=local`, and `GOENV=off`, and clears inherited Go,
+Node, npm, and Git settings before installing from the locks and embedding the
+exact public commit. Ignored checkout files, overlays, shared module
+extractions, and user npm configuration are never release inputs.
 
 ## Manual acceptance checklist
 

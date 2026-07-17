@@ -120,3 +120,41 @@ test('rejects a runtime lock without the Go patent grant', () => {
     /runtime lock must include the exact Go PATENTS/,
   )
 })
+
+test('rejects a runtime lock missing a Wails production-tag dependency', () => {
+  const requiredModules = [
+    ['github.com/pkg/browser', 'v0.0.0-20240102092130-5ac0b6a4141c'],
+    ['github.com/samber/lo', 'v1.49.1'],
+    ['github.com/tkrajina/go-reflector', 'v0.5.8'],
+    ['github.com/wailsapp/mimetype', 'v1.4.1'],
+    ['golang.org/x/net', 'v0.35.0'],
+    ['golang.org/x/text', 'v0.22.0'],
+  ]
+  const lock = {
+    formatVersion: 1,
+    goToolchain: {
+      version: 'go1.26.4',
+      legal: [
+        {
+          name: 'LICENSE',
+          sha256:
+            '911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad',
+        },
+        {
+          name: 'PATENTS',
+          sha256:
+            '96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc',
+        },
+      ],
+    },
+    goModules: requiredModules
+      .slice(1)
+      .map(([modulePath, version]) => ({ path: modulePath, version, legal: [] })),
+    frontend: [],
+  }
+
+  assert.throws(
+    () => verifyRuntimeLock(lock),
+    /runtime lock is missing production module github\.com\/pkg\/browser/,
+  )
+})

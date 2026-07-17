@@ -3,6 +3,7 @@
 .worktrees/
 *.csv.zst
 build/bin/
+build/release/
 frontend/dist/
 frontend/node_modules/
 frontend/playwright-report/

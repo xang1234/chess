@@ -27,6 +27,14 @@ export const GO_LICENSE_SHA256 =
   '911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad'
 export const GO_PATENTS_SHA256 =
   '96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc'
+export const REQUIRED_DARWIN_PRODUCTION_MODULES = Object.freeze(new Map([
+  ['github.com/pkg/browser', 'v0.0.0-20240102092130-5ac0b6a4141c'],
+  ['github.com/samber/lo', 'v1.49.1'],
+  ['github.com/tkrajina/go-reflector', 'v0.5.8'],
+  ['github.com/wailsapp/mimetype', 'v1.4.1'],
+  ['golang.org/x/net', 'v0.35.0'],
+  ['golang.org/x/text', 'v0.22.0'],
+]))
 
 export function sha256(content) {
   return createHash('sha256').update(content).digest('hex')
@@ -125,6 +133,16 @@ export function verifyRuntimeLock(lock) {
     'runtime lock must include the exact Go PATENTS',
   )
   assert.ok(lock.goModules?.length > 0, 'runtime lock must include Go modules')
+  const lockedModules = new Map(
+    lock.goModules.map((module) => [module.path, module.version]),
+  )
+  for (const [modulePath, version] of REQUIRED_DARWIN_PRODUCTION_MODULES) {
+    assert.equal(
+      lockedModules.get(modulePath),
+      version,
+      `runtime lock is missing production module ${modulePath}@${version}`,
+    )
+  }
   assert.doesNotMatch(
     JSON.stringify(lock),
     /\/Users\/|(?:^|["\s])\.\.?(?:\/|["\s])/,

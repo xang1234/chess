@@ -49,14 +49,28 @@ test('rejects active and commented machine-local module replacements', () => {
       assertNoLocalModuleReplacement(
         'replace example.com/module => /Users/child/module\n',
       ),
-    /machine-local Go module replacement/,
+    /local or absolute Go module replacement/,
   )
   assert.throws(
     () =>
       assertNoLocalModuleReplacement(
         '// replace example.com/module => ../module\n',
       ),
-    /machine-local Go module replacement/,
+    /local or absolute Go module replacement/,
+  )
+  assert.throws(
+    () =>
+      assertNoLocalModuleReplacement(
+        'replace example.com/module => "\\x2ftmp\\x2flocal"\n',
+      ),
+    /local or absolute Go module replacement/,
+  )
+  assert.throws(
+    () =>
+      assertNoLocalModuleReplacement(
+        '// replace example.com/module => "\\u002e\\u002e/module"\n',
+      ),
+    /local or absolute Go module replacement/,
   )
 })
 
@@ -204,8 +218,10 @@ async function generatorFixture() {
       ),
     ],
   }
+  const calls = []
 
   const commandRunner = async (_command, args, options = {}) => {
+    calls.push({ args, options })
     if (args[0] === 'list') {
       return packageSets[options.env.GOARCH]
         .map((entry) => JSON.stringify(entry))
@@ -223,6 +239,7 @@ async function generatorFixture() {
   return {
     root,
     packageSets,
+    calls,
     commandRunner,
     policy: {
       goVersion: 'go-test',
@@ -237,6 +254,19 @@ test('writes and checks the unioned runtime dependency inventory', async () => {
   const fixture = await generatorFixture()
 
   await runNoticeGenerator({ ...fixture, mode: 'write' })
+
+  const listCalls = fixture.calls.filter(({ args }) => args[0] === 'list')
+  assert.equal(listCalls.length, 2)
+  for (const { args } of listCalls) {
+    assert.deepEqual(args, [
+      'list',
+      '-tags',
+      'desktop,production',
+      '-deps',
+      '-json',
+      '.',
+    ])
+  }
 
   const lock = JSON.parse(
     await readFile(

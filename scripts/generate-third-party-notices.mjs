@@ -12,7 +12,12 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
+import { assertNoLocalModuleReplacement } from './go-module-policy.mjs'
+
+export { assertNoLocalModuleReplacement } from './go-module-policy.mjs'
+
 const execFileAsync = promisify(execFile)
+export const RELEASE_BUILD_TAGS = 'desktop,production'
 
 export const GO_RELEASE_VERSION = 'go1.26.4'
 export const GO_LICENSE_SHA256 =
@@ -29,13 +34,6 @@ const DEFAULT_POLICY = Object.freeze({
 
 function sha256(content) {
   return createHash('sha256').update(content).digest('hex')
-}
-
-export function assertNoLocalModuleReplacement(goMod) {
-  const localReplacement = /=>\s*(?:\/|~\/|\.{1,2}(?:\/|\s)|[A-Za-z]:[\\/])/m
-  if (localReplacement.test(goMod) || /\/Users\//.test(goMod)) {
-    throw new Error('go.mod contains a machine-local Go module replacement')
-  }
 }
 
 export function mergeRuntimeModules(packageSets) {
@@ -275,7 +273,7 @@ async function collectInventory({ root, commandRunner, policy }) {
   for (const architecture of ['arm64', 'amd64']) {
     const output = await commandRunner(
       'go',
-      ['list', '-deps', '-json', '.'],
+      ['list', '-tags', RELEASE_BUILD_TAGS, '-deps', '-json', '.'],
       {
         cwd: root,
         env: {
