@@ -3,6 +3,7 @@ package chessrules
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/corentings/chess/v2"
 )
@@ -15,6 +16,22 @@ func gameAt(fen string) (*chess.Game, error) {
 		return nil, err
 	}
 	return chess.NewGame(option), nil
+}
+
+func (Rules) LegalMoves(fen string) ([]string, error) {
+	game, err := gameAt(fen)
+	if err != nil {
+		return nil, fmt.Errorf("list legal moves: %w", err)
+	}
+
+	validMoves := game.ValidMoves()
+	result := make([]string, len(validMoves))
+	notation := chess.UCINotation{}
+	for index := range validMoves {
+		result[index] = notation.Encode(game.Position(), &validMoves[index])
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 func (Rules) ApplyUCI(fen, uci string) (string, error) {
