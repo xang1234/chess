@@ -201,10 +201,16 @@
   .puzzle-actions button { min-height: 46px; }
   .quiet-action { border: 0; color: #e8e4d8; background: transparent; font-weight: 800; }
   .next-action { min-height: 52px !important; font-size: 1.06rem; }
-  .completion { text-align: center; }
+  .completion { color: var(--ink-900); text-align: center; }
+  .completion .eyebrow { color: var(--forest-600); }
   .celebration { display: block; color: var(--amber-400); font-size: 4.5rem; line-height: 1; }
   .summary-grid { display: grid; margin: 24px 0; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .summary-grid strong { padding: 14px 10px; border-radius: 12px; background: #f4e5bd; }
+  .summary-grid strong {
+    padding: 14px 10px;
+    border-radius: 12px;
+    color: var(--ink-900);
+    background: #f4e5bd;
+  }
   .terminal-notice { color: var(--red-600); font-weight: 800; }
   .visually-hidden {
     position: absolute !important;

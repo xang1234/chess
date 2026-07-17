@@ -1,4 +1,4 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 import {
   chessgroundBoard,
   markerForSquare,
@@ -26,6 +26,36 @@ const replyStartingFen = '4k3/8/8/3p4/8/8/4P3/4K3 w - - 0 2'
 const afterReplyUserMove = '4k3/8/8/3p4/4P3/8/8/4K3 b - - 0 2'
 const afterReplyCapture = '4k3/8/8/8/4p3/8/8/4K3 w - - 0 3'
 const nextFen = '4k3/8/8/8/8/8/3P4/4K3 w - - 0 1'
+
+type RGB = { red: number; green: number; blue: number }
+
+function parseRGB(value: string): RGB {
+  const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number)
+  if (!channels || channels.length !== 3) {
+    throw new Error(`Expected an rgb() color, received ${value}`)
+  }
+  return { red: channels[0], green: channels[1], blue: channels[2] }
+}
+
+function relativeLuminance({ red, green, blue }: RGB): number {
+  const linear = [red, green, blue].map((channel) => {
+    const value = channel / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+}
+
+async function contrastRatio(foreground: Locator, background: Locator): Promise<number> {
+  const [foregroundColor, backgroundColor] = await Promise.all([
+    foreground.evaluate((element) => getComputedStyle(element).color),
+    background.evaluate((element) => getComputedStyle(element).backgroundColor)
+  ])
+  const foregroundLuminance = relativeLuminance(parseRGB(foregroundColor))
+  const backgroundLuminance = relativeLuminance(parseRGB(backgroundColor))
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance)
+  const darker = Math.min(foregroundLuminance, backgroundLuminance)
+  return (lighter + 0.05) / (darker + 0.05)
+}
 
 function basicPuzzle(overrides: Partial<PuzzleDefinition> = {}): PuzzleDefinition {
   return {
@@ -345,6 +375,18 @@ test('reveals in order and requires See results before the summary', async ({ pa
 
   await page.getByRole('button', { name: 'See results' }).click()
   await expect(page.getByText('Training complete!')).toBeVisible()
+
+  const completion = page.locator('.completion')
+  const heading = page.getByRole('heading', { name: 'Training complete!' })
+  const bodyCopy = page.getByText('You finished 1 puzzles.')
+  const summaryCards = page.locator('.summary-grid strong')
+
+  expect(await contrastRatio(heading, completion)).toBeGreaterThanOrEqual(4.5)
+  expect(await contrastRatio(bodyCopy, completion)).toBeGreaterThanOrEqual(4.5)
+  await expect(summaryCards).toHaveCount(4)
+  for (const card of await summaryCards.all()) {
+    expect(await contrastRatio(card, card)).toBeGreaterThanOrEqual(4.5)
+  }
 })
 
 test('persists mute across a reload', async ({ page }, testInfo) => {
