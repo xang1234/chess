@@ -121,6 +121,10 @@ async function completeFixture() {
     'Use app/vendor with GOFLAGS=-mod=vendor and GOFLAGS=-mod=mod.',
     'Run npm --prefix frontend ci and npm --prefix frontend run build.',
     'Keep GOWORK=off and GOTOOLCHAIN=local.',
+    'unset GOOS GOARCH GOAMD64 GOARM64 GOFIPS140 GOEXPERIMENT SDKROOT DEVELOPER_DIR MACOSX_DEPLOYMENT_TARGET',
+    'Build with ../wails build -clean -trimpath -platform darwin/arm64 -m -nosyncgomod.',
+    'plutil -replace CFBundleShortVersionString -string "1.2.3" build/bin/Chess Trainer.app/Contents/Info.plist',
+    'plutil -replace CFBundleVersion -string "1.2.3" build/bin/Chess Trainer.app/Contents/Info.plist',
     '',
   ].join('\n')
   await put(path.join(root, 'BUILDING.md'), building)
@@ -312,6 +316,49 @@ test('rejects missing exact build instructions', async () => {
   )
 })
 
+test('rejects build instructions that omit deterministic arm64 Wails flags', async () => {
+  await withFixture(async ({ root }) => {
+    const filename = path.join(root, 'BUILDING.md')
+    const building = await readFile(filename, 'utf8')
+    await writeFile(filename, building.replace(' -nosyncgomod', ''))
+  }, /BUILDING\.md does not explain required input: -nosyncgomod/)
+})
+
+test('rejects build instructions that omit tag-derived bundle version stamping', async () => {
+  await withFixture(async ({ root }) => {
+    const filename = path.join(root, 'BUILDING.md')
+    const building = await readFile(filename, 'utf8')
+    await writeFile(
+      filename,
+      building.replace('CFBundleShortVersionString', 'RemovedShortVersion'),
+    )
+  }, /BUILDING\.md does not explain required input: CFBundleShortVersionString/)
+})
+
+test('renders instructions that clear inherited release target variables', () => {
+  const building = renderBuilding(tag, commit)
+  assert.match(
+    building,
+    /^unset GOOS GOARCH GOAMD64 GOARM64 GOFIPS140 GOEXPERIMENT SDKROOT DEVELOPER_DIR MACOSX_DEPLOYMENT_TARGET$/m,
+  )
+})
+
+test('rejects build instructions that retain an inherited GOARM64 target', async () => {
+  await withFixture(async ({ root }) => {
+    const filename = path.join(root, 'BUILDING.md')
+    const building = await readFile(filename, 'utf8')
+    await writeFile(filename, building.replace(' GOARM64', ''))
+  }, /BUILDING\.md does not clear release target environment/)
+})
+
+test('rejects build instructions that retain inherited Go experiments', async () => {
+  await withFixture(async ({ root }) => {
+    const filename = path.join(root, 'BUILDING.md')
+    const building = await readFile(filename, 'utf8')
+    await writeFile(filename, building.replace(' GOEXPERIMENT', ''))
+  }, /BUILDING\.md does not clear release target environment/)
+})
+
 test('rejects an altered source manifest', async () => {
   await withFixture(async ({ root }) => {
     const filename = path.join(root, 'SOURCE_MANIFEST.json')
@@ -430,10 +477,20 @@ test('generated build instructions name every verifier-required input', () => {
     'npm --prefix frontend run build',
     'GOWORK=off',
     'GOTOOLCHAIN=local',
+    '-platform darwin/arm64',
+    '-m',
+    '-nosyncgomod',
+    'CFBundleShortVersionString',
+    'CFBundleVersion',
+    '-string "1.2.3"',
   ]) {
     assert.match(building, new RegExp(required.replaceAll('.', '\\.')))
   }
   assert.match(building, /\(\n  cd build-tools\/wails-v2\.12\.0/)
   assert.match(building, /\(\n  cd app\n  npm --prefix frontend ci/)
   assert.match(building, /\(\n  cd app\n  GOFLAGS=-mod=vendor/)
+  assert.match(
+    building,
+    /\.\.\/wails build -clean -trimpath \\\n+    -platform darwin\/arm64 -m -nosyncgomod \\\n+    -ldflags/,
+  )
 })

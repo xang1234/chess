@@ -1,12 +1,25 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { vi } from 'vitest'
-import type { SessionView } from '../../lib/api'
-import { fakeAPI, withNormalAPI } from '../../test-fakes'
+import type { ActiveSessionView, SessionView } from '../../lib/api'
+import { fakeAPI, fakeLegalMoves, fakeStartingFen, withNormalAPI } from '../../test-fakes'
 import FreePractice from './FreePractice.svelte'
 
 test('starts practice with the selected source, rating, themes, and length filters', async () => {
-  const started: SessionView = {
-    sessionId: 'practice-1', mode: 'practice', status: 'active', currentIndex: 0, total: 5
+  const started: ActiveSessionView = {
+    sessionId: 'practice-1', mode: 'practice', status: 'active', currentIndex: 0, total: 5,
+    current: {
+      fingerprint: 'practice-puzzle',
+      displayedFen: fakeStartingFen,
+      currentFen: fakeStartingFen,
+      solver: 'white',
+      currentPath: [],
+      puzzleNumber: 1,
+      puzzleTotal: 5,
+      hintLevel: 0,
+      incorrectMoves: 0,
+      canReveal: false,
+      legalMoves: [...fakeLegalMoves]
+    }
   }
   const startFreePractice = vi.fn().mockResolvedValue(started)
   const api = fakeAPI({

@@ -17,6 +17,7 @@ const moduleHasRecoveryGetter: HasKey<APIModule, 'getRecoveryAPI'> = false
 const production = vi.hoisted(() => ({
   getMode: vi.fn(),
   getBuildInfo: vi.fn(),
+  getParentSummary: vi.fn(),
   resumeSession: vi.fn(),
   playMove: vi.fn(),
   pauseSession: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('../../wailsjs/go/main/ModeController', () => ({
   GetBuildInfo: production.getBuildInfo
 }))
 vi.mock('../../wailsjs/go/main/NormalController', () => ({
+  GetParentSummary: production.getParentSummary,
   ResumeSession: production.resumeSession,
   PlayMove: production.playMove,
   PauseSession: production.pauseSession,
@@ -185,4 +187,134 @@ test('production adaptation preserves authoritative board fields exactly', async
 
   await expect(application.api.resumeSession()).resolves.toEqual(session)
   await expect(application.api.playMove(session.sessionId, 'e2e4')).resolves.toEqual(move)
+})
+
+function enableProduction(mode: string = 'normal'): void {
+  production.getMode.mockResolvedValue(mode)
+  production.getBuildInfo.mockResolvedValue({
+    name: 'Chess Trainer',
+    commit: '0123456789abcdef0123456789abcdef01234567',
+    sourceUrl: 'https://github.com/xang1234/chess/tree/0123456789abcdef0123456789abcdef01234567'
+  })
+  Object.defineProperty(window, 'go', {
+    configurable: true,
+    value: { main: {} }
+  })
+}
+
+test('production bootstrap rejects an unknown application mode', async () => {
+  enableProduction('future-mode')
+
+  const { loadApplicationAPI } = await import('./api')
+
+  await expect(loadApplicationAPI()).rejects.toThrow('application mode')
+})
+
+test('production session boundary rejects an unknown puzzle solver', async () => {
+  enableProduction()
+  production.resumeSession.mockResolvedValue({
+    sessionId: 'session', mode: 'guided', status: 'active', currentIndex: 0, total: 1,
+    current: {
+      fingerprint: 'puzzle', displayedFen: 'displayed', currentFen: 'current',
+      solver: 'sideways', currentPath: [], puzzleNumber: 1, puzzleTotal: 1,
+      hintLevel: 0, incorrectMoves: 0, canReveal: false, legalMoves: ['e2e4']
+    }
+  })
+
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal production API')
+
+  await expect(application.api.resumeSession()).rejects.toThrow('solver')
+})
+
+test.each([
+  {
+    name: 'active session without a current puzzle',
+    value: { sessionId: 'session', mode: 'guided', status: 'active', currentIndex: 0, total: 1 },
+    message: 'current puzzle'
+  },
+  {
+    name: 'completed session without a summary',
+    value: { sessionId: 'session', mode: 'guided', status: 'completed', currentIndex: 1, total: 1 },
+    message: 'summary'
+  }
+])('production session boundary rejects $name', async ({ value, message }) => {
+  enableProduction()
+  production.resumeSession.mockResolvedValue(value)
+
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal production API')
+
+  await expect(application.api.resumeSession()).rejects.toThrow(message)
+})
+
+test('production move boundary rejects a completed move without authoritative frames', async () => {
+  enableProduction()
+  production.playMove.mockResolvedValue({
+    session: {
+      sessionId: 'session', mode: 'guided', status: 'completed', currentIndex: 1, total: 1,
+      summary: { total: 1, firstTry: 1, retried: 0, usedHint: 0, revealed: 0, unavailable: 0 }
+    },
+    correct: true,
+    puzzleCompleted: true,
+    finalFen: 'final'
+  })
+
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal production API')
+
+  await expect(application.api.playMove('session', 'e2e4')).rejects.toThrow('move frames')
+})
+
+test('production move boundary rejects a continuing result that includes a final FEN', async () => {
+  enableProduction()
+  production.playMove.mockResolvedValue({
+    session: {
+      sessionId: 'session', mode: 'guided', status: 'active', currentIndex: 0, total: 1,
+      current: {
+        fingerprint: 'puzzle', displayedFen: 'displayed', currentFen: 'current', solver: 'white',
+        currentPath: [0], puzzleNumber: 1, puzzleTotal: 1, hintLevel: 0,
+        incorrectMoves: 0, canReveal: false, legalMoves: ['e1d1']
+      }
+    },
+    correct: true,
+    puzzleCompleted: false,
+    appliedMoves: [{ uci: 'e2e4', resultingFen: 'after' }],
+    finalFen: 'after'
+  })
+
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal production API')
+
+  await expect(application.api.playMove('session', 'e2e4')).rejects.toThrow('final FEN')
+})
+
+test('production parent summary accepts paused recent sessions', async () => {
+  enableProduction()
+  production.getParentSummary.mockResolvedValue({
+    learnerRating: 1200,
+    ratingTrend: [],
+    firstAttemptAccuracy: 0,
+    hintRate: 0,
+    themePerformance: [],
+    dueReviews: 0,
+    recentSessions: [{
+      sessionId: 'paused-session',
+      mode: 'guided',
+      status: 'paused',
+      updatedAt: 1,
+      total: 5,
+      completed: 2,
+      firstTry: 1,
+      usedHint: 0,
+      revealed: 0
+    }]
+  })
+
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal production API')
+
+  await expect(application.api.getParentSummary()).resolves.toMatchObject({
+    recentSessions: [{ status: 'paused' }]
+  })
 })

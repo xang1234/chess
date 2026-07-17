@@ -19,56 +19,64 @@ import {
   verifyLegalAssets,
 } from './verify-legal-assets.mjs'
 import { assertNoLocalModuleReplacement } from './go-module-policy.mjs'
+import { verifyCorrespondingSourceArchive } from './corresponding-source-verifier.mjs'
+import {
+  LEGAL_ASSETS,
+  PUBLIC_REPOSITORY_URL,
+  RELEASE_BUNDLE_IDENTIFIER,
+  RELEASE_GO_VERSION,
+  RELEASE_PLATFORM,
+  REQUIRED_TRACKED_FILES,
+  WAILS_MODULE,
+  WAILS_VERSION,
+  assertCleanStatus,
+  assertFullCommit,
+  assertGoToolchain,
+  assertRealReleaseEnvironment,
+  assertReleaseEnvironment,
+  assertReleaseTag,
+  assertRequiredTrackedFiles,
+  isBeneath,
+  parseGoDownload,
+  publicTagQuery,
+  releaseVersionFromTag,
+  resolveTagCommit,
+  verifyPublicTag,
+} from './release-policy.mjs'
+import { sha256, treeDigest } from './tree-integrity.mjs'
 
 export { assertNoLocalModuleReplacement } from './go-module-policy.mjs'
+export {
+  LEGAL_ASSETS,
+  PUBLIC_REPOSITORY_URL,
+  RELEASE_BUNDLE_IDENTIFIER,
+  RELEASE_GO_VERSION,
+  RELEASE_PLATFORM,
+  REQUIRED_TRACKED_FILES,
+  WAILS_MODULE,
+  WAILS_VERSION,
+  assertCleanStatus,
+  assertFullCommit,
+  assertGoToolchain,
+  assertReleaseEnvironment,
+  assertReleaseTag,
+  assertRequiredTrackedFiles,
+  publicTagQuery,
+  releaseVersionFromTag,
+  resolveTagCommit,
+  verifyPublicTag,
+}
 
 const execFileAsync = promisify(execFile)
 
-export const PUBLIC_REPOSITORY_URL = 'https://github.com/xang1234/chess.git'
-export const RELEASE_GO_VERSION = 'go1.26.4'
-export const WAILS_MODULE = 'github.com/wailsapp/wails/v2'
-export const WAILS_VERSION = 'v2.12.0'
-
-export const LEGAL_ASSETS = Object.freeze([
-  'LICENSE.txt',
-  'THIRD_PARTY_NOTICES.md',
-  'CHESSGROUND_LICENSE.txt',
-  'NUNITO_OFL.txt',
-])
-
-export const REQUIRED_TRACKED_FILES = Object.freeze([
-  'LICENSE',
-  'THIRD_PARTY_NOTICES.md',
-  'go.mod',
-  'go.sum',
-  'frontend/package.json',
-  'frontend/package-lock.json',
-  '.gitignore',
-  'README.md',
-  'docs/operations/local-build.md',
-  'docs/operations/release.md',
-  ...LEGAL_ASSETS.map((name) => `frontend/public/legal/${name}`),
-  'third_party/runtime-dependencies.lock.json',
-  'third_party/legal/go1.26.4/LICENSE',
-  'third_party/legal/go1.26.4/PATENTS',
-  'third_party/source/chessground-v10.1.1.tar.gz',
-  'third_party/source/svelte-v3.59.2.tar.gz',
-  'scripts/generate-third-party-notices.mjs',
-  'scripts/go-module-policy.mjs',
-  'scripts/verify-legal-assets.mjs',
-  'scripts/verify-release.mjs',
-  'scripts/build-corresponding-source.mjs',
-  'scripts/build-release.sh',
-])
-
 async function defaultRunner(command, args, options = {}) {
-  const { stdout } = await execFileAsync(command, args, {
+  const { stdout, stderr } = await execFileAsync(command, args, {
     cwd: options.cwd,
     env: options.env,
     encoding: options.encoding ?? 'utf8',
     maxBuffer: options.maxBuffer ?? 256 * 1024 * 1024,
   })
-  return stdout
+  return options.includeStderr ? `${stdout}${stderr}` : stdout
 }
 
 function defaultPorts() {
@@ -82,195 +90,6 @@ function defaultPorts() {
     rm,
     verifyLegalAssets,
   }
-}
-
-function firstStatusLine(status) {
-  return status
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .find(Boolean)
-}
-
-export function assertCleanStatus(status) {
-  const first = firstStatusLine(status)
-  if (first) {
-    throw new Error(`working tree is not clean: ${first.trimStart()}`)
-  }
-}
-
-export function assertReleaseTag(tag) {
-  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(tag ?? '')) {
-    throw new Error('release tag must match v<major>.<minor>.<patch>')
-  }
-  return tag
-}
-
-export function assertFullCommit(commit) {
-  const normalized = (commit ?? '').trim()
-  if (!/^[0-9a-f]{40}$/.test(normalized)) {
-    throw new Error('release commit must be a full 40-character lowercase SHA')
-  }
-  return normalized
-}
-
-function refRecords(output) {
-  const records = new Map()
-  for (const line of output.split(/\r?\n/)) {
-    if (!line.trim()) continue
-    const [object, ref, extra] = line.trim().split(/\s+/)
-    if (!/^[0-9a-f]{40}$/.test(object) || !ref || extra) {
-      throw new Error(`tag query returned malformed record: ${line}`)
-    }
-    if (records.has(ref) && records.get(ref) !== object) {
-      throw new Error(`tag query returned conflicting records for ${ref}`)
-    }
-    records.set(ref, object)
-  }
-  return records
-}
-
-export function resolveTagCommit(output, tag) {
-  assertReleaseTag(tag)
-  const records = refRecords(output)
-  const direct = records.get(`refs/tags/${tag}`)
-  const peeled = records.get(`refs/tags/${tag}^{}`)
-  const resolved = peeled ?? direct
-  if (!resolved) throw new Error(`tag ${tag} was not found`)
-  return resolved
-}
-
-export function publicTagQuery(tag, emptyHome, pathValue) {
-  assertReleaseTag(tag)
-  return {
-    command: 'git',
-    args: [
-      '-c',
-      'credential.helper=',
-      '-c',
-      'http.extraHeader=',
-      'ls-remote',
-      '--tags',
-      PUBLIC_REPOSITORY_URL,
-      `refs/tags/${tag}`,
-      `refs/tags/${tag}^{}`,
-    ],
-    options: {
-      cwd: emptyHome,
-      env: {
-        PATH: pathValue,
-        GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_GLOBAL: '/dev/null',
-        HOME: emptyHome,
-        GIT_TERMINAL_PROMPT: '0',
-        GIT_ASKPASS: '/usr/bin/false',
-      },
-    },
-  }
-}
-
-export async function verifyPublicTag({
-  tag,
-  commit,
-  runner = defaultRunner,
-  pathValue = process.env.PATH,
-  emptyHome,
-  makeTemporaryHome,
-  removeTemporaryHome,
-}) {
-  let ownedHome
-  if (!emptyHome) {
-    if (!makeTemporaryHome) {
-      ownedHome = await mkdtemp(path.join(process.env.TMPDIR ?? '/tmp', 'chess-trainer-public-git-'))
-    } else {
-      ownedHome = await makeTemporaryHome()
-    }
-    emptyHome = ownedHome
-  }
-
-  try {
-    const query = publicTagQuery(tag, emptyHome, pathValue)
-    let output
-    try {
-      output = await runner(query.command, query.args, query.options)
-    } catch (error) {
-      throw new Error(
-        `public tag ${tag} is not reachable without credentials: ${error.message}`,
-      )
-    }
-    if (!output.trim()) {
-      throw new Error(`public tag ${tag} is not reachable without credentials`)
-    }
-    const resolved = resolveTagCommit(output, tag)
-    if (resolved !== commit) {
-      throw new Error(`public tag ${tag} does not resolve to HEAD`)
-    }
-  } finally {
-    if (ownedHome) {
-      if (removeTemporaryHome) await removeTemporaryHome(ownedHome)
-      else await rm(ownedHome, { recursive: true, force: true })
-    }
-  }
-}
-
-export function assertRequiredTrackedFiles(
-  tracked,
-  { chessgroundVersion } = {},
-) {
-  if (chessgroundVersion !== undefined && chessgroundVersion !== '10.1.1') {
-    throw new Error('Chessground dependency must be pinned exactly to 10.1.1')
-  }
-  for (const required of REQUIRED_TRACKED_FILES) {
-    if (!tracked.has(required)) {
-      throw new Error(`required release file is not tracked: ${required}`)
-    }
-  }
-}
-
-export function assertGoToolchain(version) {
-  const normalized = (version ?? '').trim()
-  if (normalized !== RELEASE_GO_VERSION) {
-    throw new Error(`release Go toolchain must be ${RELEASE_GO_VERSION}`)
-  }
-  return normalized
-}
-
-function isBeneath(parent, candidate) {
-  const relative = path.relative(parent, candidate)
-  return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)
-}
-
-export function assertReleaseEnvironment(env) {
-  const rootValue = env.CHESS_TRAINER_RELEASE_ROOT
-  if (!rootValue) throw new Error('CHESS_TRAINER_RELEASE_ROOT must be set')
-  const root = path.resolve(rootValue)
-  for (const name of ['GOMODCACHE', 'GOCACHE', 'npm_config_cache']) {
-    if (!env[name]) throw new Error(`${name} must be set`)
-    if (!isBeneath(root, path.resolve(env[name]))) {
-      throw new Error(`${name} must resolve beneath CHESS_TRAINER_RELEASE_ROOT`)
-    }
-  }
-  if (env.GOWORK !== 'off') throw new Error('GOWORK must be off')
-  if (env.GOTOOLCHAIN !== 'local') throw new Error('GOTOOLCHAIN must be local')
-  if (env.GOENV !== 'off') throw new Error('GOENV must be off')
-  if ((env.GOFLAGS ?? '').trim() !== '') {
-    throw new Error('GOFLAGS must be empty for release builds')
-  }
-  if ((env.NODE_OPTIONS ?? '').trim() !== '') {
-    throw new Error('NODE_OPTIONS must be empty for release builds')
-  }
-  return root
-}
-
-async function assertRealReleaseEnvironment(env, ports) {
-  const lexicalRoot = assertReleaseEnvironment(env)
-  const root = await ports.realpath(lexicalRoot)
-  for (const name of ['GOMODCACHE', 'GOCACHE', 'npm_config_cache']) {
-    const cache = await ports.realpath(path.resolve(env[name]))
-    if (!isBeneath(root, cache)) {
-      throw new Error(`${name} must resolve beneath CHESS_TRAINER_RELEASE_ROOT`)
-    }
-  }
-  return root
 }
 
 export function assertRuntimeArtifacts({
@@ -348,11 +167,96 @@ export function assertExecutableModuleClosure(output, runtimeLock) {
   }
 }
 
+export function assertExecutableTarget({ architectures, buildInfo }) {
+  const exactArchitectures = (architectures ?? '').trim().split(/\s+/).filter(Boolean)
+  if (exactArchitectures.length !== 1 || exactArchitectures[0] !== 'arm64') {
+    throw new Error('release Mach-O architecture must be arm64')
+  }
+  const settings = new Map()
+  for (const line of (buildInfo ?? '').split(/\r?\n/)) {
+    const match = /^\tbuild\t([^=]+)=(.*)$/.exec(line)
+    if (match) settings.set(match[1], match[2])
+  }
+  for (const [name, expected] of [
+    ['GOOS', 'darwin'],
+    ['GOARCH', 'arm64'],
+    ['GOARM64', 'v8.0'],
+  ]) {
+    if (settings.get(name) !== expected) {
+      throw new Error(`release Go build setting ${name} must be ${expected}`)
+    }
+  }
+}
+
+function plistString(plist, key) {
+  const text = Buffer.from(plist).toString('utf8')
+  const match = new RegExp(
+    `<key>\\s*${key}\\s*<\\/key>\\s*<string>([^<]+)<\\/string>`,
+  ).exec(text)
+  if (!match) throw new Error(`release app ${key} is missing`)
+  return match[1]
+}
+
+export function assertBundleIdentifier(plist) {
+  const identifier = plistString(plist, 'CFBundleIdentifier')
+  if (!/^[A-Za-z0-9.-]+$/.test(identifier)) {
+    throw new Error(
+      'release app bundle identifier may contain only letters, numbers, hyphens, and periods',
+    )
+  }
+  if (identifier !== RELEASE_BUNDLE_IDENTIFIER) {
+    throw new Error(`release app bundle identifier must be ${RELEASE_BUNDLE_IDENTIFIER}`)
+  }
+  return identifier
+}
+
+export function assertBundleMetadata(plist, tag) {
+  assertBundleIdentifier(plist)
+  const expected = releaseVersionFromTag(tag)
+  for (const key of ['CFBundleShortVersionString', 'CFBundleVersion']) {
+    const actual = plistString(plist, key)
+    if (actual !== expected) {
+      throw new Error(`release app ${key} must be ${expected}`)
+    }
+  }
+  return expected
+}
+
 export async function verifyCodeSignature(app, runner = defaultRunner) {
   try {
     await runner('codesign', ['--verify', '--deep', '--strict', app], {})
   } catch (error) {
     throw new Error(`codesign --verify --deep --strict failed: ${error.message}`)
+  }
+  let details
+  try {
+    details = await runner(
+      'codesign',
+      ['--display', '--verbose=4', app],
+      { includeStderr: true },
+    )
+  } catch (error) {
+    throw new Error(`codesign signature inspection failed: ${error.message}`)
+  }
+  if (!/^Authority=Developer ID Application:/m.test(details) ||
+    !/^TeamIdentifier=(?!not set$)[A-Z0-9]+$/m.test(details)) {
+    throw new Error('release app must have a Developer ID Application signature')
+  }
+  if (!/^Runtime Version=/m.test(details) && !/^flags=.*\bruntime\b/m.test(details)) {
+    throw new Error('release app signature must enable the hardened runtime')
+  }
+  if (!/^Timestamp=(?!none$).+$/m.test(details)) {
+    throw new Error('release app signature must include a trusted timestamp')
+  }
+  try {
+    await runner('xcrun', ['stapler', 'validate', app], {})
+  } catch (error) {
+    throw new Error(`notarization staple validation failed: ${error.message}`)
+  }
+  try {
+    await runner('spctl', ['--assess', '--type', 'execute', '--verbose=4', app], {})
+  } catch (error) {
+    throw new Error(`Gatekeeper assessment failed: ${error.message}`)
   }
 }
 
@@ -440,7 +344,6 @@ export async function verifyReleaseInputTree({
 
 async function readTrackedDigests(root, tracked, ports) {
   const digests = new Map()
-  const { sha256 } = await import('./build-corresponding-source.mjs')
   for (const relative of [...tracked].sort()) {
     try {
       digests.set(relative, sha256(await ports.readFile(path.join(root, relative))))
@@ -590,6 +493,10 @@ export async function verifyRelease({
     await ports.readFile(path.join(buildRoot, 'wails.json'), 'utf8'),
   ).outputfilename
   const executablePath = path.join(path.resolve(app), 'Contents/MacOS', executableName)
+  assertBundleMetadata(
+    await ports.readFile(path.join(path.resolve(app), 'Contents/Info.plist')),
+    tag,
+  )
   assertExecutableContents({
     executable: await ports.readFile(executablePath),
     commit,
@@ -597,12 +504,6 @@ export async function verifyRelease({
   })
   await verifyCodeSignature(path.resolve(app), ports.run)
 
-  const {
-    parseGoDownload,
-    sha256,
-    treeDigest,
-    verifyCorrespondingSourceArchive,
-  } = await import('./build-corresponding-source.mjs')
   const wailsDownload = await parseGoDownload(
     WAILS_MODULE,
     WAILS_VERSION,
@@ -614,13 +515,19 @@ export async function verifyRelease({
     path.join(buildRoot, 'third_party/runtime-dependencies.lock.json'),
   )
   const runtimeLock = JSON.parse(runtimeLockContent.toString('utf8'))
-  assertExecutableModuleClosure(
-    await ports.run('go', ['version', '-m', executablePath], {
+  const executableBuildInfo = await ports.run(
+    'go',
+    ['version', '-m', executablePath],
+    { cwd: buildRoot, env },
+  )
+  assertExecutableModuleClosure(executableBuildInfo, runtimeLock)
+  assertExecutableTarget({
+    architectures: await ports.run('lipo', ['-archs', executablePath], {
       cwd: buildRoot,
       env,
     }),
-    runtimeLock,
-  )
+    buildInfo: executableBuildInfo,
+  })
   await verifyCorrespondingSourceArchive({
     archive: path.resolve(source),
     temporaryRoot: releaseRoot,

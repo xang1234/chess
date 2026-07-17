@@ -2,87 +2,64 @@ import { GetApplicationMode, GetBuildInfo } from '../../wailsjs/go/main/ModeCont
 import * as Normal from '../../wailsjs/go/main/NormalController'
 import * as Recovery from '../../wailsjs/go/main/RecoveryController'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
+import {
+  decodeApplicationMode,
+  decodeBuildInfo,
+  decodeHintResult,
+  decodeImportProgress,
+  decodeImportResult,
+  decodeMoveResult,
+  decodeParentSummary,
+  decodePracticeFilters,
+  decodeProfile,
+  decodeRecoveryState,
+  decodeSession,
+  type ActiveSessionView,
+  type AppliedMoveFrames,
+  type ApplicationMode,
+  type BuildInfo,
+  type CompletedSessionView,
+  type HintResult,
+  type ImportProgress,
+  type ImportResult,
+  type MoveResult,
+  type ParentSummary,
+  type PracticeFilters,
+  type Profile,
+  type PuzzleView,
+  type RecoveryState,
+  type SessionView
+} from './api-contract'
 
-export type Profile = {
-  learnerRating: number
-  sessionSize: 5 | 10 | 15
-}
-
-export type PuzzleView = {
-  fingerprint: string
-  sourceFen?: string
-  displayedFen: string
-  currentFen: string
-  preludeUci?: string
-  solver: 'white' | 'black'
-  currentPath: number[]
-  puzzleNumber: number
-  puzzleTotal: number
-  hintLevel: number
-  incorrectMoves: number
-  canReveal: boolean
-  legalMoves: string[]
-}
-
-export type AppliedMove = { uci: string; resultingFen: string }
-
-export type SessionSummary = {
-  total: number
-  firstTry: number
-  retried: number
-  usedHint: number
-  revealed: number
-  unavailable: number
-}
-
-export type SessionView = {
-  sessionId: string
-  mode: string
-  status: string
-  currentIndex: number
-  total: number
-  current?: PuzzleView
-  summary?: SessionSummary
-}
-
-export type MoveResult = {
-  session: SessionView
-  correct: boolean
-  puzzleCompleted: boolean
-  message?: string
-  appliedMoves?: AppliedMove[]
-  finalFen?: string
-}
-
-export type HintResult = {
-  session: SessionView
-  level: number
-  text: string
-  sourceSquare?: string
-  targetSquare?: string
-  canReveal: boolean
-}
-
-export type PracticeSource = {
-  id: string
-  kind: string
-  minimumRating: number
-  maximumRating: number
-  hasRatingRange: boolean
-  maximumPlies: number
-}
-
-export type RatingBounds = {
-  minimum: number
-  maximum: number
-}
-
-export type PracticeFilters = {
-  sources: PracticeSource[]
-  themes: string[]
-  maximumSolutionPlies: number
-  learnerRatingBounds: RatingBounds
-}
+export type {
+  ActiveSessionView,
+  AppliedMove,
+  AppliedMoveFrames,
+  ApplicationMode,
+  BuildInfo,
+  CompletedMoveResult,
+  CompletedSessionView,
+  ContinuingMoveResult,
+  HintResult,
+  ImportProgress,
+  ImportReport,
+  ImportResult,
+  IncorrectMoveResult,
+  MoveResult,
+  ParentSummary,
+  PracticeFilters,
+  PracticeSource,
+  Profile,
+  PuzzleView,
+  RatingBounds,
+  RatingPoint,
+  RecentSession,
+  RecoveryState,
+  SessionMode,
+  SessionSummary,
+  SessionView,
+  ThemePerformance
+} from './api-contract'
 
 export type PracticeRequest = {
   sourceId: string
@@ -90,63 +67,6 @@ export type PracticeRequest = {
   maximumRating?: number
   themes: string[]
   maximumSolutionPlies?: number
-}
-
-export type RatingPoint = { rating: number; recordedAt: number }
-export type ThemePerformance = { theme: string; attempts: number; accuracy: number }
-export type RecentSession = {
-  sessionId: string
-  mode: string
-  status: string
-  updatedAt: number
-  total: number
-  completed: number
-  firstTry: number
-  usedHint: number
-  revealed: number
-}
-export type ParentSummary = {
-  learnerRating: number
-  ratingTrend: RatingPoint[]
-  firstAttemptAccuracy: number
-  hintRate: number
-  themePerformance: ThemePerformance[]
-  dueReviews: number
-  recentSessions: RecentSession[]
-}
-
-export type RecoveryState = {
-  required: boolean
-  path?: string
-  detail?: string
-}
-
-export type ApplicationMode = 'normal' | 'recovery'
-
-export type BuildInfo = {
-  name: string
-  commit: string
-  sourceUrl: string
-}
-
-export type ImportProgress = {
-  jobId: string
-  rowsRead: number
-  bytesRead: number
-}
-
-export type ImportReport = {
-  accepted: number
-  duplicates: number
-  rejected: number
-}
-
-export type ImportResult = {
-  jobId: string
-  status: 'running' | 'succeeded' | 'failed' | 'cancelled'
-  progress?: { rowsRead: number; bytesRead: number }
-  report: ImportReport
-  error?: string
 }
 
 interface BackupAPI {
@@ -188,24 +108,27 @@ let productionBootstrap: Promise<[ApplicationMode, BuildInfo]> | null = null
 
 function getProductionBootstrap(): Promise<[ApplicationMode, BuildInfo]> {
   productionBootstrap ??= Promise.all([
-    GetApplicationMode() as Promise<ApplicationMode>,
-    GetBuildInfo() as Promise<BuildInfo>
+    GetApplicationMode().then(decodeApplicationMode),
+    GetBuildInfo().then(decodeBuildInfo)
   ])
   return productionBootstrap
 }
 
 const productionNormalAPI: NormalAPI = {
-  getProfile: async () => (await Normal.GetProfile()) as Profile | null,
+  getProfile: async () => decodeProfile(await Normal.GetProfile()),
   updateProfile: async (profile) => Normal.UpdateProfile(profile),
-  resumeSession: async () => (await Normal.ResumeSession()) as SessionView | null,
-  startGuided: async () => (await Normal.StartGuided()) as SessionView,
-  startFreePractice: async (request) => (await Normal.StartFreePractice(request)) as SessionView,
-  playMove: async (sessionId, uci) => (await Normal.PlayMove(sessionId, uci)) as MoveResult,
-  useHint: async (sessionId) => (await Normal.UseHint(sessionId)) as HintResult,
-  revealSolution: async (sessionId) => (await Normal.RevealSolution(sessionId)) as MoveResult,
+  resumeSession: async () => {
+    const session = await Normal.ResumeSession()
+    return session == null ? null : decodeSession(session)
+  },
+  startGuided: async () => decodeSession(await Normal.StartGuided()),
+  startFreePractice: async (request) => decodeSession(await Normal.StartFreePractice(request)),
+  playMove: async (sessionId, uci) => decodeMoveResult(await Normal.PlayMove(sessionId, uci)),
+  useHint: async (sessionId) => decodeHintResult(await Normal.UseHint(sessionId)),
+  revealSolution: async (sessionId) => decodeMoveResult(await Normal.RevealSolution(sessionId)),
   pauseSession: Normal.PauseSession,
-  getParentSummary: async () => (await Normal.GetParentSummary()) as ParentSummary,
-  getPracticeFilters: async () => (await Normal.GetPracticeFilters()) as PracticeFilters,
+  getParentSummary: async () => decodeParentSummary(await Normal.GetParentSummary()),
+  getPracticeFilters: async () => decodePracticeFilters(await Normal.GetPracticeFilters()),
   createBackup: Normal.CreateBackup,
   restoreBackup: Normal.RestoreBackup,
   openDataFolder: Normal.OpenDataFolder,
@@ -213,13 +136,17 @@ const productionNormalAPI: NormalAPI = {
   choosePuzzleImportFile: Normal.ChoosePuzzleImportFile,
   startLichessImport: Normal.StartLichessImport,
   cancelImport: Normal.CancelImport,
-  getImportResult: async (jobId) => (await Normal.GetImportResult(jobId)) as ImportResult,
-  onImportProgress: (listener) => EventsOn('import:progress', listener),
-  onImportFinished: (listener) => EventsOn('import:finished', listener)
+  getImportResult: async (jobId) => decodeImportResult(await Normal.GetImportResult(jobId)),
+  onImportProgress: (listener) => EventsOn('import:progress', (payload: unknown) => {
+    listener(decodeImportProgress(payload))
+  }),
+  onImportFinished: (listener) => EventsOn('import:finished', (payload: unknown) => {
+    listener(decodeImportResult(payload))
+  })
 }
 
 const productionRecoveryAPI: RecoveryAPI = {
-  getRecoveryState: async () => (await Recovery.GetRecoveryState()) as RecoveryState,
+  getRecoveryState: async () => decodeRecoveryState(await Recovery.GetRecoveryState()),
   createBackup: Recovery.CreateBackup,
   restoreBackup: Recovery.RestoreBackup,
   openDataFolder: Recovery.OpenDataFolder,
@@ -285,7 +212,7 @@ function previewPuzzle(index: number): PuzzleView {
 function previewActiveSession(
   index: number,
   mode: 'guided' | 'practice' = 'guided'
-): SessionView {
+): ActiveSessionView {
   return {
     sessionId: mode === 'practice' ? 'preview-practice' : 'preview-session',
     mode,
@@ -296,7 +223,7 @@ function previewActiveSession(
   }
 }
 
-function previewCompletedSession(session: SessionView): SessionView {
+function previewCompletedSession(session: ActiveSessionView): CompletedSessionView {
   return {
     sessionId: session.sessionId,
     mode: session.mode,
@@ -314,20 +241,24 @@ function previewCompletedSession(session: SessionView): SessionView {
   }
 }
 
-function clonePreviewSession(session: SessionView): SessionView {
-  return JSON.parse(JSON.stringify(session)) as SessionView
+function clonePreviewSession<Session extends SessionView>(session: Session): Session {
+  return structuredClone(session)
 }
 
 function completePreviewPuzzle(): MoveResult {
-  if (!previewSession?.current || previewSession.status !== 'active') {
+  if (!previewSession || previewSession.status !== 'active') {
     throw new Error('preview session is not active')
   }
-  const index = previewSession.currentIndex
+  const activeSession = previewSession
+  const index = activeSession.currentIndex
   const puzzle = previewPuzzles[index]
-  const appliedMoves = [{ uci: puzzle.correctMove, resultingFen: puzzle.finalFen }]
+  const appliedMoves: AppliedMoveFrames = [{
+    uci: puzzle.correctMove,
+    resultingFen: puzzle.finalFen
+  }]
   previewSession = index + 1 < previewPuzzles.length
-    ? previewActiveSession(index + 1, previewSession.mode as 'guided' | 'practice')
-    : previewCompletedSession(previewSession)
+    ? previewActiveSession(index + 1, activeSession.mode)
+    : previewCompletedSession(activeSession)
   return {
     session: clonePreviewSession(previewSession),
     correct: true,
@@ -352,26 +283,29 @@ const previewNormalAPI: NormalAPI = {
     return clonePreviewSession(previewSession)
   },
   playMove: async (sessionId, uci) => {
-    if (!previewSession?.current || previewSession.sessionId !== sessionId ||
-      previewSession.status !== 'active') {
+    if (!previewSession || previewSession.status !== 'active' ||
+      previewSession.sessionId !== sessionId) {
       throw new Error('preview session is not active')
     }
-    const puzzle = previewPuzzles[previewSession.currentIndex]
+    const activeSession = previewSession
+    const puzzle = previewPuzzles[activeSession.currentIndex]
     if (uci === puzzle.correctMove) return completePreviewPuzzle()
     if (uci !== puzzle.wrongMove) {
       throw new Error(`move ${uci} is not configured in the preview puzzle`)
     }
-    previewIncorrect.add(previewSession.currentIndex)
-    previewSession.current.incorrectMoves = 1
+    previewIncorrect.add(activeSession.currentIndex)
+    activeSession.current.incorrectMoves = 1
     return {
-      session: clonePreviewSession(previewSession),
+      session: clonePreviewSession(activeSession),
       correct: false,
       puzzleCompleted: false,
       message: 'Try again'
     }
   },
   useHint: async () => ({
-    session: clonePreviewSession(previewSession ?? previewActiveSession(0)),
+    session: clonePreviewSession(
+      previewSession?.status === 'active' ? previewSession : previewActiveSession(0)
+    ),
     level: 1,
     text: 'Look for a forcing move.',
     canReveal: false

@@ -1,4 +1,9 @@
-import type { HintResult, PuzzleView, SessionView } from '../../lib/api'
+import type {
+  ActiveSessionView,
+  CompletedSessionView,
+  HintResult,
+  PuzzleView
+} from '../../lib/api'
 import {
   acceptsResponse,
   acknowledgeSolved,
@@ -17,7 +22,7 @@ const currentFen = '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2'
 const finalFen = '4k3/8/8/4p3/4P3/8/8/4K3 b - - 0 2'
 const legalMoves = ['e1d1', 'e1d2', 'e1f1', 'e1f2', 'e2e3', 'e2e4']
 
-function activeSession(overrides: Partial<PuzzleView> = {}): SessionView {
+function activeSession(overrides: Partial<PuzzleView> = {}): ActiveSessionView {
   return {
     sessionId: 'session-1',
     mode: 'guided',
@@ -43,7 +48,7 @@ function activeSession(overrides: Partial<PuzzleView> = {}): SessionView {
   }
 }
 
-function nextSession(): SessionView {
+function nextSession(): ActiveSessionView {
   const session = activeSession({
     fingerprint: 'puzzle-2',
     sourceFen: undefined,
@@ -57,7 +62,7 @@ function nextSession(): SessionView {
   return session
 }
 
-function completedSession(): SessionView {
+function completedSession(): CompletedSessionView {
   return {
     sessionId: 'session-1',
     mode: 'guided',

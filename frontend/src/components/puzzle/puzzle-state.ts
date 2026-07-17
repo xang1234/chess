@@ -1,11 +1,16 @@
-import type { HintResult, SessionView } from '../../lib/api'
+import type {
+  ActiveSessionView,
+  CompletedSessionView,
+  HintResult,
+  SessionView
+} from '../../lib/api'
 import { moveSquares, type Square } from '../../lib/uci'
 
 export type Operation = 'move' | 'hint' | 'reveal' | 'pause'
 export type SolvedOutcome = 'correct' | 'revealed'
 
 type Common = {
-  displaySession: SessionView
+  displaySession: ActiveSessionView
   fen: string
   hint: HintResult | null
   lastMove?: [Square, Square]
@@ -46,10 +51,9 @@ export type PuzzleState =
 
 export type SolvedAcknowledgement =
   | { kind: 'puzzle'; state: PuzzleState }
-  | { kind: 'summary'; session: SessionView }
+  | { kind: 'summary'; session: CompletedSessionView }
 
-function currentPuzzle(session: SessionView) {
-  if (!session.current) throw new Error('active puzzle state requires a current puzzle')
+function currentPuzzle(session: ActiveSessionView) {
   return session.current
 }
 
@@ -82,7 +86,7 @@ function requireRequest(state: PuzzleState, requestId: number) {
   return state
 }
 
-export function initialisePuzzle(session: SessionView, reducedMotion: boolean): PuzzleState {
+export function initialisePuzzle(session: ActiveSessionView, reducedMotion: boolean): PuzzleState {
   const current = currentPuzzle(session)
   const showPrelude = !reducedMotion && current.currentPath.length === 0 &&
     Boolean(current.sourceFen && current.preludeUci)
@@ -152,7 +156,7 @@ export function beginAnimation(state: PuzzleState, requestId: number): PuzzleSta
 export function finishReadyRequest(
   state: PuzzleState,
   requestId: number,
-  returnedSession: SessionView,
+  returnedSession: ActiveSessionView,
   hint: HintResult | null
 ): PuzzleState {
   const request = requireRequest(state, requestId)
@@ -178,7 +182,7 @@ export function finishReadyRequest(
 export function markIncorrect(
   state: PuzzleState,
   requestId: number,
-  returnedSession: SessionView,
+  returnedSession: ActiveSessionView,
   uci: string,
   message: string
 ): PuzzleState {
@@ -238,13 +242,13 @@ export function acknowledgeSolved(
   if (state.phase !== 'solved') {
     throw new Error(`${state.phase} state cannot acknowledge a solution`)
   }
-  if (state.pendingSession.current) {
+  if (state.pendingSession.status === 'active') {
     return {
       kind: 'puzzle',
       state: initialisePuzzle(state.pendingSession, reducedMotion)
     }
   }
-  if (state.pendingSession.summary) {
+  if (state.pendingSession.status === 'completed') {
     return { kind: 'summary', session: state.pendingSession }
   }
   throw new Error('solved pending session has neither a puzzle nor a summary')

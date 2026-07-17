@@ -1,11 +1,11 @@
 import type {
   ApplicationAPI,
+  ActiveSessionView,
   BuildInfo,
   ImportResult,
   NormalAPI,
   Profile,
-  RecoveryAPI,
-  SessionView
+  RecoveryAPI
 } from './lib/api'
 import NormalAPIProvider from './test-providers/NormalAPIProvider.svelte'
 import RecoveryAPIProvider from './test-providers/RecoveryAPIProvider.svelte'
@@ -24,7 +24,7 @@ export const fakeBuildInfo: BuildInfo = {
   sourceUrl: 'https://github.com/xang1234/chess'
 }
 
-const emptySession: SessionView = {
+const emptySession: ActiveSessionView = {
   sessionId: 'session-1',
   mode: 'guided',
   status: 'active',

@@ -16,6 +16,11 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } }
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    {
+      name: 'webkit-touch',
+      testMatch: /board-interactions\.spec\.ts/,
+      use: { ...devices['iPad Mini'] }
+    }
   ]
 })

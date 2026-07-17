@@ -40,14 +40,10 @@ node frontend/scripts/generate-sounds.mjs --check
 node scripts/generate-third-party-notices.mjs --check
 npm --prefix frontend run build
 npm --prefix frontend run verify:licenses
-node --test scripts/verify-legal-assets.test.mjs
-node --test scripts/generate-third-party-notices.test.mjs
 npm --prefix frontend test -- --run --single-thread
 npm --prefix frontend run check
 npm --prefix frontend run test:e2e
-node --test scripts/verify-release.test.mjs
-node --test scripts/build-corresponding-source.test.mjs
-node --test scripts/build-release.test.mjs
+node --test scripts/*.test.mjs
 bash -n scripts/build-release.sh
 ```
 
@@ -57,7 +53,11 @@ Expected results:
   real Lichess import, are excluded from ordinary and race runs.
 - Vitest reports all component and library tests passing.
 - `svelte-check` reports zero errors and zero warnings.
-- Playwright passes the trainer flow in Chromium and WebKit.
+- Playwright passes the trainer flow in desktop Chromium, desktop WebKit, and
+  the touch-enabled WebKit project. The touch project proves trusted tap input;
+  complete the physical-device [trusted touch-drag acceptance](board-acceptance.md)
+  before a release because browser automation cannot produce that trusted drag
+  stream.
 - Vite creates `frontend/dist` without TypeScript or bundling errors.
 - Legal verification proves the public documents, complete GPL text, exact
   Chessground/Svelte preferred-source archives, Go legal files, dependency

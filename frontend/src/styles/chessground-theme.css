@@ -62,6 +62,10 @@
   font-weight: 800;
 }
 
+.cg-wrap coords.files {
+  width: calc(100% - 24px);
+}
+
 .promotion-dialog.cg-wrap piece {
   position: static;
   width: 52px;

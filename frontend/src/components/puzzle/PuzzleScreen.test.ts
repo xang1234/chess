@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import type { Key, KeyPair } from '@lichess-org/chessground/types'
 import type {
+  ActiveSessionView,
+  CompletedSessionView,
   HintResult,
   MoveResult,
   PuzzleView,
@@ -33,8 +35,8 @@ const nextLegalMoves = ['e8d7', 'e8d8', 'e8e7', 'e8f7', 'e8f8']
 
 function activeSession(
   puzzleOverrides: Partial<PuzzleView> = {},
-  sessionOverrides: Partial<SessionView> = {}
-): SessionView {
+  sessionOverrides: Partial<Pick<ActiveSessionView, 'sessionId' | 'mode' | 'currentIndex' | 'total'>> = {}
+): ActiveSessionView {
   return {
     sessionId: 'session-1',
     mode: 'guided',
@@ -61,7 +63,7 @@ function activeSession(
   }
 }
 
-function resumedSession(puzzleOverrides: Partial<PuzzleView> = {}): SessionView {
+function resumedSession(puzzleOverrides: Partial<PuzzleView> = {}): ActiveSessionView {
   return activeSession({
     sourceFen: undefined,
     preludeUci: undefined,
@@ -70,7 +72,7 @@ function resumedSession(puzzleOverrides: Partial<PuzzleView> = {}): SessionView 
   })
 }
 
-function nextSession(): SessionView {
+function nextSession(): ActiveSessionView {
   return activeSession({
     fingerprint: 'puzzle-2',
     sourceFen: undefined,
@@ -84,7 +86,7 @@ function nextSession(): SessionView {
   }, { currentIndex: 1 })
 }
 
-function completedSession(): SessionView {
+function completedSession(): CompletedSessionView {
   return {
     sessionId: 'session-1',
     mode: 'guided',
@@ -142,6 +144,10 @@ function revealResult(pending: SessionView = nextSession()): MoveResult {
     ],
     finalFen: afterReplyFen
   }
+}
+
+function malformedMoveResult(value: unknown): MoveResult {
+  return value as MoveResult
 }
 
 type BoardCreation = {
@@ -365,11 +371,11 @@ test('restores a rejected optimistic move and permits retry', async () => {
 
 test('locks on a successful response missing authoritative frames', async () => {
   const board = boardHarness()
-  const playMove = vi.fn().mockResolvedValue({
+  const playMove = vi.fn().mockResolvedValue(malformedMoveResult({
     session: nextSession(),
     correct: true,
     puzzleCompleted: true
-  } satisfies MoveResult)
+  }))
   render(PuzzleScreen, {
     session: resumedSession(),
     effects: effectsHarness().effects,

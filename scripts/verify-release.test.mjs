@@ -6,11 +6,16 @@ import test from 'node:test'
 
 import {
   PUBLIC_REPOSITORY_URL,
+  RELEASE_BUNDLE_IDENTIFIER,
+  RELEASE_PLATFORM,
   REQUIRED_TRACKED_FILES,
   assertCleanStatus,
+  assertBundleMetadata,
+  assertBundleIdentifier,
   assertDistLegalAssets,
   assertExecutableContents,
   assertExecutableModuleClosure,
+  assertExecutableTarget,
   assertFullCommit,
   assertGoToolchain,
   assertNoLocalModuleReplacement,
@@ -20,6 +25,7 @@ import {
   assertRuntimeArtifacts,
   publicTagQuery,
   resolveTagCommit,
+  releaseVersionFromTag,
   verifyCodeSignature,
   verifyPublicTag,
   verifyReleaseInputTree,
@@ -83,6 +89,14 @@ test('accepts only plain semantic release tags', () => {
   ]) {
     assert.throws(() => assertReleaseTag(invalid), /must match v<major>\.<minor>\.<patch>/)
   }
+})
+
+test('derives the macOS bundle version exactly from the public tag', () => {
+  assert.equal(releaseVersionFromTag('v1.2.3'), '1.2.3')
+  assert.throws(
+    () => releaseVersionFromTag('release-1.2.3'),
+    /release tag must match/,
+  )
 })
 
 test('accepts a lightweight tag that resolves directly to HEAD', () => {
@@ -249,6 +263,33 @@ test('requires every build cache to live below a fresh release root', () => {
       }),
     /NODE_OPTIONS must be empty/,
   )
+
+  for (const name of [
+    'GOOS',
+    'GOARCH',
+    'GOAMD64',
+    'GOARM64',
+    'GOFIPS140',
+    'SDKROOT',
+    'DEVELOPER_DIR',
+    'MACOSX_DEPLOYMENT_TARGET',
+  ]) {
+    assert.throws(
+      () => assertReleaseEnvironment({
+        CHESS_TRAINER_RELEASE_ROOT: root,
+        GOMODCACHE: `${root}/go-mod-cache`,
+        GOCACHE: `${root}/go-build-cache`,
+        npm_config_cache: `${root}/npm-cache`,
+        GOWORK: 'off',
+        GOTOOLCHAIN: 'local',
+        GOENV: 'off',
+        GOFLAGS: '',
+        NODE_OPTIONS: '',
+        [name]: 'host-specific-value',
+      }),
+      new RegExp(`${name} must be unset`),
+    )
+  }
 })
 
 test('rejects ignored or generated build inputs outside explicit output directories', async () => {
@@ -389,6 +430,98 @@ test('rejects an executable module closure that differs from the runtime lock', 
   )
 })
 
+test('accepts only the declared Darwin arm64 executable target', () => {
+  assert.equal(RELEASE_PLATFORM, 'darwin/arm64')
+  const buildInfo = [
+    '/tmp/Chess Trainer: go1.26.4',
+    '\tbuild\tGOARCH=arm64',
+    '\tbuild\tGOARM64=v8.0',
+    '\tbuild\tGOOS=darwin',
+    '',
+  ].join('\n')
+  assert.doesNotThrow(() => assertExecutableTarget({
+    architectures: 'arm64\n',
+    buildInfo,
+  }))
+  assert.throws(
+    () => assertExecutableTarget({ architectures: 'x86_64\n', buildInfo }),
+    /Mach-O architecture must be arm64/,
+  )
+  assert.throws(
+    () => assertExecutableTarget({
+      architectures: 'arm64\n',
+      buildInfo: buildInfo.replace('GOARCH=arm64', 'GOARCH=amd64'),
+    }),
+    /Go build setting GOARCH must be arm64/,
+  )
+  assert.throws(
+    () => assertExecutableTarget({
+      architectures: 'arm64\n',
+      buildInfo: buildInfo.replace('GOARM64=v8.0', 'GOARM64=v9.0'),
+    }),
+    /Go build setting GOARM64 must be v8\.0/,
+  )
+})
+
+test('requires the exact valid macOS bundle identifier', () => {
+  assert.equal(RELEASE_BUNDLE_IDENTIFIER, 'com.xang1234.chesstrainer')
+  const plist = (identifier) => [
+    '<plist><dict>',
+    '<key>CFBundleIdentifier</key>',
+    `<string>${identifier}</string>`,
+    '</dict></plist>',
+  ].join('\n')
+
+  assert.equal(
+    assertBundleIdentifier(plist(RELEASE_BUNDLE_IDENTIFIER)),
+    RELEASE_BUNDLE_IDENTIFIER,
+  )
+  assert.throws(
+    () => assertBundleIdentifier(plist('com.wails.Chess Trainer')),
+    /bundle identifier.*letters, numbers, hyphens, and periods/i,
+  )
+  assert.throws(
+    () => assertBundleIdentifier(plist('com.example.chesstrainer')),
+    /bundle identifier must be com\.xang1234\.chesstrainer/i,
+  )
+  assert.throws(
+    () => assertBundleIdentifier('<plist><dict></dict></plist>'),
+    /CFBundleIdentifier is missing/,
+  )
+})
+
+test('requires both macOS bundle version fields to match the release tag', () => {
+  const plist = (shortVersion, bundleVersion) => [
+    '<plist><dict>',
+    '<key>CFBundleIdentifier</key>',
+    `<string>${RELEASE_BUNDLE_IDENTIFIER}</string>`,
+    '<key>CFBundleShortVersionString</key>',
+    `<string>${shortVersion}</string>`,
+    '<key>CFBundleVersion</key>',
+    `<string>${bundleVersion}</string>`,
+    '</dict></plist>',
+  ].join('\n')
+
+  assert.equal(assertBundleMetadata(plist('1.2.3', '1.2.3'), 'v1.2.3'), '1.2.3')
+  assert.throws(
+    () => assertBundleMetadata(plist('1.0.0', '1.2.3'), 'v1.2.3'),
+    /CFBundleShortVersionString must be 1\.2\.3/,
+  )
+  assert.throws(
+    () => assertBundleMetadata(plist('1.2.3', '1.0.0'), 'v1.2.3'),
+    /CFBundleVersion must be 1\.2\.3/,
+  )
+  assert.throws(
+    () => assertBundleMetadata([
+      '<plist><dict>',
+      '<key>CFBundleIdentifier</key>',
+      `<string>${RELEASE_BUNDLE_IDENTIFIER}</string>`,
+      '</dict></plist>',
+    ].join('\n'), 'v1.2.3'),
+    /CFBundleShortVersionString is missing/,
+  )
+})
+
 test('turns a failed strict code-signature check into one actionable error', async () => {
   const runner = async () => {
     throw new Error('code object is not signed at all')
@@ -396,5 +529,59 @@ test('turns a failed strict code-signature check into one actionable error', asy
   await assert.rejects(
     verifyCodeSignature('/tmp/Chess Trainer.app', runner),
     /codesign --verify --deep --strict failed: code object is not signed at all/,
+  )
+})
+
+test('rejects an ad-hoc signature even when codesign strict verification passes', async () => {
+  const runner = async (command, args) => {
+    if (command === 'codesign' && args[0] === '--display') {
+      return 'Signature=adhoc\nTeamIdentifier=not set\n'
+    }
+    return ''
+  }
+  await assert.rejects(
+    verifyCodeSignature('/tmp/Chess Trainer.app', runner),
+    /Developer ID Application signature/,
+  )
+})
+
+test('requires Developer ID, hardened runtime, notarization staple, and Gatekeeper acceptance', async () => {
+  const calls = []
+  const runner = async (command, args) => {
+    calls.push([command, ...args])
+    if (command === 'codesign' && args[0] === '--display') {
+      return [
+        'Authority=Developer ID Application: Chess Trainer (TEAM123456)',
+        'TeamIdentifier=TEAM123456',
+        'Runtime Version=15.0.0',
+        'Timestamp=17 Jul 2026 at 12:00:00',
+        '',
+      ].join('\n')
+    }
+    return ''
+  }
+
+  await verifyCodeSignature('/tmp/Chess Trainer.app', runner)
+
+  assert.ok(calls.some((call) => call[0] === 'xcrun' && call[1] === 'stapler' && call[2] === 'validate'))
+  assert.ok(calls.some((call) => call[0] === 'spctl' && call[1] === '--assess'))
+})
+
+test('rejects a Developer ID signature without a trusted timestamp', async () => {
+  const runner = async (command, args) => {
+    if (command === 'codesign' && args[0] === '--display') {
+      return [
+        'Authority=Developer ID Application: Chess Trainer (TEAM123456)',
+        'TeamIdentifier=TEAM123456',
+        'Runtime Version=15.0.0',
+        '',
+      ].join('\n')
+    }
+    return ''
+  }
+
+  await assert.rejects(
+    verifyCodeSignature('/tmp/Chess Trainer.app', runner),
+    /trusted timestamp/,
   )
 })

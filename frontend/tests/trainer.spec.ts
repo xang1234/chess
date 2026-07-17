@@ -1,181 +1,14 @@
 import { expect, test } from '@playwright/test'
+import { chessgroundBoard, mouseClickMove, pieceKeys } from './board-driver'
+import {
+  holdImportOpen,
+  installTestBackend,
+  reportImportProgress,
+  selectedImportPath
+} from './test-backend'
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    const listeners: Record<string, Array<(payload: unknown) => void>> = {}
-    const fen = '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2'
-    const puzzle = (fingerprint: string, number: number, total: number) => ({
-      fingerprint,
-      displayedFen: fen,
-      currentFen: fen,
-      solver: 'white',
-      currentPath: [],
-      puzzleNumber: number,
-      puzzleTotal: total,
-      hintLevel: 0,
-      incorrectMoves: 0,
-      canReveal: false
-    })
-    const session = (fingerprint = 'guided-1', number = 1) => ({
-      sessionId: 'guided-session',
-      mode: 'guided',
-      status: 'active',
-      currentIndex: number - 1,
-      total: 2,
-      current: puzzle(fingerprint, number, 2)
-    })
-    let profile: { learnerRating: number; sessionSize: number } | null = null
-    let activeSession: ReturnType<typeof session> | Record<string, unknown> | null = null
-    let hintLevel = 0
-    let importedPath = ''
-    let holdImportOpen = false
-    let importResult: Record<string, unknown> = {
-      jobId: 'job-1', status: 'running',
-      progress: { jobId: 'job-1', rowsRead: 0, bytesRead: 0 },
-      report: { accepted: 0, duplicates: 0, rejected: 0 }
-    }
-
-    const emit = (name: string, payload: unknown) => {
-      for (const listener of listeners[name] ?? []) listener(payload)
-    }
-    ;(window as any).runtime = {
-      EventsOnMultiple(name: string, callback: (payload: unknown) => void) {
-        listeners[name] = [...(listeners[name] ?? []), callback]
-        return () => {
-          listeners[name] = (listeners[name] ?? []).filter((value) => value !== callback)
-        }
-      },
-      EventsOff(name: string) { delete listeners[name] },
-      EventsOffAll() { for (const name of Object.keys(listeners)) delete listeners[name] }
-    }
-    ;(window as any).__importTest = {
-      holdOpen() { holdImportOpen = true },
-      selectedPath() { return importedPath },
-      progress(rowsRead: number, bytesRead: number) {
-        const progress = { jobId: 'job-1', rowsRead, bytesRead }
-        importResult = { ...importResult, progress }
-        emit('import:progress', progress)
-      }
-    }
-    const normalController = {
-      GetProfile: async () => profile,
-      UpdateProfile: async (value: { learnerRating: number; sessionSize: number }) => { profile = value },
-      ResumeSession: async () => activeSession,
-      StartGuided: async () => {
-        hintLevel = 0
-        activeSession = session()
-        return activeSession
-      },
-      PlayMove: async (_sessionId: string, uci: string) => {
-        if (uci !== 'e2e4') {
-          return { session: activeSession, correct: false, puzzleCompleted: false, message: 'Try again' }
-        }
-        activeSession = session('guided-2', 2)
-        return { session: activeSession, correct: true, puzzleCompleted: true }
-      },
-      PauseSession: async () => {},
-      UseHint: async () => {
-        hintLevel++
-        if (hintLevel === 1) {
-          return { session: activeSession, level: 1, text: 'Look for: fork', canReveal: false }
-        }
-        if (hintLevel === 2) {
-          return {
-            session: activeSession,
-            level: 2,
-            text: 'Start with this piece.',
-            sourceSquare: 'e2',
-            canReveal: false
-          }
-        }
-        return {
-          session: activeSession,
-          level: 3,
-          text: 'Try this destination.',
-          sourceSquare: 'e2',
-          targetSquare: 'e4',
-          canReveal: true
-        }
-      },
-      RevealSolution: async () => {
-        activeSession = {
-          sessionId: 'guided-session', mode: 'guided', status: 'completed', currentIndex: 2, total: 2,
-          summary: { total: 2, firstTry: 0, retried: 1, usedHint: 1, revealed: 1, unavailable: 0 }
-        }
-        return { session: activeSession, correct: true, puzzleCompleted: true }
-      },
-      StartFreePractice: async () => {
-        activeSession = {
-          sessionId: 'practice-session', mode: 'practice', status: 'active', currentIndex: 0, total: 1,
-          current: puzzle('practice-1', 1, 1)
-        }
-        return activeSession
-      },
-      GetPracticeFilters: async () => ({
-        sources: [{
-          id: 'lichess', kind: 'lichess', minimumRating: 800, maximumRating: 2200,
-          hasRatingRange: true, maximumPlies: 5
-        }],
-        themes: ['fork', 'pin'],
-        maximumSolutionPlies: 5,
-        learnerRatingBounds: { minimum: 800, maximum: 2200 }
-      }),
-      GetParentSummary: async () => ({
-        learnerRating: profile?.learnerRating ?? 1200,
-        ratingTrend: [{ rating: 1150, recordedAt: 1 }, { rating: profile?.learnerRating ?? 1200, recordedAt: 2 }],
-        firstAttemptAccuracy: 50,
-        hintRate: 25,
-        dueReviews: 1,
-        themePerformance: [{ theme: 'fork', attempts: 4, accuracy: 50 }],
-        recentSessions: [{
-          sessionId: 'guided-session', mode: 'guided', status: 'completed', updatedAt: 2,
-          total: 2, completed: 2, firstTry: 0, usedHint: 1, revealed: 1
-        }]
-      }),
-      ChoosePuzzleImportFile: async () => '/Users/family/Downloads/lichess_db_puzzle.csv.zst',
-      StartLichessImport: async (path: string) => {
-        importedPath = path
-        importResult = {
-          jobId: 'job-1', status: 'running',
-          progress: { jobId: 'job-1', rowsRead: 0, bytesRead: 0 },
-          report: { accepted: 0, duplicates: 0, rejected: 0 }
-        }
-        if (holdImportOpen) return 'job-1'
-        setTimeout(() => {
-          emit('import:progress', { jobId: 'job-1', rowsRead: 10_000, bytesRead: 2048 })
-          importResult = {
-            jobId: 'job-1', status: 'succeeded',
-            report: { accepted: 9800, duplicates: 150, rejected: 50 }
-          }
-          emit('import:finished', importResult)
-        }, 20)
-        return 'job-1'
-      },
-      CancelImport: async () => {
-        importResult = {
-          jobId: 'job-1', status: 'cancelled', report: { accepted: 0, duplicates: 0, rejected: 0 }
-        }
-        emit('import:finished', importResult)
-      },
-      GetImportResult: async () => importResult,
-      CreateBackup: async () => '/tmp/backup.zip',
-      RestoreBackup: async () => {},
-      OpenDataFolder: async () => {},
-      Quit: async () => {}
-    }
-    ;(window as any).go = { main: {
-      ModeController: {
-        GetApplicationMode: async () => 'normal',
-        GetBuildInfo: async () => ({
-          name: 'Chess Trainer',
-          commit: 'development',
-          sourceUrl: 'https://github.com/xang1234/chess'
-        })
-      },
-      NormalController: normalController,
-      RecoveryController: {}
-    } }
-  })
+  await installTestBackend(page, { kind: 'trainer' })
 })
 
 test('runs setup, import, guided training, practice, and parent progress', async ({ page }) => {
@@ -199,11 +32,14 @@ test('runs setup, import, guided training, practice, and parent progress', async
 
   await page.getByRole('button', { name: 'Chess Trainer home' }).click()
   await page.getByRole('button', { name: "Start today's training" }).click()
-  await page.getByRole('gridcell', { name: 'White pawn on e2' }).click()
-  await page.getByRole('gridcell', { name: 'Empty e3' }).click()
+  const board = chessgroundBoard(page)
+  await mouseClickMove(page, board, 'e2', 'e3', 'white')
   await expect(page.getByText('Try again')).toBeVisible()
-  await page.getByRole('gridcell', { name: 'White pawn on e2' }).click()
-  await page.getByRole('gridcell', { name: 'Empty e4' }).click()
+  await mouseClickMove(page, board, 'e2', 'e4', 'white')
+  await expect(page.getByText('Correct!')).toBeVisible()
+  await expect(page.getByText('Puzzle 1 of 2', { exact: true })).toBeVisible()
+  await expect.poll(() => pieceKeys(board, 'piece.white.pawn')).toContain('e4')
+  await page.getByRole('button', { name: 'Next puzzle' }).click()
   await expect(page.getByText('Puzzle 2 of 2')).toBeVisible()
 
   await page.getByRole('button', { name: 'Pause' }).click()
@@ -215,6 +51,9 @@ test('runs setup, import, guided training, practice, and parent progress', async
   await page.getByRole('button', { name: 'Hint' }).click()
   await expect(page.getByRole('button', { name: 'Show solution' })).toBeVisible()
   await page.getByRole('button', { name: 'Show solution' }).click()
+  await expect(page.getByText('Solution shown')).toBeVisible()
+  await expect(page.getByText('Puzzle 2 of 2', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'See results' }).click()
   await expect(page.getByText('Training complete!')).toBeVisible()
   await expect(page.getByText('1 retried')).toBeVisible()
   await expect(page.getByText('1 solution shown')).toBeVisible()
@@ -242,17 +81,17 @@ test('keeps an active import observable across navigation and can cancel it', as
   await page.goto('/')
   await page.getByLabel('Starting rating').fill('1250')
   await page.getByRole('button', { name: 'Save and continue' }).click()
-  await page.evaluate(() => (window as any).__importTest.holdOpen())
+  await holdImportOpen(page)
 
   await page.getByRole('button', { name: 'Parent settings' }).click()
   await page.getByRole('button', { name: 'Import puzzles' }).click()
   await page.getByRole('button', { name: 'Choose puzzle database' }).click()
   await page.getByRole('button', { name: 'Import puzzles' }).click()
-  await expect.poll(() => page.evaluate(() => (window as any).__importTest.selectedPath()))
+  await expect.poll(() => selectedImportPath(page))
     .toBe('/Users/family/Downloads/lichess_db_puzzle.csv.zst')
 
   await page.getByRole('button', { name: 'Chess Trainer home' }).click()
-  await page.evaluate(() => (window as any).__importTest.progress(10_000, 2048))
+  await reportImportProgress(page, 10_000, 2048)
   await page.getByRole('button', { name: 'Parent settings' }).click()
   await page.getByRole('button', { name: 'Import puzzles' }).click()
 

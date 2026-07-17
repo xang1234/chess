@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-check --tsconfig ./tsconfig.json && npm run check:e2e-types",
+    "check:e2e-types": "tsc -p tsconfig.playwright.json",
     "test": "vitest",
     "test:e2e": "playwright test",
     "verify:licenses": "node ../scripts/verify-legal-assets.mjs"
@@ -18,6 +19,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.4.2",
     "@tsconfig/svelte": "^3.0.0",
+    "@types/node": "18.19.24",
     "jsdom": "^29.1.1",
     "svelte": "^3.49.0",
     "svelte-check": "^2.8.0",

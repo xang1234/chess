@@ -1,7 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { vi } from 'vitest'
 import App from './App.svelte'
-import type { ImportProgress, ImportResult, MoveResult, SessionView } from './lib/api'
+import type {
+  ActiveSessionView,
+  CompletedSessionView,
+  ImportProgress,
+  ImportResult,
+  MoveResult,
+  SessionView
+} from './lib/api'
 import {
   fakeAPI,
   fakeBuildInfo,
@@ -18,7 +25,7 @@ const puzzleFen = '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2'
 const solvedFen = '4k3/8/8/4p3/4P3/8/8/4K3 b - - 0 2'
 const nextFen = '4k3/8/8/8/8/8/3P4/4K3 b - - 0 1'
 
-function guidedPuzzle(total = 2): SessionView {
+function guidedPuzzle(total = 2): ActiveSessionView {
   return {
     sessionId: 'guided-session',
     mode: 'guided',
@@ -41,7 +48,7 @@ function guidedPuzzle(total = 2): SessionView {
   }
 }
 
-function nextGuidedPuzzle(): SessionView {
+function nextGuidedPuzzle(): ActiveSessionView {
   return {
     sessionId: 'guided-session',
     mode: 'guided',
@@ -64,7 +71,7 @@ function nextGuidedPuzzle(): SessionView {
   }
 }
 
-function completedGuidedSession(): SessionView {
+function completedGuidedSession(): CompletedSessionView {
   return {
     sessionId: 'guided-session',
     mode: 'guided',
@@ -120,9 +127,7 @@ test('renders the product name and initial setup for a new learner', async () =>
 test('shows Continue on the home hub when a session is active', async () => {
   const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
-    resumeSession: async () => ({
-      sessionId: 'active-session', mode: 'guided', status: 'active', currentIndex: 0, total: 10
-    })
+    resumeSession: async () => guidedPuzzle(10)
   })
   render(App, { loadAPI: async () => normalApplication(api) })
   await waitFor(() => {
