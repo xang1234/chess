@@ -11,25 +11,33 @@ type SessionView struct {
 }
 
 type PuzzleView struct {
-	Fingerprint    string `json:"fingerprint"`
-	SourceFEN      string `json:"sourceFen,omitempty"`
-	DisplayedFEN   string `json:"displayedFen"`
-	CurrentFEN     string `json:"currentFen"`
-	PreludeUCI     string `json:"preludeUci,omitempty"`
-	Solver         Color  `json:"solver"`
-	CurrentPath    []int  `json:"currentPath"`
-	PuzzleNumber   int    `json:"puzzleNumber"`
-	PuzzleTotal    int    `json:"puzzleTotal"`
-	HintLevel      int    `json:"hintLevel"`
-	IncorrectMoves int    `json:"incorrectMoves"`
-	CanReveal      bool   `json:"canReveal"`
+	Fingerprint    string   `json:"fingerprint"`
+	SourceFEN      string   `json:"sourceFen,omitempty"`
+	DisplayedFEN   string   `json:"displayedFen"`
+	CurrentFEN     string   `json:"currentFen"`
+	PreludeUCI     string   `json:"preludeUci,omitempty"`
+	Solver         Color    `json:"solver"`
+	CurrentPath    []int    `json:"currentPath"`
+	PuzzleNumber   int      `json:"puzzleNumber"`
+	PuzzleTotal    int      `json:"puzzleTotal"`
+	HintLevel      int      `json:"hintLevel"`
+	IncorrectMoves int      `json:"incorrectMoves"`
+	CanReveal      bool     `json:"canReveal"`
+	LegalMoves     []string `json:"legalMoves"`
+}
+
+type AppliedMove struct {
+	UCI          string `json:"uci"`
+	ResultingFEN string `json:"resultingFen"`
 }
 
 type MoveResult struct {
-	Session         SessionView `json:"session"`
-	Correct         bool        `json:"correct"`
-	PuzzleCompleted bool        `json:"puzzleCompleted"`
-	Message         string      `json:"message,omitempty"`
+	Session         SessionView   `json:"session"`
+	Correct         bool          `json:"correct"`
+	PuzzleCompleted bool          `json:"puzzleCompleted"`
+	Message         string        `json:"message,omitempty"`
+	AppliedMoves    []AppliedMove `json:"appliedMoves,omitempty"`
+	FinalFEN        string        `json:"finalFen,omitempty"`
 }
 
 type HintResult struct {

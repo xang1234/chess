@@ -139,6 +139,14 @@ func (s *Service) Resume(ctx context.Context) (*domain.SessionView, error) {
 	return &view, nil
 }
 
+func (s *Service) applyRecordedMove(fen, uci string) (domain.AppliedMove, error) {
+	resultingFEN, err := s.rules.ApplyUCI(fen, uci)
+	if err != nil {
+		return domain.AppliedMove{}, err
+	}
+	return domain.AppliedMove{UCI: uci, ResultingFEN: resultingFEN}, nil
+}
+
 func (s *Service) PlayMove(ctx context.Context, sessionID, uci string) (domain.MoveResult, error) {
 	session, err := s.store.LoadSession(ctx, sessionID)
 	if err != nil {
@@ -164,12 +172,13 @@ func (s *Service) PlayMove(ctx context.Context, sessionID, uci string) (domain.M
 	})
 	if selected < 0 {
 		if mateInOneNodes(nodes) && s.rules.IsCheckmateMove(item.State.CurrentFEN, uci) {
-			item.State.CurrentFEN, err = s.rules.ApplyUCI(item.State.CurrentFEN, uci)
+			applied, err := s.applyRecordedMove(item.State.CurrentFEN, uci)
 			if err != nil {
 				return domain.MoveResult{}, err
 			}
+			item.State.CurrentFEN = applied.ResultingFEN
 			item.State.Completed = true
-			return s.completeCurrent(ctx, session, *item)
+			return s.completeCurrent(ctx, session, *item, []domain.AppliedMove{applied})
 		}
 		if _, err := s.rules.ApplyUCI(item.State.CurrentFEN, uci); err != nil {
 			return domain.MoveResult{}, fmt.Errorf("illegal move %q: %w", uci, err)
@@ -182,20 +191,25 @@ func (s *Service) PlayMove(ctx context.Context, sessionID, uci string) (domain.M
 		return domain.MoveResult{Session: view, Correct: false, Message: "Try again"}, err
 	}
 
-	item.State.CurrentFEN, err = s.rules.ApplyUCI(item.State.CurrentFEN, uci)
+	appliedMoves := make([]domain.AppliedMove, 0, 2)
+	applied, err := s.applyRecordedMove(item.State.CurrentFEN, uci)
 	if err != nil {
 		return domain.MoveResult{}, err
 	}
+	item.State.CurrentFEN = applied.ResultingFEN
+	appliedMoves = append(appliedMoves, applied)
 	item.State.Path = append(item.State.Path, selected)
 	chosen := nodes[selected]
 	if len(chosen.Children) == 0 {
 		item.State.Completed = true
 	} else if len(chosen.Children) == 1 {
 		reply := chosen.Children[0]
-		item.State.CurrentFEN, err = s.rules.ApplyUCI(item.State.CurrentFEN, reply.UCI)
+		applied, err = s.applyRecordedMove(item.State.CurrentFEN, reply.UCI)
 		if err != nil {
 			return domain.MoveResult{}, err
 		}
+		item.State.CurrentFEN = applied.ResultingFEN
+		appliedMoves = append(appliedMoves, applied)
 		item.State.Path = append(item.State.Path, 0)
 		if len(reply.Children) == 0 {
 			item.State.Completed = true
@@ -204,17 +218,21 @@ func (s *Service) PlayMove(ctx context.Context, sessionID, uci string) (domain.M
 		return domain.MoveResult{}, errors.New("solution has multiple automatic replies")
 	}
 	if item.State.Completed {
-		return s.completeCurrent(ctx, session, *item)
+		return s.completeCurrent(ctx, session, *item, appliedMoves)
 	}
 	if err := s.store.SaveItemState(ctx, session.ID, item.Ordinal, item.State, s.now()); err != nil {
 		return domain.MoveResult{}, err
 	}
 	view, err := s.view(ctx, session)
+	if err != nil {
+		return domain.MoveResult{}, err
+	}
 	return domain.MoveResult{
 		Session:         view,
 		Correct:         true,
 		PuzzleCompleted: item.State.Completed,
-	}, err
+		AppliedMoves:    slices.Clone(appliedMoves),
+	}, nil
 }
 
 func (s *Service) UseHint(ctx context.Context, sessionID string) (domain.HintResult, error) {
@@ -299,6 +317,7 @@ func (s *Service) Reveal(ctx context.Context, sessionID string) (domain.MoveResu
 	if err != nil {
 		return domain.MoveResult{}, err
 	}
+	appliedMoves := make([]domain.AppliedMove, 0)
 	for {
 		nodes, err := nodesAtPath(puzzle.Core.Solution, item.State.Path)
 		if err != nil {
@@ -307,15 +326,17 @@ func (s *Service) Reveal(ctx context.Context, sessionID string) (domain.MoveResu
 		if len(nodes) == 0 {
 			break
 		}
-		item.State.CurrentFEN, err = s.rules.ApplyUCI(item.State.CurrentFEN, nodes[0].UCI)
+		applied, err := s.applyRecordedMove(item.State.CurrentFEN, nodes[0].UCI)
 		if err != nil {
 			return domain.MoveResult{}, err
 		}
+		item.State.CurrentFEN = applied.ResultingFEN
+		appliedMoves = append(appliedMoves, applied)
 		item.State.Path = append(item.State.Path, 0)
 	}
 	item.State.Revealed = true
 	item.State.Completed = true
-	return s.completeCurrent(ctx, session, *item)
+	return s.completeCurrent(ctx, session, *item, appliedMoves)
 }
 
 func (s *Service) Pause(ctx context.Context, sessionID string) error {
@@ -357,6 +378,7 @@ func (s *Service) completeCurrent(
 	ctx context.Context,
 	session storedSession,
 	item storedItem,
+	appliedMoves []domain.AppliedMove,
 ) (domain.MoveResult, error) {
 	if _, err := s.catalog.Get(ctx, item.Key()); errors.Is(err, sql.ErrNoRows) {
 		return s.unavailableMoveResult(ctx, session)
@@ -368,6 +390,7 @@ func (s *Service) completeCurrent(
 	if err != nil {
 		return domain.MoveResult{}, err
 	}
+	finalFEN := item.State.CurrentFEN
 	session, err = s.store.CompleteItem(ctx, session, item.State, now, effects)
 	if err != nil {
 		return domain.MoveResult{}, err
@@ -377,7 +400,16 @@ func (s *Service) completeCurrent(
 		return domain.MoveResult{}, err
 	}
 	view, err := s.view(ctx, session)
-	return domain.MoveResult{Session: view, Correct: true, PuzzleCompleted: true}, err
+	if err != nil {
+		return domain.MoveResult{}, err
+	}
+	return domain.MoveResult{
+		Session:         view,
+		Correct:         true,
+		PuzzleCompleted: true,
+		AppliedMoves:    slices.Clone(appliedMoves),
+		FinalFEN:        finalFEN,
+	}, nil
 }
 
 func (s *Service) effectsForCompletion(
@@ -509,6 +541,14 @@ func (s *Service) view(ctx context.Context, session storedSession) (domain.Sessi
 	if err != nil {
 		return domain.SessionView{}, err
 	}
+	legalMoves, err := s.rules.LegalMoves(item.State.CurrentFEN)
+	if err != nil {
+		return domain.SessionView{}, fmt.Errorf(
+			"list legal moves for puzzle %s: %w",
+			item.Fingerprint,
+			err,
+		)
+	}
 	view.Current = &domain.PuzzleView{
 		Fingerprint:    puzzle.Core.Fingerprint,
 		SourceFEN:      item.Snapshot.SourceFEN,
@@ -522,6 +562,7 @@ func (s *Service) view(ctx context.Context, session storedSession) (domain.Sessi
 		HintLevel:      item.State.HintLevel,
 		IncorrectMoves: item.State.IncorrectMoves,
 		CanReveal:      item.State.HintLevel >= 3,
+		LegalMoves:     legalMoves,
 	}
 	return view, nil
 }

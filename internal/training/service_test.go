@@ -262,11 +262,17 @@ func TestServiceAcceptsAlternativeMateAndPauseResume(t *testing.T) {
 	if err != nil || resumed.Status != "active" {
 		t.Fatalf("resumed=%+v err=%v", resumed, err)
 	}
+	wantApplied, wantFinal := expectedAppliedMoves(
+		t,
+		started.Current.CurrentFEN,
+		"f7g7",
+	)
 	result, err := service.PlayMove(context.Background(), started.SessionID, "f7g7")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Correct || !result.PuzzleCompleted || result.Session.Status != "completed" {
+	if !result.Correct || !result.PuzzleCompleted || result.Session.Status != "completed" ||
+		!slices.Equal(result.AppliedMoves, wantApplied) || result.FinalFEN != wantFinal {
 		t.Fatalf("result=%+v", result)
 	}
 	summary, err := service.Summary(context.Background(), started.SessionID)

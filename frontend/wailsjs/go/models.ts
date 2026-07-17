@@ -1,5 +1,19 @@
 export namespace domain {
 
+	export class AppliedMove {
+	    uci: string;
+	    resultingFen: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AppliedMove(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uci = source["uci"];
+	        this.resultingFen = source["resultingFen"];
+	    }
+	}
 	export class SessionSummary {
 	    total: number;
 	    firstTry: number;
@@ -35,6 +49,7 @@ export namespace domain {
 	    hintLevel: number;
 	    incorrectMoves: number;
 	    canReveal: boolean;
+	    legalMoves: string[];
 
 	    static createFrom(source: any = {}) {
 	        return new PuzzleView(source);
@@ -54,6 +69,7 @@ export namespace domain {
 	        this.hintLevel = source["hintLevel"];
 	        this.incorrectMoves = source["incorrectMoves"];
 	        this.canReveal = source["canReveal"];
+	        this.legalMoves = source["legalMoves"];
 	    }
 	}
 	export class SessionView {
@@ -143,6 +159,8 @@ export namespace domain {
 	    correct: boolean;
 	    puzzleCompleted: boolean;
 	    message?: string;
+	    appliedMoves?: AppliedMove[];
+	    finalFen?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new MoveResult(source);
@@ -154,6 +172,8 @@ export namespace domain {
 	        this.correct = source["correct"];
 	        this.puzzleCompleted = source["puzzleCompleted"];
 	        this.message = source["message"];
+	        this.appliedMoves = this.convertValues(source["appliedMoves"], AppliedMove);
+	        this.finalFen = source["finalFen"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

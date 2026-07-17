@@ -593,6 +593,9 @@ func TestEverySolvePathRevalidatesExactOccurrenceAtCompletion(t *testing.T) {
 	if result.Session.Status != "completed" {
 		t.Fatalf("result=%+v", result)
 	}
+	if len(result.AppliedMoves) != 0 || result.FinalFEN != "" {
+		t.Fatalf("vanished occurrence leaked animation payload: %+v", result)
+	}
 	loaded, err := store.LoadSession(context.Background(), session.ID)
 	if err != nil {
 		t.Fatal(err)
