@@ -1,3 +1,24 @@
+export namespace buildinfo {
+
+	export class Info {
+	    name: string;
+	    commit: string;
+	    sourceUrl: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Info(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.commit = source["commit"];
+	        this.sourceUrl = source["sourceUrl"];
+	    }
+	}
+
+}
+
 export namespace domain {
 
 	export class AppliedMove {

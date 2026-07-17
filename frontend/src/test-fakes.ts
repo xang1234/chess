@@ -1,5 +1,6 @@
 import type {
   ApplicationAPI,
+  BuildInfo,
   ImportResult,
   NormalAPI,
   Profile,
@@ -16,6 +17,12 @@ export const fakeLegalMoves = [
   'f2f3', 'f2f4', 'g1f3', 'g1h3', 'g2g3', 'g2g4',
   'h2h3', 'h2h4'
 ]
+
+export const fakeBuildInfo: BuildInfo = {
+  name: 'Chess Trainer',
+  commit: 'development',
+  sourceUrl: 'https://github.com/xang1234/chess'
+}
 
 const emptySession: SessionView = {
   sessionId: 'session-1',
@@ -107,12 +114,18 @@ export function fakeRecoveryAPI(overrides: Partial<RecoveryAPI> = {}): RecoveryA
   }
 }
 
-export function normalApplication(api: NormalAPI): ApplicationAPI {
-  return { mode: 'normal', api }
+export function normalApplication(
+  api: NormalAPI,
+  buildInfo: BuildInfo = fakeBuildInfo
+): ApplicationAPI {
+  return { mode: 'normal', buildInfo, api }
 }
 
-export function recoveryApplication(api: RecoveryAPI): ApplicationAPI {
-  return { mode: 'recovery', api }
+export function recoveryApplication(
+  api: RecoveryAPI,
+  buildInfo: BuildInfo = fakeBuildInfo
+): ApplicationAPI {
+  return { mode: 'recovery', buildInfo, api }
 }
 
 export function withNormalAPI(api: NormalAPI) {

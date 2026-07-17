@@ -4,10 +4,15 @@ import App from './App.svelte'
 import type { ImportProgress, ImportResult, MoveResult, SessionView } from './lib/api'
 import {
   fakeAPI,
+  fakeBuildInfo,
   fakeRecoveryAPI,
   normalApplication,
   recoveryApplication
 } from './test-fakes'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const puzzleFen = '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2'
 const solvedFen = '4k3/8/8/4p3/4P3/8/8/4K3 b - - 0 2'
@@ -170,6 +175,27 @@ test('opens the board-first puzzle screen from the home hub', async () => {
   expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
 })
 
+test('opens matching source from About & Legal and returns to the normal home hub', async () => {
+  const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 5 })
+  })
+  render(App, { loadAPI: async () => normalApplication(api, fakeBuildInfo) })
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'About & Legal' }))
+  expect(await screen.findByRole('heading', { name: 'About & Legal' })).toBeInTheDocument()
+  expect(screen.getByText(fakeBuildInfo.sourceUrl)).toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'Open matching source' }))
+  expect(open).toHaveBeenCalledWith(
+    fakeBuildInfo.sourceUrl,
+    '_blank',
+    'noopener,noreferrer'
+  )
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  expect(await screen.findByRole('heading', { name: 'What would you like to play?' })).toBeInTheDocument()
+})
+
 test('keeps the persisted next puzzle available when Home leaves a solved board', async () => {
   const { api } = guidedAPI(guidedPuzzle(), nextGuidedPuzzle())
   await openAndReveal(api)
@@ -227,6 +253,45 @@ test('opens only the recovery surface when startup integrity fails', async () =>
 
   await waitFor(() => expect(screen.getByText('Your chess data needs recovery')).toBeInTheDocument())
   expect(screen.queryByRole('button', { name: 'Chess Trainer home' })).not.toBeInTheDocument()
+})
+
+test('opens matching source from recovery About & Legal and returns to recovery', async () => {
+  const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  const api = fakeRecoveryAPI({
+    getRecoveryState: async () => ({
+      required: true,
+      path: '/data/user.sqlite',
+      detail: 'database disk image is malformed'
+    })
+  })
+  render(App, { loadAPI: async () => recoveryApplication(api, fakeBuildInfo) })
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'About & Legal' }))
+  expect(await screen.findByRole('heading', { name: 'About & Legal' })).toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'Open matching source' }))
+  expect(open).toHaveBeenCalledWith(
+    fakeBuildInfo.sourceUrl,
+    '_blank',
+    'noopener,noreferrer'
+  )
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  expect(await screen.findByText('Your chess data needs recovery')).toBeInTheDocument()
+})
+
+test('keeps About & Legal available when recovery-state loading fails', async () => {
+  const api = fakeRecoveryAPI({
+    getRecoveryState: async () => { throw new Error('database startup failed') }
+  })
+  render(App, { loadAPI: async () => recoveryApplication(api, fakeBuildInfo) })
+  expect(await screen.findByRole('alert')).toHaveTextContent('database startup failed')
+
+  await fireEvent.click(screen.getByRole('button', { name: 'About & Legal' }))
+  expect(await screen.findByText('Copyright © 2026 David Ten and Chess Trainer contributors'))
+    .toBeInTheDocument()
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('database startup failed')
 })
 
 test('keeps monitoring an active import while navigating away and reconciles it on return', async () => {

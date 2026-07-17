@@ -10,8 +10,43 @@ import (
 	"testing"
 
 	appservices "chess-trainer/internal/app"
+	"chess-trainer/internal/buildinfo"
 	"chess-trainer/internal/storage"
 )
+
+func TestModeControllerProvidesBuildInfoInBothRuntimes(t *testing.T) {
+	paths := storage.PathsAt(t.TempDir())
+	normal, err := newApplicationAt(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := buildinfo.Current()
+	mode := normal.Bindings()[0].(*ModeController)
+	if got := mode.GetBuildInfo(); got != want {
+		t.Fatalf("normal GetBuildInfo() = %#v, want %#v", got, want)
+	}
+
+	if err := normal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.UserDB, []byte("corrupt user database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := newApplicationAt(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recovery.Close()
+
+	mode = recovery.Bindings()[0].(*ModeController)
+	if got := mode.GetBuildInfo(); got != want {
+		t.Fatalf("recovery GetBuildInfo() = %#v, want %#v", got, want)
+	}
+	if slices.Contains(exportedMethodNames(reflect.TypeOf((*RecoveryController)(nil))), "StartGuided") {
+		t.Fatal("recovery controller exposes normal training methods")
+	}
+}
 
 func TestRecoveryRuntimeBindsOnlyModeAndRecoveryCapabilities(t *testing.T) {
 	paths := storage.PathsAt(t.TempDir())

@@ -49,6 +49,20 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 }
 .brand-mark { font-size: 2rem; }
 .brand h1 { margin: 0; font-size: clamp(1.35rem, 2.5vw, 1.75rem); }
+.header-action {
+  min-height: 44px;
+  margin-left: auto;
+  padding: 7px 12px;
+  border: 1px solid var(--ivory-200);
+  border-radius: 10px;
+  color: var(--forest-700);
+  background: transparent;
+  font-weight: 800;
+}
+.puzzle-active .header-action {
+  border-color: #56635d;
+  color: #f7f4e9;
+}
 
 .app-main {
   display: grid;

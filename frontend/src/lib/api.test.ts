@@ -16,6 +16,7 @@ const moduleHasRecoveryGetter: HasKey<APIModule, 'getRecoveryAPI'> = false
 
 const production = vi.hoisted(() => ({
   getMode: vi.fn(),
+  getBuildInfo: vi.fn(),
   resumeSession: vi.fn(),
   playMove: vi.fn(),
   pauseSession: vi.fn(),
@@ -29,7 +30,8 @@ const production = vi.hoisted(() => ({
 }))
 
 vi.mock('../../wailsjs/go/main/ModeController', () => ({
-  GetApplicationMode: production.getMode
+  GetApplicationMode: production.getMode,
+  GetBuildInfo: production.getBuildInfo
 }))
 vi.mock('../../wailsjs/go/main/NormalController', () => ({
   ResumeSession: production.resumeSession,
@@ -77,6 +79,11 @@ test('preview API runs a deterministic two-puzzle session', async () => {
   const { loadApplicationAPI } = await import('./api')
   const application = await loadApplicationAPI()
   expect(application.mode).toBe('normal')
+  expect(application.buildInfo).toEqual({
+    name: 'Chess Trainer',
+    commit: 'development',
+    sourceUrl: 'https://github.com/xang1234/chess'
+  })
   if (application.mode !== 'normal') throw new Error('expected normal preview')
 
   const started = await application.api.startGuided()
@@ -152,6 +159,11 @@ test('production adaptation preserves authoritative board fields exactly', async
     finalFen: 'after'
   }
   production.getMode.mockResolvedValue('normal')
+  production.getBuildInfo.mockResolvedValue({
+    name: 'Chess Trainer',
+    commit: '0123456789abcdef0123456789abcdef01234567',
+    sourceUrl: 'https://github.com/xang1234/chess/tree/0123456789abcdef0123456789abcdef01234567'
+  })
   production.resumeSession.mockResolvedValue(session)
   production.playMove.mockResolvedValue(move)
   Object.defineProperty(window, 'go', {
@@ -162,6 +174,14 @@ test('production adaptation preserves authoritative board fields exactly', async
   const { loadApplicationAPI } = await import('./api')
   const application = await loadApplicationAPI()
   if (application.mode !== 'normal') throw new Error('expected normal production API')
+
+  expect(production.getMode).toHaveBeenCalledOnce()
+  expect(production.getBuildInfo).toHaveBeenCalledOnce()
+  expect(application.buildInfo).toEqual({
+    name: 'Chess Trainer',
+    commit: '0123456789abcdef0123456789abcdef01234567',
+    sourceUrl: 'https://github.com/xang1234/chess/tree/0123456789abcdef0123456789abcdef01234567'
+  })
 
   await expect(application.api.resumeSession()).resolves.toEqual(session)
   await expect(application.api.playMove(session.sessionId, 'e2e4')).resolves.toEqual(move)

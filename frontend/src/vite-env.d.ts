@@ -3,4 +3,7 @@
 
 interface Window {
   go?: Record<string, unknown>
+  runtime?: {
+    BrowserOpenURL(url: string): void
+  }
 }

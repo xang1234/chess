@@ -164,7 +164,14 @@ test.beforeEach(async ({ page }) => {
       Quit: async () => {}
     }
     ;(window as any).go = { main: {
-      ModeController: { GetApplicationMode: async () => 'normal' },
+      ModeController: {
+        GetApplicationMode: async () => 'normal',
+        GetBuildInfo: async () => ({
+          name: 'Chess Trainer',
+          commit: 'development',
+          sourceUrl: 'https://github.com/xang1234/chess'
+        })
+      },
       NormalController: normalController,
       RecoveryController: {}
     } }

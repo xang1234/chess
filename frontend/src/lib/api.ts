@@ -1,4 +1,4 @@
-import { GetApplicationMode } from '../../wailsjs/go/main/ModeController'
+import { GetApplicationMode, GetBuildInfo } from '../../wailsjs/go/main/ModeController'
 import * as Normal from '../../wailsjs/go/main/NormalController'
 import * as Recovery from '../../wailsjs/go/main/RecoveryController'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
@@ -123,6 +123,12 @@ export type RecoveryState = {
 
 export type ApplicationMode = 'normal' | 'recovery'
 
+export type BuildInfo = {
+  name: string
+  commit: string
+  sourceUrl: string
+}
+
 export type ImportProgress = {
   jobId: string
   rowsRead: number
@@ -175,14 +181,17 @@ export interface RecoveryAPI extends BackupAPI {
 }
 
 export type ApplicationAPI =
-  | { mode: 'normal'; api: NormalAPI }
-  | { mode: 'recovery'; api: RecoveryAPI }
+  | { mode: 'normal'; buildInfo: BuildInfo; api: NormalAPI }
+  | { mode: 'recovery'; buildInfo: BuildInfo; api: RecoveryAPI }
 
-let productionMode: Promise<ApplicationMode> | null = null
+let productionBootstrap: Promise<[ApplicationMode, BuildInfo]> | null = null
 
-function getProductionMode(): Promise<ApplicationMode> {
-  productionMode ??= GetApplicationMode() as Promise<ApplicationMode>
-  return productionMode
+function getProductionBootstrap(): Promise<[ApplicationMode, BuildInfo]> {
+  productionBootstrap ??= Promise.all([
+    GetApplicationMode() as Promise<ApplicationMode>,
+    GetBuildInfo() as Promise<BuildInfo>
+  ])
+  return productionBootstrap
 }
 
 const productionNormalAPI: NormalAPI = {
@@ -218,10 +227,16 @@ const productionRecoveryAPI: RecoveryAPI = {
 }
 
 async function loadProductionApplicationAPI(): Promise<ApplicationAPI> {
-  const mode = await getProductionMode()
+  const [mode, buildInfo] = await getProductionBootstrap()
   return mode === 'recovery'
-    ? { mode, api: productionRecoveryAPI }
-    : { mode, api: productionNormalAPI }
+    ? { mode, buildInfo, api: productionRecoveryAPI }
+    : { mode, buildInfo, api: productionNormalAPI }
+}
+
+const previewBuildInfo: BuildInfo = {
+  name: 'Chess Trainer',
+  commit: 'development',
+  sourceUrl: 'https://github.com/xang1234/chess'
 }
 
 let previewProfile: Profile | null = null
@@ -400,5 +415,5 @@ const isProduction = typeof window !== 'undefined' && window.go
 export function loadApplicationAPI(): Promise<ApplicationAPI> {
   return isProduction
     ? loadProductionApplicationAPI()
-    : Promise.resolve({ mode: 'normal', api: previewNormalAPI })
+    : Promise.resolve({ mode: 'normal', buildInfo: previewBuildInfo, api: previewNormalAPI })
 }

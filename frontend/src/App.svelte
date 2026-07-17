@@ -24,9 +24,9 @@
 <svelte:head><title>Chess Trainer</title></svelte:head>
 
 {#if application?.mode === 'normal'}
-  <NormalShell api={application.api} />
+  <NormalShell api={application.api} buildInfo={application.buildInfo} />
 {:else if application?.mode === 'recovery'}
-  <RecoveryShell api={application.api} />
+  <RecoveryShell api={application.api} buildInfo={application.buildInfo} />
 {:else}
   <div class="app-shell">
     <header class="app-header">

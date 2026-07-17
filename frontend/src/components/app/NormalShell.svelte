@@ -1,17 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { NormalAPI, SessionView } from '../../lib/api'
+  import type { BuildInfo, NormalAPI, SessionView } from '../../lib/api'
   import { provideNormalAPI } from '../../lib/api-context'
   import { createImportSession } from '../../lib/import-session'
   import { screen } from '../../lib/navigation'
   import HomeHub from '../home/HomeHub.svelte'
   import ImportPanel from '../import/ImportPanel.svelte'
+  import AboutLegal from '../legal/AboutLegal.svelte'
   import InitialSetup from '../parent/InitialSetup.svelte'
   import ParentDashboard from '../parent/ParentDashboard.svelte'
   import FreePractice from '../practice/FreePractice.svelte'
   import PuzzleScreen from '../puzzle/PuzzleScreen.svelte'
 
   export let api: NormalAPI
+  export let buildInfo: BuildInfo
   provideNormalAPI(api)
 
   let loading = true
@@ -96,6 +98,9 @@
       <span class="brand-mark" aria-hidden="true">♞</span>
       <h1>Chess Trainer</h1>
     </button>
+    <button class="header-action" type="button" on:click={() => screen.set('legal')}>
+      About &amp; Legal
+    </button>
   </header>
 
   <main class="app-main">
@@ -117,6 +122,8 @@
         on:games={() => screen.set('games')}
         on:parent={() => screen.set('parent')}
       />
+    {:else if $screen === 'legal'}
+      <AboutLegal {buildInfo} on:back={goHome} />
     {:else if $screen === 'import'}
       <ImportPanel session={importSession} />
     {:else if $screen === 'puzzle' && activeSession}

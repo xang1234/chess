@@ -5,3 +5,7 @@
 export function GetApplicationMode() {
   return window['go']['main']['ModeController']['GetApplicationMode']();
 }
+
+export function GetBuildInfo() {
+  return window['go']['main']['ModeController']['GetBuildInfo']();
+}

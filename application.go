@@ -4,6 +4,7 @@ import (
 	"context"
 
 	appservices "chess-trainer/internal/app"
+	"chess-trainer/internal/buildinfo"
 )
 
 type ApplicationMode string
@@ -19,6 +20,10 @@ type ModeController struct {
 
 func (c *ModeController) GetApplicationMode() string {
 	return string(c.mode)
+}
+
+func (*ModeController) GetBuildInfo() buildinfo.Info {
+	return buildinfo.Current()
 }
 
 type startupController interface {
