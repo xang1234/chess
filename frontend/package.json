@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "verify:licenses": "node ../scripts/verify-legal-assets.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -25,5 +26,8 @@
     "typescript": "^4.6.4",
     "vite": "^3.0.7",
     "vitest": "^0.34.6"
+  },
+  "dependencies": {
+    "@lichess-org/chessground": "10.1.1"
   }
 }

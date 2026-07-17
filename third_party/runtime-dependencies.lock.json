@@ -1,0 +1,261 @@
+{
+  "formatVersion": 1,
+  "goToolchain": {
+    "version": "go1.26.4",
+    "source": "third_party/legal/go1.26.4",
+    "legal": [
+      {
+        "name": "LICENSE",
+        "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+      },
+      {
+        "name": "PATENTS",
+        "sha256": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc"
+      }
+    ]
+  },
+  "goModules": [
+    {
+      "path": "github.com/corentings/chess/v2",
+      "version": "v2.5.1",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "6ba46a8df9016cf217fe515e997b8646fd469d01091acd0fd72d22d3c8ef56ef"
+        }
+      ]
+    },
+    {
+      "path": "github.com/dustin/go-humanize",
+      "version": "v1.0.1",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "a973b4498c13eb74baa2a8e5c351426a6826f2fcdd909916dbe53ee2e755fd71"
+        }
+      ]
+    },
+    {
+      "path": "github.com/google/uuid",
+      "version": "v1.6.0",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "0a8d61ed3cbfd5312326e8126c31ce9c627a283adc99131b56896d29ada04b2d"
+        }
+      ]
+    },
+    {
+      "path": "github.com/klauspost/compress",
+      "version": "v1.19.0",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "0d9e582ee4bff57bf1189c9e514e6da7ce277f9cd3bc2d488b22fbb39a6d87cf"
+        }
+      ]
+    },
+    {
+      "path": "github.com/leaanthony/go-ansi-parser",
+      "version": "v1.6.1",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "d0817a3112cb46c57b987f58db0d8c71ca99f26d448a351073e3d69b6702e541"
+        }
+      ]
+    },
+    {
+      "path": "github.com/leaanthony/slicer",
+      "version": "v1.6.0",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "6ec71bfac83b3a260158e53408a81392f84982fe19c43b4c2b6e2b6f0b44457b"
+        }
+      ]
+    },
+    {
+      "path": "github.com/leaanthony/u",
+      "version": "v1.1.1",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "ff3448b5ffd013b261466bb5d7898094a845756f8a69773331ebbf66518f4109"
+        }
+      ]
+    },
+    {
+      "path": "github.com/mattn/go-isatty",
+      "version": "v0.0.20",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "08eab1118c80885fa1fa6a6dd7303f65a379fcb3733e063d20d1bbc2c76e6fa1"
+        }
+      ]
+    },
+    {
+      "path": "github.com/ncruces/go-strftime",
+      "version": "v1.0.0",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "38ae43959daf953a393a585b2988672cb65a5a541aca0d0be5e72595a0a16883"
+        }
+      ]
+    },
+    {
+      "path": "github.com/pkg/errors",
+      "version": "v0.9.1",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "8d427fd87bc9579ea368fde3d49f9ca22eac857f91a9dec7e3004bdfab7dee86"
+        }
+      ]
+    },
+    {
+      "path": "github.com/remyoudompheng/bigfft",
+      "version": "v0.0.0-20230129092748-24d4a6f8daec",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "dd26a7abddd02e2d0aba97805b31f248ef7835d9e10da289b22e3b8ab78b324d"
+        }
+      ]
+    },
+    {
+      "path": "github.com/rivo/uniseg",
+      "version": "v0.4.7",
+      "legal": [
+        {
+          "name": "LICENSE.txt",
+          "sha256": "a59885f5f0f3b3c07cf9444db5fe399b6f0791eac82055f7b85cc65500551039"
+        }
+      ]
+    },
+    {
+      "path": "github.com/wailsapp/wails/v2",
+      "version": "v2.12.0",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "cede95c28e6e9d67d1c1e49e8ba3c20250c7d4080c3faca1579b6732327ae40d"
+        }
+      ]
+    },
+    {
+      "path": "golang.org/x/sys",
+      "version": "v0.44.0",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+        }
+      ]
+    },
+    {
+      "path": "modernc.org/libc",
+      "version": "v1.73.4",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "95ff867eb55a56935fa7492406cfa953fb7c13ca73f4c0a86ae05756b4605600"
+        },
+        {
+          "name": "LICENSE-3RD-PARTY.md",
+          "sha256": "f597097efe3d97021f89170746bd3a0fb9a8b6fb26b82043ed68a4e0283bee6c"
+        }
+      ]
+    },
+    {
+      "path": "modernc.org/mathutil",
+      "version": "v1.7.1",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "bfa9bf72a72ca009fd62a8f84fca3dca67e51d93af96352723646599898b6cf5"
+        }
+      ]
+    },
+    {
+      "path": "modernc.org/memory",
+      "version": "v1.11.0",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "59895e669f48f168b6b858358f6005779cdf40a265f7828813061b56af67b496"
+        },
+        {
+          "name": "LICENSE-GO",
+          "sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067"
+        },
+        {
+          "name": "LICENSE-LOGO",
+          "sha256": "5ae5bee3072a841376451b48d8cfcec7188e10543926d5870828d36c8a750dc5"
+        },
+        {
+          "name": "LICENSE-MMAP-GO",
+          "sha256": "c2eba69f20d05414538c3a5df7694dde392e065ff70882e1625e90f5d6659fff"
+        }
+      ]
+    },
+    {
+      "path": "modernc.org/sqlite",
+      "version": "v1.53.0",
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "c6fe05491a60ae13bcd223088d2705e36dede24e5587226231d2459ada5c4822"
+        }
+      ]
+    }
+  ],
+  "frontend": [
+    {
+      "name": "@lichess-org/chessground",
+      "version": "10.1.1",
+      "metadata": [
+        "Lichess Team <contact@lichess.org>",
+        "https://github.com/lichess-org/chessground",
+        "GPL-3.0-or-later",
+        "Preferred source: third_party/source/chessground-v10.1.1.tar.gz"
+      ],
+      "legal": [
+        {
+          "name": "LICENSE",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        }
+      ]
+    },
+    {
+      "name": "svelte",
+      "version": "3.59.2",
+      "metadata": [
+        "MIT",
+        "Preferred source: third_party/source/svelte-v3.59.2.tar.gz"
+      ],
+      "legal": [
+        {
+          "name": "LICENSE.md",
+          "sha256": "97a941bae1c510c556c5daf017180e4939ea392357d9a7bae2657e3e20c69c42"
+        }
+      ]
+    },
+    {
+      "name": "Nunito",
+      "version": "v16",
+      "metadata": [
+        "Copyright 2016 The Nunito Project Authors (contact@sansoxygen.com)",
+        "SIL Open Font License 1.1"
+      ],
+      "legal": [
+        {
+          "name": "OFL.txt",
+          "sha256": "43c89012c2b640187aae7e0c83d5ffa8381a0368c00e8426594358d44d3811e3"
+        }
+      ]
+    }
+  ]
+}
