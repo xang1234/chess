@@ -383,7 +383,8 @@
 <style>
   .board-wrap {
     position: relative;
-    width: min(72vh, 680px, 100%);
+    width: 100%;
+    max-width: 100%;
     aspect-ratio: 1;
   }
   .board-control,

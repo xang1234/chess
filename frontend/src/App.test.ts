@@ -1,13 +1,109 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { vi } from 'vitest'
 import App from './App.svelte'
-import type { ImportProgress, ImportResult } from './lib/api'
+import type { ImportProgress, ImportResult, MoveResult, SessionView } from './lib/api'
 import {
   fakeAPI,
   fakeRecoveryAPI,
   normalApplication,
   recoveryApplication
 } from './test-fakes'
+
+const puzzleFen = '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2'
+const solvedFen = '4k3/8/8/4p3/4P3/8/8/4K3 b - - 0 2'
+const nextFen = '4k3/8/8/8/8/8/3P4/4K3 b - - 0 1'
+
+function guidedPuzzle(total = 2): SessionView {
+  return {
+    sessionId: 'guided-session',
+    mode: 'guided',
+    status: 'active',
+    currentIndex: 0,
+    total,
+    current: {
+      fingerprint: 'puzzle-1',
+      displayedFen: puzzleFen,
+      currentFen: puzzleFen,
+      solver: 'white',
+      currentPath: [0],
+      puzzleNumber: 1,
+      puzzleTotal: total,
+      hintLevel: 3,
+      incorrectMoves: 0,
+      canReveal: true,
+      legalMoves: ['e2e4']
+    }
+  }
+}
+
+function nextGuidedPuzzle(): SessionView {
+  return {
+    sessionId: 'guided-session',
+    mode: 'guided',
+    status: 'active',
+    currentIndex: 1,
+    total: 2,
+    current: {
+      fingerprint: 'puzzle-2',
+      displayedFen: nextFen,
+      currentFen: nextFen,
+      solver: 'black',
+      currentPath: [],
+      puzzleNumber: 2,
+      puzzleTotal: 2,
+      hintLevel: 0,
+      incorrectMoves: 0,
+      canReveal: false,
+      legalMoves: ['e8d7']
+    }
+  }
+}
+
+function completedGuidedSession(): SessionView {
+  return {
+    sessionId: 'guided-session',
+    mode: 'guided',
+    status: 'completed',
+    currentIndex: 1,
+    total: 1,
+    summary: {
+      total: 1,
+      firstTry: 1,
+      retried: 0,
+      usedHint: 0,
+      revealed: 0,
+      unavailable: 0
+    }
+  }
+}
+
+function revealResult(session: SessionView): MoveResult {
+  return {
+    session,
+    correct: true,
+    puzzleCompleted: true,
+    appliedMoves: [{ uci: 'e2e4', resultingFen: solvedFen }],
+    finalFen: solvedFen
+  }
+}
+
+function guidedAPI(start: SessionView, pending: SessionView) {
+  const revealSolution = vi.fn(async () => revealResult(pending))
+  return {
+    api: fakeAPI({
+      getProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
+      startGuided: async () => start,
+      revealSolution
+    }),
+    revealSolution
+  }
+}
+
+async function openAndReveal(api: ReturnType<typeof fakeAPI>): Promise<void> {
+  render(App, { loadAPI: async () => normalApplication(api) })
+  await fireEvent.click(await screen.findByRole('button', { name: "Start today's training" }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Show solution' }))
+}
 
 test('renders the product name and initial setup for a new learner', async () => {
   const api = fakeAPI({ getProfile: async () => null })
@@ -72,6 +168,51 @@ test('opens the board-first puzzle screen from the home hub', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: "Start today's training" }))
   await waitFor(() => expect(screen.getByText('Find the best move')).toBeInTheDocument())
   expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
+})
+
+test('keeps the persisted next puzzle available when Home leaves a solved board', async () => {
+  const { api } = guidedAPI(guidedPuzzle(), nextGuidedPuzzle())
+  await openAndReveal(api)
+  expect(await screen.findByRole('button', { name: 'Next puzzle' })).toBeInTheDocument()
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
+
+  expect(await screen.findByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: "Start today's training" })).not.toBeInTheDocument()
+})
+
+test('does not offer a dead completed session when Home leaves the final solved board', async () => {
+  const { api } = guidedAPI(guidedPuzzle(1), completedGuidedSession())
+  await openAndReveal(api)
+  expect(await screen.findByRole('button', { name: 'See results' })).toBeInTheDocument()
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
+
+  expect(await screen.findByRole('button', { name: "Start today's training" })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: "Continue today's training" })).not.toBeInTheDocument()
+})
+
+test('shows the next puzzle only after explicit acknowledgement', async () => {
+  const { api, revealSolution } = guidedAPI(guidedPuzzle(), nextGuidedPuzzle())
+  await openAndReveal(api)
+
+  expect(await screen.findByRole('button', { name: 'Next puzzle' })).toBeInTheDocument()
+  expect(screen.getByText('Puzzle 1 of 2')).toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'Next puzzle' }))
+
+  expect(await screen.findByText('Puzzle 2 of 2')).toBeInTheDocument()
+  expect(revealSolution).toHaveBeenCalledTimes(1)
+})
+
+test('shows the summary only after explicit results acknowledgement', async () => {
+  const { api } = guidedAPI(guidedPuzzle(1), completedGuidedSession())
+  await openAndReveal(api)
+
+  expect(await screen.findByRole('button', { name: 'See results' })).toBeInTheDocument()
+  expect(screen.queryByText('Training complete!')).not.toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'See results' }))
+
+  expect(await screen.findByText('Training complete!')).toBeInTheDocument()
 })
 
 test('opens only the recovery surface when startup integrity fails', async () => {

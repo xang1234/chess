@@ -153,6 +153,35 @@ test('forwards only currently legal routes and clears immobile selections', () =
   expect(callbacks.onRoute).toHaveBeenCalledTimes(1)
 })
 
+test('does not echo programmatic keyboard selection as a second pointer selection', () => {
+  const callbacks: BoardCallbacks = { onRoute: vi.fn(), onSelect: vi.fn() }
+  let selectionEvent: ((key: Key) => void) | undefined
+  const api = {
+    set: vi.fn(),
+    selectSquare: vi.fn((key: Key | null) => {
+      if (key) selectionEvent?.(key)
+    }),
+    destroy: vi.fn()
+  } as unknown as Api
+  const factory: GroundFactory = vi.fn((_element, config) => {
+    selectionEvent = config?.events?.select
+    return api
+  })
+  const adapter = createChessgroundAdapter(
+    document.createElement('div'),
+    initialFen,
+    interaction(),
+    callbacks,
+    factory
+  )
+
+  adapter.selectSquare('e2')
+
+  expect(callbacks.onSelect).not.toHaveBeenCalled()
+  selectionEvent?.('e2')
+  expect(callbacks.onSelect).toHaveBeenCalledOnce()
+})
+
 test('uses setPosition as the sole authoritative FEN boundary', () => {
   const { adapter, updates } = harness()
 

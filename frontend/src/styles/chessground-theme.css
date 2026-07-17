@@ -8,13 +8,13 @@
 .cg-wrap cg-board {
   overflow: hidden;
   border-radius: 5px;
-  background-color: #eeeed2;
+  background-color: var(--board-light);
   background-image: conic-gradient(
     from 90deg,
-    #769656 25%,
-    #eeeed2 0 50%,
-    #769656 0 75%,
-    #eeeed2 0
+    var(--board-dark) 25%,
+    var(--board-light) 0 50%,
+    var(--board-dark) 0 75%,
+    var(--board-light) 0
   );
   background-size: 25% 25%;
   touch-action: none;

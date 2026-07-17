@@ -16,6 +16,7 @@
 
   let loading = true
   let activeSession: SessionView | null = null
+  let deferredSession: SessionView | null = null
   let error = ''
   const importSession = createImportSession(() => api)
   let disconnectImport = (): void => {}
@@ -54,9 +55,33 @@
     }
   }
 
-  function leaveTraining(event: CustomEvent<{ completed: boolean }>): void {
-    if (event.detail.completed) activeSession = null
+  function adoptVisibleSession(event: CustomEvent<SessionView>): void {
+    activeSession = event.detail
+    deferredSession = null
+  }
+
+  function rememberPersistedSession(event: CustomEvent<SessionView>): void {
+    deferredSession = event.detail
+  }
+
+  function goHome(): void {
+    if (deferredSession) {
+      activeSession = deferredSession.status !== 'completed' && deferredSession.current
+        ? deferredSession
+        : null
+      deferredSession = null
+    }
     screen.set('home')
+  }
+
+  function leaveTraining(event: CustomEvent<{ completed: boolean }>): void {
+    if (event.detail.completed) {
+      activeSession = null
+      deferredSession = null
+      screen.set('home')
+      return
+    }
+    goHome()
   }
 
   function startPractice(event: CustomEvent<SessionView>): void {
@@ -65,9 +90,9 @@
   }
 </script>
 
-<div class="app-shell">
+<div class="app-shell" class:puzzle-active={$screen === 'puzzle'}>
   <header class="app-header">
-    <button class="brand" type="button" on:click={() => screen.set('home')} aria-label="Chess Trainer home">
+    <button class="brand" type="button" on:click={goHome} aria-label="Chess Trainer home">
       <span class="brand-mark" aria-hidden="true">♞</span>
       <h1>Chess Trainer</h1>
     </button>
@@ -80,7 +105,7 @@
       <section class="panel" role="alert">
         <h2>Something needs attention</h2>
         <p>{error}</p>
-        <button class="secondary" type="button" on:click={() => screen.set('home')}>Back home</button>
+        <button class="secondary" type="button" on:click={goHome}>Back home</button>
       </section>
     {:else if $screen === 'setup'}
       <InitialSetup on:complete={() => screen.set('home')} />
@@ -97,7 +122,8 @@
     {:else if $screen === 'puzzle' && activeSession}
       <PuzzleScreen
         session={activeSession}
-        on:change={(event) => { activeSession = event.detail }}
+        on:change={adoptVisibleSession}
+        on:persisted={rememberPersistedSession}
         on:home={leaveTraining}
       />
     {:else if $screen === 'practice'}
@@ -109,7 +135,7 @@
         <h2>{$screen === 'puzzle' ? 'Puzzle board' : 'Game Library'}</h2>
         <p>{$screen === 'games' ? 'Game Library is planned for a future milestone.' : 'This area is the next part of the build.'}</p>
         <div class="button-row">
-          <button class="secondary" type="button" on:click={() => screen.set('home')}>Back home</button>
+          <button class="secondary" type="button" on:click={goHome}>Back home</button>
         </div>
       </section>
     {/if}

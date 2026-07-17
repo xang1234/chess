@@ -50,9 +50,15 @@ export function createChessgroundAdapter(
   let destinations = validatedDestinations(interaction.legalMoves)
   let destroyed = false
   let api: Api | undefined
+  const programmaticSelections: Key[] = []
 
   const onSelect = (key: Key): void => {
     if (destroyed) return
+    const programmaticIndex = programmaticSelections.indexOf(key)
+    if (programmaticIndex >= 0) {
+      programmaticSelections.splice(programmaticIndex, 1)
+      return
+    }
     if (!interaction.inputEnabled) {
       api?.selectSquare(null)
       return
@@ -95,11 +101,20 @@ export function createChessgroundAdapter(
       })
     },
     selectSquare: (key) => {
-      if (!destroyed) api?.selectSquare(key)
+      if (destroyed) return
+      if (key) programmaticSelections.push(key)
+      try {
+        api?.selectSquare(key)
+      } catch (error) {
+        const queuedIndex = key ? programmaticSelections.lastIndexOf(key) : -1
+        if (queuedIndex >= 0) programmaticSelections.splice(queuedIndex, 1)
+        throw error
+      }
     },
     destroy: () => {
       if (destroyed) return
       destroyed = true
+      programmaticSelections.length = 0
       api?.destroy()
     }
   }
