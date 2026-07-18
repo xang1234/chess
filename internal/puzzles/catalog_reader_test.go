@@ -353,7 +353,47 @@ func TestActiveSourceSummaryRatingBoundsUseOrderedMembership(t *testing.T) {
 	}
 }
 
-func TestLearnerRatingBoundsTrackActiveLichessGenerationAndFallback(t *testing.T) {
+func TestLearnerRatingBoundsIncludeEveryRatedActiveSource(t *testing.T) {
+	catalog, _ := openTestGenerationalCatalog(t)
+	ctx := context.Background()
+
+	canonical := testSource("canonical", "canonical-json", "/canonical")
+	canonicalHigh := testTrainingPuzzle(canonical, "canonical-high", 2100)
+	canonicalHigh.Occurrence.Ordinal = 2
+	sealAndActivate(t, beginGenerationImport(t, catalog, canonical),
+		testTrainingPuzzle(canonical, "canonical-low", 900), canonicalHigh)
+
+	lichess := testSource("lichess", "lichess", "/lichess")
+	lichessHigh := testTrainingPuzzle(lichess, "lichess-high", 1800)
+	lichessHigh.Occurrence.Ordinal = 2
+	sealAndActivate(t, beginGenerationImport(t, catalog, lichess),
+		testTrainingPuzzle(lichess, "lichess-low", 1100), lichessHigh)
+
+	pgn := testSource("pgn", "tactical-pgn", "/pgn")
+	unrated := testTrainingPuzzle(pgn, "pgn-unrated", 0)
+	unrated.Occurrence.Rating = nil
+	sealAndActivate(t, beginGenerationImport(t, catalog, pgn), unrated)
+
+	got, err := catalog.LearnerRatingBounds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (RatingBounds{Minimum: 900, Maximum: 2100}); got != want {
+		t.Fatalf("LearnerRatingBounds() = %+v, want %+v", got, want)
+	}
+
+	candidates, err := catalog.RatedCandidates(ctx, 850, 950, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].Core.Fingerprint != "canonical-low" ||
+		candidates[0].Occurrence.SourceID != canonical.ID || candidates[0].Occurrence.Rating == nil ||
+		*candidates[0].Occurrence.Rating != 900 {
+		t.Fatalf("RatedCandidates() = %+v, want canonical rated occurrence", candidates)
+	}
+}
+
+func TestLearnerRatingBoundsTrackActiveRatedGenerationAndFallback(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
 	ctx := context.Background()
 	assertBounds := func(want RatingBounds) {
@@ -369,7 +409,9 @@ func TestLearnerRatingBoundsTrackActiveLichessGenerationAndFallback(t *testing.T
 	assertBounds(DefaultLearnerRatingBounds())
 
 	other := testSource("private", "pgn", "/private")
-	sealAndActivate(t, beginGenerationImport(t, catalog, other), testTrainingPuzzle(other, "private-wide", 5000))
+	privateUnrated := testTrainingPuzzle(other, "private-unrated", 0)
+	privateUnrated.Occurrence.Rating = nil
+	sealAndActivate(t, beginGenerationImport(t, catalog, other), privateUnrated)
 	assertBounds(DefaultLearnerRatingBounds())
 
 	lichess := testSource("lichess", "lichess", "/lichess-old")

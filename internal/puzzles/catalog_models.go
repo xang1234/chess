@@ -64,7 +64,7 @@ func LearnerRatingBoundsFromSourceSummaries(summaries []SourceSummary) RatingBou
 	bounds := DefaultLearnerRatingBounds()
 	available := false
 	for _, summary := range summaries {
-		if summary.Kind != "lichess" || summary.MinimumRating == nil || summary.MaximumRating == nil {
+		if summary.MinimumRating == nil || summary.MaximumRating == nil {
 			continue
 		}
 		if !available || *summary.MinimumRating < bounds.Minimum {
