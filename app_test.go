@@ -58,8 +58,13 @@ func (fakeNativeDialogs) SaveFileDialog(
 	return "", nil
 }
 
-func (i bindingImporter) Import(
+func (bindingImporter) Supports(format puzzles.ImportFormat) bool {
+	return format == puzzles.FormatCanonicalJSON
+}
+
+func (i bindingImporter) ImportFormat(
 	_ context.Context,
+	_ puzzles.ImportFormat,
 	sourceID string,
 	path string,
 	_ puzzles.ProgressSink,
@@ -186,9 +191,7 @@ func TestInspectPuzzleImportDelegatesToCollectionImporter(t *testing.T) {
 func TestStartPuzzleImportUsesAuthoritativeInspection(t *testing.T) {
 	importer := bindingImporter{called: make(chan bindingImportCall, 2)}
 	emitter := bindingEmitter{finished: make(chan importjob.Result, 2)}
-	jobs := importjob.NewService(map[importjob.Kind]importjob.Importer{
-		importjob.KindCanonicalJSON: importer,
-	}, nil, emitter)
+	jobs := importjob.NewService(importer, nil, emitter)
 	defer jobs.Close()
 	collection := &puzzles.CollectionImporter{Adapters: []puzzles.PuzzleAdapter{
 		bindingInspectionAdapter{
@@ -215,9 +218,7 @@ func TestStartPuzzleImportUsesAuthoritativeInspection(t *testing.T) {
 func TestStartLichessImportDelegatesToGenericInspectionFlow(t *testing.T) {
 	importer := bindingImporter{called: make(chan bindingImportCall, 1)}
 	emitter := bindingEmitter{finished: make(chan importjob.Result, 1)}
-	jobs := importjob.NewService(map[importjob.Kind]importjob.Importer{
-		importjob.KindCanonicalJSON: importer,
-	}, nil, emitter)
+	jobs := importjob.NewService(importer, nil, emitter)
 	defer jobs.Close()
 	collection := &puzzles.CollectionImporter{Adapters: []puzzles.PuzzleAdapter{
 		bindingInspectionAdapter{

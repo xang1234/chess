@@ -14,20 +14,10 @@ import (
 
 const cleanupBatchSize = 1_000
 
-type Kind string
-
-const (
-	KindLichess       Kind = "lichess"
-	KindTacticalPGN   Kind = "tactical-pgn"
-	KindCanonicalJSON Kind = "canonical-json"
-	KindLucasFNS      Kind = "lucas-fns"
-	KindLinearFENUCI  Kind = "linear-fen-uci"
-)
-
 type ImportRequest struct {
-	Kind     Kind   `json:"kind"`
-	SourceID string `json:"sourceId"`
-	Path     string `json:"path"`
+	Kind     puzzles.ImportFormat `json:"kind"`
+	SourceID string               `json:"sourceId"`
+	Path     string               `json:"path"`
 }
 
 type BusyError struct {
@@ -62,7 +52,14 @@ type Emitter interface {
 }
 
 type Importer interface {
-	Import(context.Context, string, string, puzzles.ProgressSink) (puzzles.ImportReport, error)
+	Supports(puzzles.ImportFormat) bool
+	ImportFormat(
+		context.Context,
+		puzzles.ImportFormat,
+		string,
+		string,
+		puzzles.ProgressSink,
+	) (puzzles.ImportReport, error)
 }
 
 type Maintenance interface {
@@ -80,7 +77,7 @@ type Service struct {
 	mu             sync.Mutex
 	eventMu        sync.Mutex
 	writer         sync.Mutex
-	importers      map[Kind]Importer
+	importer       Importer
 	maintenance    Maintenance
 	emitter        Emitter
 	jobs           map[string]*jobState
@@ -93,17 +90,13 @@ type Service struct {
 }
 
 func NewService(
-	importers map[Kind]Importer,
+	importer Importer,
 	maintenance Maintenance,
 	emitter Emitter,
 ) *Service {
-	ownedImporters := make(map[Kind]Importer, len(importers))
-	for kind, importer := range importers {
-		ownedImporters[kind] = importer
-	}
 	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
 	service := &Service{
-		importers:      ownedImporters,
+		importer:       importer,
 		maintenance:    maintenance,
 		emitter:        emitter,
 		jobs:           make(map[string]*jobState),
@@ -132,8 +125,7 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 	if strings.TrimSpace(request.Path) == "" {
 		return "", errors.New("import path is required")
 	}
-	importer, exists := s.importers[request.Kind]
-	if !exists || importer == nil {
+	if s.importer == nil || !s.importer.Supports(request.Kind) {
 		return "", fmt.Errorf("importer for kind %q is not configured", request.Kind)
 	}
 
@@ -164,7 +156,7 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 	go func() {
 		defer s.wg.Done()
 		defer cancel()
-		s.run(jobCtx, jobID, request, importer)
+		s.run(jobCtx, jobID, request)
 	}()
 	return jobID, nil
 }
@@ -173,13 +165,18 @@ func (s *Service) run(
 	ctx context.Context,
 	jobID string,
 	request ImportRequest,
-	importer Importer,
 ) {
 	// Import and cleanup writes share this gate. Never wait for it while holding mu.
 	s.writer.Lock()
-	report, err := importer.Import(ctx, request.SourceID, request.Path, func(progress puzzles.Progress) {
-		s.recordProgress(jobID, progress)
-	})
+	report, err := s.importer.ImportFormat(
+		ctx,
+		request.Kind,
+		request.SourceID,
+		request.Path,
+		func(progress puzzles.Progress) {
+			s.recordProgress(jobID, progress)
+		},
+	)
 	s.writer.Unlock()
 
 	s.finish(jobID, report, err)

@@ -114,21 +114,16 @@ type CollectionImporter struct {
 	AvailableBytes   func(string) (uint64, error)
 }
 
-type FormatImporter struct {
-	Collection *CollectionImporter
-	Format     ImportFormat
-}
-
-func (i FormatImporter) Import(
-	ctx context.Context,
-	sourceID string,
-	path string,
-	progress ProgressSink,
-) (ImportReport, error) {
-	if i.Collection == nil {
-		return ImportReport{}, errors.New("puzzle collection importer is required")
+func (i *CollectionImporter) Supports(format ImportFormat) bool {
+	if i == nil {
+		return false
 	}
-	return i.Collection.ImportFormat(ctx, i.Format, sourceID, path, progress)
+	for _, adapter := range i.Adapters {
+		if adapter != nil && adapter.Format() == format {
+			return true
+		}
+	}
+	return false
 }
 
 type adapterInspection struct {
@@ -486,7 +481,3 @@ func importFormatMatchesExtension(format ImportFormat, path string) bool {
 		return false
 	}
 }
-
-var _ interface {
-	Import(context.Context, string, string, ProgressSink) (ImportReport, error)
-} = FormatImporter{}

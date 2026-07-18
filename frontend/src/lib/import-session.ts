@@ -2,14 +2,29 @@ import { writable, type Readable } from 'svelte/store'
 import type { ImportInspection, ImportProgress, ImportResult, NormalAPI } from './api'
 
 export type ImportSessionState = {
-  path: string
+  phase: ImportSessionPhase
   inspection: ImportInspection | null
   jobId: string
-  running: boolean
-  busy: boolean
   progress: ImportProgress
   result: ImportResult | null
   error: string
+}
+
+export type ImportSessionPhase =
+  | 'idle'
+  | 'selecting'
+  | 'inspecting'
+  | 'ready'
+  | 'starting'
+  | 'running'
+  | 'finished'
+
+export function canSelectImportFile(phase: ImportSessionPhase): boolean {
+  return phase === 'idle' || phase === 'ready' || phase === 'finished'
+}
+
+export function canStartImport(phase: ImportSessionPhase): boolean {
+  return phase === 'ready' || phase === 'finished'
 }
 
 export type ImportSession = Readable<ImportSessionState> & {
@@ -56,17 +71,14 @@ function mergeProgress(
 
 export function createImportSession(api: () => NormalAPI): ImportSession {
   const state = writable<ImportSessionState>({
-    path: '',
+    phase: 'idle',
     inspection: null,
     jobId: '',
-    running: false,
-    busy: false,
     progress: emptyProgress(),
     result: null,
     error: ''
   })
   let current: ImportSessionState
-  let operationInFlight = false
   state.subscribe((value) => { current = value })
 
   function applyResult(result: ImportResult): void {
@@ -74,7 +86,7 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
     if (current.result && result.status === 'running') return
     state.update((value) => ({
       ...value,
-      running: result.status === 'running',
+      phase: result.status === 'running' ? 'running' : 'finished',
       progress: result.progress
         ? mergeProgress(value.progress, result.jobId, result.progress)
         : value.progress,
@@ -83,11 +95,25 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
     }))
   }
 
+  async function refresh(): Promise<void> {
+    const jobId = current.jobId
+    if (!jobId) return
+    try {
+      applyResult(await api().getImportResult(jobId))
+    } catch (cause) {
+      if (jobId !== current.jobId) return
+      state.update((value) => ({
+        ...value,
+        error: cause instanceof Error ? cause.message : String(cause)
+      }))
+    }
+  }
+
   return {
     subscribe: state.subscribe,
     connect() {
       const stopProgress = api().onImportProgress((progress) => {
-        if (progress.jobId !== current.jobId || !current.running) return
+        if (progress.jobId !== current.jobId || current.phase !== 'running') return
         state.update((value) => ({
           ...value,
           progress: mergeProgress(value.progress, progress.jobId, progress)
@@ -100,46 +126,48 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
       }
     },
     async selectFile() {
-      if (operationInFlight || current.running) return
-      operationInFlight = true
-      state.update((value) => ({ ...value, busy: true, error: '' }))
+      if (!canSelectImportFile(current.phase)) return
+      const returnPhase = current.phase
+      let inspecting = false
+      state.update((value) => ({ ...value, phase: 'selecting', error: '' }))
       try {
         const path = await api().choosePuzzleImportFile()
-        if (!path) return
+        if (!path) {
+          state.update((value) => ({ ...value, phase: returnPhase }))
+          return
+        }
+        inspecting = true
         state.update((value) => ({
           ...value,
-          path: '',
+          phase: 'inspecting',
           inspection: null,
           jobId: '',
-          running: false,
           progress: emptyProgress(),
           result: null
         }))
         const inspection = await api().inspectPuzzleImport(path)
         state.update((value) => ({
           ...value,
-          path: inspection.path,
+          phase: 'ready',
           inspection,
           result: null
         }))
       } catch (cause) {
         state.update((value) => ({
           ...value,
+          phase: inspecting ? 'idle' : returnPhase,
+          inspection: inspecting ? null : value.inspection,
           error: cause instanceof Error ? cause.message : String(cause)
         }))
-      } finally {
-        operationInFlight = false
-        state.update((value) => ({ ...value, busy: false }))
       }
     },
     async start() {
       const inspection = current.inspection
-      if (operationInFlight || !inspection || current.running) return
-      operationInFlight = true
+      if (!inspection || !canStartImport(current.phase)) return
       state.update((value) => ({
         ...value,
+        phase: 'starting',
         jobId: '',
-        busy: true,
         error: '',
         result: null,
         progress: emptyProgress()
@@ -148,27 +176,24 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
         const jobId = await api().startPuzzleImport(inspection.path)
         state.update((value) => ({
           ...value,
+          phase: 'running',
           jobId,
-          running: true,
           progress: { jobId, phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 }
         }))
-        await this.refresh()
+        await refresh()
       } catch (cause) {
         state.update((value) => ({
           ...value,
-          running: false,
+          phase: 'ready',
           error: cause instanceof Error ? cause.message : String(cause)
         }))
-      } finally {
-        operationInFlight = false
-        state.update((value) => ({ ...value, busy: false }))
       }
     },
     async cancel() {
-      if (!current.jobId || !current.running) return
+      if (!current.jobId || current.phase !== 'running') return
       try {
         await api().cancelImport(current.jobId)
-        await this.refresh()
+        await refresh()
       } catch (cause) {
         state.update((value) => ({
           ...value,
@@ -176,18 +201,6 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
         }))
       }
     },
-    async refresh() {
-      const jobId = current.jobId
-      if (!jobId) return
-      try {
-        applyResult(await api().getImportResult(jobId))
-      } catch (cause) {
-        if (jobId !== current.jobId) return
-        state.update((value) => ({
-          ...value,
-          error: cause instanceof Error ? cause.message : String(cause)
-        }))
-      }
-    }
+    refresh
   }
 }

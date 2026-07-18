@@ -17,6 +17,8 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
+var _ importjob.Importer = (*puzzles.CollectionImporter)(nil)
+
 func TestServicesDoesNotExposeBackupImplementation(t *testing.T) {
 	if _, exposed := reflect.TypeOf(Services{}).FieldByName("Backup"); exposed {
 		t.Fatal("Services exposes the backup implementation instead of owning backup operations")
@@ -254,7 +256,7 @@ mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https
 			}
 
 			request := importjob.ImportRequest{
-				Kind: importjob.Kind(inspection.Format), SourceID: inspection.SourceID, Path: inspection.Path,
+				Kind: inspection.Format, SourceID: inspection.SourceID, Path: inspection.Path,
 			}
 			jobID, err := services.ImportJobs.Start(context.Background(), request)
 			if err != nil {
@@ -329,8 +331,13 @@ type closeBlockingImporter struct {
 	release <-chan struct{}
 }
 
-func (i closeBlockingImporter) Import(
+func (closeBlockingImporter) Supports(format puzzles.ImportFormat) bool {
+	return format == puzzles.FormatLichess
+}
+
+func (i closeBlockingImporter) ImportFormat(
 	ctx context.Context,
+	_ puzzles.ImportFormat,
 	_ string,
 	_ string,
 	_ puzzles.ProgressSink,
@@ -356,12 +363,10 @@ func TestServicesCloseWaitsForImportJobsBeforeDatabases(t *testing.T) {
 	releaseImport := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseImport)
 	importer := closeBlockingImporter{started: make(chan context.Context, 1), release: release}
-	jobs := importjob.NewService(map[importjob.Kind]importjob.Importer{
-		importjob.KindLichess: importer,
-	}, nil, nil)
+	jobs := importjob.NewService(importer, nil, nil)
 	services := &Services{PuzzleStore: puzzleStore, ImportJobs: jobs}
 	_, err = jobs.Start(context.Background(), importjob.ImportRequest{
-		Kind: importjob.KindLichess, SourceID: "lichess", Path: "/puzzles",
+		Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles",
 	})
 	if err != nil {
 		t.Fatal(err)

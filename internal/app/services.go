@@ -141,23 +141,7 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 		CatalogDirectory: filepath.Dir(paths.PuzzlesDB),
 		AvailableBytes:   storage.AvailableBytes,
 	}
-	services.ImportJobs = importjob.NewService(map[importjob.Kind]importjob.Importer{
-		importjob.KindLichess: puzzles.FormatImporter{
-			Collection: services.Importer, Format: puzzles.FormatLichess,
-		},
-		importjob.KindCanonicalJSON: puzzles.FormatImporter{
-			Collection: services.Importer, Format: puzzles.FormatCanonicalJSON,
-		},
-		importjob.KindTacticalPGN: puzzles.FormatImporter{
-			Collection: services.Importer, Format: puzzles.FormatTacticalPGN,
-		},
-		importjob.KindLucasFNS: puzzles.FormatImporter{
-			Collection: services.Importer, Format: puzzles.FormatLucasFNS,
-		},
-		importjob.KindLinearFENUCI: puzzles.FormatImporter{
-			Collection: services.Importer, Format: puzzles.FormatLinearFENUCI,
-		},
-	}, services.Catalog, nil)
+	services.ImportJobs = importjob.NewService(services.Importer, services.Catalog, nil)
 	services.UserStore = training.NewUserStore(services.UserDB)
 	services.Training = training.NewService(
 		services.Catalog,

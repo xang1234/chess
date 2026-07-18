@@ -452,8 +452,13 @@ type task5CloseBlockingImporter struct {
 	release <-chan struct{}
 }
 
-func (i task5CloseBlockingImporter) Import(
+func (task5CloseBlockingImporter) Supports(format puzzles.ImportFormat) bool {
+	return format == puzzles.FormatLichess
+}
+
+func (i task5CloseBlockingImporter) ImportFormat(
 	ctx context.Context,
+	_ puzzles.ImportFormat,
 	_ string,
 	_ string,
 	_ puzzles.ProgressSink,
@@ -476,11 +481,9 @@ func TestServicesCloseWaitsBeforeClosingPuzzleHandles(t *testing.T) {
 	releaseImport := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseImport)
 	importer := task5CloseBlockingImporter{started: make(chan context.Context, 1), release: release}
-	services.ImportJobs = importjob.NewService(map[importjob.Kind]importjob.Importer{
-		importjob.KindLichess: importer,
-	}, nil, nil)
+	services.ImportJobs = importjob.NewService(importer, nil, nil)
 	if _, err := services.ImportJobs.Start(context.Background(), importjob.ImportRequest{
-		Kind: importjob.KindLichess, SourceID: "blocking", Path: "/blocking",
+		Kind: puzzles.FormatLichess, SourceID: "blocking", Path: "/blocking",
 	}); err != nil {
 		t.Fatal(err)
 	}

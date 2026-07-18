@@ -51,18 +51,18 @@ func TestCanonicalJSONValueFramingCapsCaptureAndConsumesOversizedValue(t *testin
 	reader := bufio.NewReader(strings.NewReader(
 		`{"blob":"` + strings.Repeat("x", 256) + `"}, {"next":true}`,
 	))
-	raw, oversized, err := readCanonicalJSONValue(reader, 32)
+	raw, oversized, err := readBoundedJSONValue(reader, 32)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !oversized || len(raw) != 33 {
 		t.Fatalf("first capture oversized/bytes = %v/%d, want true/33", oversized, len(raw))
 	}
-	separator, err := readCanonicalJSONNonSpace(reader)
+	separator, err := readBoundedJSONNonSpace(reader)
 	if err != nil || separator != ',' {
 		t.Fatalf("separator/error = %q/%v, want comma", separator, err)
 	}
-	second, oversized, err := readCanonicalJSONValue(reader, 32)
+	second, oversized, err := readBoundedJSONValue(reader, 32)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,13 +72,13 @@ func TestCanonicalJSONValueFramingCapsCaptureAndConsumesOversizedValue(t *testin
 }
 
 func TestCanonicalJSONCaptureStartsSmallAndNeverGrowsPastLimit(t *testing.T) {
-	large := newCanonicalJSONCapture(maxCanonicalJSONPuzzleBytes)
+	large := newBoundedJSONCapture(maxCanonicalJSONPuzzleBytes)
 	if capacity := cap(large.bytes); capacity > 256 {
 		t.Fatalf("initial capacity = %d, want at most 256", capacity)
 	}
 
 	const limit = 1000
-	capture := newCanonicalJSONCapture(limit)
+	capture := newBoundedJSONCapture(limit)
 	for index := 0; index < limit+100; index++ {
 		capture.append('x')
 	}
@@ -95,9 +95,9 @@ func TestCanonicalJSONCaptureStartsSmallAndNeverGrowsPastLimit(t *testing.T) {
 }
 
 func TestCanonicalJSONNestingLimitCountsContainersNotScalarLeaf(t *testing.T) {
-	exact := strings.Repeat("[", maxCanonicalJSONNestingDepth) + "0" +
-		strings.Repeat("]", maxCanonicalJSONNestingDepth)
-	if _, _, err := readCanonicalJSONValue(
+	exact := strings.Repeat("[", maxBoundedJSONNestingDepth) + "0" +
+		strings.Repeat("]", maxBoundedJSONNestingDepth)
+	if _, _, err := readBoundedJSONValue(
 		bufio.NewReader(strings.NewReader(exact)),
 		len(exact),
 	); err != nil {
@@ -105,7 +105,7 @@ func TestCanonicalJSONNestingLimitCountsContainersNotScalarLeaf(t *testing.T) {
 	}
 
 	tooDeep := "[" + exact + "]"
-	if _, _, err := readCanonicalJSONValue(
+	if _, _, err := readBoundedJSONValue(
 		bufio.NewReader(strings.NewReader(tooDeep)),
 		len(tooDeep),
 	); err == nil {
@@ -115,7 +115,7 @@ func TestCanonicalJSONNestingLimitCountsContainersNotScalarLeaf(t *testing.T) {
 
 func TestCanonicalJSONValueFramingPreservesNestedValueExactly(t *testing.T) {
 	reader := bufio.NewReader(strings.NewReader(canonicalJSONWhitePuzzle))
-	raw, oversized, err := readCanonicalJSONValue(reader, maxCanonicalJSONPuzzleBytes)
+	raw, oversized, err := readBoundedJSONValue(reader, maxCanonicalJSONPuzzleBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,8 +141,8 @@ func TestCanonicalJSONValueFramingRejectsMalformedAndTruncatedValues(t *testing.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			reader := bufio.NewReader(strings.NewReader(test.value))
-			if _, _, err := readCanonicalJSONValue(reader, 16); err == nil {
-				t.Fatalf("readCanonicalJSONValue(%q) error = nil", test.value)
+			if _, _, err := readBoundedJSONValue(reader, 16); err == nil {
+				t.Fatalf("readBoundedJSONValue(%q) error = nil", test.value)
 			}
 		})
 	}

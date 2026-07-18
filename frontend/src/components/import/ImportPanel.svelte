@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { ImportInspection, ImportPhase } from '../../lib/api'
+  import { canSelectImportFile, canStartImport } from '../../lib/import-session'
   import type { ImportSession } from '../../lib/import-session'
 
   export let session: ImportSession
@@ -44,7 +45,7 @@
       class="secondary"
       type="button"
       on:click={() => session.selectFile()}
-      disabled={$session.running || $session.busy}
+      disabled={!canSelectImportFile($session.phase)}
     >Choose puzzle collection</button>
     {#if $session.inspection}
       <div
@@ -68,7 +69,7 @@
     {/if}
   </div>
 
-  {#if $session.running}
+  {#if $session.phase === 'running'}
     <div class="progress-card" aria-live="polite">
       <strong>{phaseLabels[$session.progress.phase]}</strong>
       <span>{formatted($session.progress.rowsRead)} rows read</span>
@@ -86,7 +87,7 @@
       class="primary"
       type="button"
       on:click={() => session.start()}
-      disabled={!$session.inspection || $session.busy}
+      disabled={!$session.inspection || !canStartImport($session.phase)}
     >Import puzzles</button>
   {/if}
 

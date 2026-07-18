@@ -23,6 +23,17 @@ function observe(session: ReturnType<typeof createImportSession>): {
   return { state: () => current, stop }
 }
 
+test('starts in one explicit lifecycle phase without overlapping boolean guards', () => {
+  const session = createImportSession(() => fakeAPI())
+  const observed = observe(session)
+
+  expect(observed.state().phase).toBe('idle')
+  expect('busy' in observed.state()).toBe(false)
+  expect('running' in observed.state()).toBe(false)
+
+  observed.stop()
+})
+
 test('chooses then inspects a file and stores only the authoritative inspection', async () => {
   const calls: string[] = []
   const session = createImportSession(() => fakeAPI({
@@ -41,9 +52,8 @@ test('chooses then inspects a file and stores only the authoritative inspection'
 
   expect(calls).toEqual(['choose', 'inspect:/chosen/../club.pgn'])
   expect(observed.state()).toMatchObject({
-    path: '/normalized/club.pgn',
+    phase: 'ready',
     inspection: embeddedInspection,
-    busy: false,
     result: null,
     error: ''
   })
@@ -86,11 +96,10 @@ test('clears stale selection and result while inspecting a newly chosen file', a
 
   const selecting = session.selectFile()
   await waitFor(() => expect(observed.state()).toMatchObject({
-    path: '',
+    phase: 'inspecting',
     jobId: '',
     inspection: null,
-    result: null,
-    busy: true
+    result: null
   }))
 
   resolveSecondInspection({
@@ -102,7 +111,7 @@ test('clears stale selection and result while inspecting a newly chosen file', a
     replacesExisting: false
   })
   await selecting
-  expect(observed.state().path).toBe('/normalized/new.json')
+  expect(observed.state().inspection?.path).toBe('/normalized/new.json')
   disconnect()
   observed.stop()
 })
@@ -121,15 +130,14 @@ test('treats chooser cancellation as no error and preserves the current inspecti
 
   expect(inspectPuzzleImport).toHaveBeenCalledOnce()
   expect(observed.state()).toMatchObject({
-    path: embeddedInspection.path,
+    phase: 'ready',
     inspection: embeddedInspection,
-    error: '',
-    busy: false
+    error: ''
   })
   observed.stop()
 })
 
-test('guards an overlapping selection from racing or clearing the accepted selection busy state', async () => {
+test('guards an overlapping selection with one authoritative lifecycle phase', async () => {
   let resolveFirstInspection: (inspection: ImportInspection) => void = () => {}
   const firstInspection = new Promise<ImportInspection>((resolve) => {
     resolveFirstInspection = resolve
@@ -156,18 +164,17 @@ test('guards an overlapping selection from racing or clearing the accepted selec
   const selecting = session.selectFile()
   await waitFor(() => expect(inspectPuzzleImport).toHaveBeenCalledWith('/chosen/first.pgn'))
   await session.selectFile()
-  const busyWhileFirstInspectionWasPending = observed.state().busy
+  const phaseWhileFirstInspectionWasPending = observed.state().phase
 
   resolveFirstInspection(embeddedInspection)
   await selecting
 
   expect(choosePuzzleImportFile).toHaveBeenCalledOnce()
   expect(inspectPuzzleImport).toHaveBeenCalledOnce()
-  expect(busyWhileFirstInspectionWasPending).toBe(true)
+  expect(phaseWhileFirstInspectionWasPending).toBe('inspecting')
   expect(observed.state()).toMatchObject({
-    path: embeddedInspection.path,
+    phase: 'ready',
     inspection: embeddedInspection,
-    busy: false,
     error: ''
   })
   observed.stop()
@@ -189,19 +196,18 @@ test('does not start a stale inspection while another file selection is pending'
 
   await session.selectFile()
   const selecting = session.selectFile()
-  await waitFor(() => expect(observed.state().busy).toBe(true))
+  await waitFor(() => expect(observed.state().phase).toBe('selecting'))
   await session.start()
-  const busyWhileChooserWasPending = observed.state().busy
+  const phaseWhileChooserWasPending = observed.state().phase
 
   resolveChooser('')
   await selecting
 
   expect(startPuzzleImport).not.toHaveBeenCalled()
-  expect(busyWhileChooserWasPending).toBe(true)
+  expect(phaseWhileChooserWasPending).toBe('selecting')
   expect(observed.state()).toMatchObject({
+    phase: 'ready',
     inspection: embeddedInspection,
-    running: false,
-    busy: false,
     error: ''
   })
   observed.stop()
@@ -223,11 +229,10 @@ test('surfaces inspection errors without retaining a stale selection', async () 
   await session.selectFile()
 
   expect(observed.state()).toMatchObject({
-    path: '',
+    phase: 'idle',
     inspection: null,
     result: null,
-    error: 'unsupported puzzle collection',
-    busy: false
+    error: 'unsupported puzzle collection'
   })
   observed.stop()
 })
@@ -254,7 +259,7 @@ test('starts only after inspection and passes its exact normalized path once', a
 
   expect(startPuzzleImport).toHaveBeenCalledOnce()
   expect(startPuzzleImport).toHaveBeenCalledWith('/normalized/club.pgn')
-  expect(observed.state()).toMatchObject({ jobId: 'job-1', running: true })
+  expect(observed.state()).toMatchObject({ phase: 'running', jobId: 'job-1' })
   observed.stop()
 })
 
@@ -287,11 +292,10 @@ test('guards concurrent starts so a losing call cannot clobber the accepted job'
   await starting
 
   expect(startPuzzleImport).toHaveBeenCalledOnce()
-  expect(stateWhileAcceptedStartWasPending).toMatchObject({ busy: true, error: '' })
+  expect(stateWhileAcceptedStartWasPending).toMatchObject({ phase: 'starting', error: '' })
   expect(observed.state()).toMatchObject({
+    phase: 'running',
     jobId: 'accepted-job',
-    running: true,
-    busy: false,
     error: ''
   })
   observed.stop()
@@ -380,7 +384,7 @@ test('resets progress for a new job and never lets a running snapshot replace a 
   await firstStart
 
   expect(observed.state().result?.status).toBe('succeeded')
-  expect(observed.state().running).toBe(false)
+  expect(observed.state().phase).toBe('finished')
 
   await session.start()
   expect(observed.state().progress).toEqual({

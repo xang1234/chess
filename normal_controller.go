@@ -93,7 +93,7 @@ func (c *NormalController) StartPuzzleImport(path string) (string, error) {
 			return "", err
 		}
 		return c.services.ImportJobs.Start(c.actions.ctx, importjob.ImportRequest{
-			Kind:     importjob.Kind(inspection.Format),
+			Kind:     inspection.Format,
 			SourceID: inspection.SourceID,
 			Path:     inspection.Path,
 		})
