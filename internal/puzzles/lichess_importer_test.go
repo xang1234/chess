@@ -93,6 +93,30 @@ func writeZstandardFixture(t *testing.T, contents string) string {
 	return path
 }
 
+func newLichessCollectionImporter(
+	catalog CatalogWriter,
+	catalogDirectory string,
+) CollectionImporter {
+	return CollectionImporter{
+		Catalog:          catalog,
+		Adapters:         []PuzzleAdapter{NewLichessAdapter(chessrules.Rules{})},
+		CatalogDirectory: catalogDirectory,
+	}
+}
+
+func inspectAndImportLichess(
+	ctx context.Context,
+	importer CollectionImporter,
+	path string,
+	progress ProgressSink,
+) (ImportReport, error) {
+	inspection, err := importer.Inspect(ctx, path)
+	if err != nil {
+		return ImportReport{}, err
+	}
+	return importer.Import(ctx, inspection, progress)
+}
+
 func TestLichessAdapterInspectsCompressedHeaderRegardlessOfFilename(t *testing.T) {
 	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
 `)
@@ -148,17 +172,17 @@ func TestLichessAdapterRejectsUnsupportedCompressedContent(t *testing.T) {
 	}
 }
 
-func TestLichessImporterNormalizesSetupMove(t *testing.T) {
+func TestCollectionImporterNormalizesLichessSetupMove(t *testing.T) {
 	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
 mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https://lichess.org/example,
 bad,not-a-fen,a1a2,1500,60,10,2,short,,
 `)
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
-	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
+	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
 	var progress []Progress
 
-	report, err := importer.Import(context.Background(), "lichess", path, func(snapshot Progress) {
+	report, err := inspectAndImportLichess(context.Background(), importer, path, func(snapshot Progress) {
 		progress = append(progress, snapshot)
 	})
 	if err != nil {
@@ -214,15 +238,15 @@ bad,not-a-fen,a1a2,1500,60,10,2,short,,
 	}
 }
 
-func TestLichessImporterRejectsZeroValidPuzzles(t *testing.T) {
+func TestCollectionImporterRejectsZeroValidLichessPuzzles(t *testing.T) {
 	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
 bad,not-a-fen,a1a2,1500,60,10,2,short,,
 `)
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
-	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
+	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
 
-	_, err := importer.Import(context.Background(), "lichess", path, nil)
+	_, err := inspectAndImportLichess(context.Background(), importer, path, nil)
 	if !errors.Is(err, ErrNoValidPuzzles) {
 		t.Fatalf("Import() err=%v, want ErrNoValidPuzzles", err)
 	}
@@ -231,17 +255,16 @@ bad,not-a-fen,a1a2,1500,60,10,2,short,,
 	}
 }
 
-func TestLichessImporterRejectsOverDepthBeforeMoveValidation(t *testing.T) {
+func TestCollectionImporterRejectsOverDepthLichessBeforeMoveValidation(t *testing.T) {
 	moves := "e2e4 " + strings.TrimSpace(strings.Repeat("not-a-move ", maxSolutionDepth+1))
 	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
 over-depth,`+standardStartingFEN+`,`+moves+`,1200,60,95,200,,,`+"\n")
 	generation := &captureGenerationImport{}
-	importer := LichessImporter{
-		Catalog:          &captureCatalog{generation: generation},
-		CatalogDirectory: filepath.Dir(path),
-	}
+	importer := newLichessCollectionImporter(
+		&captureCatalog{generation: generation}, filepath.Dir(path),
+	)
 
-	_, err := importer.Import(context.Background(), "lichess", path, nil)
+	_, err := inspectAndImportLichess(context.Background(), importer, path, nil)
 	if !errors.Is(err, ErrNoValidPuzzles) {
 		t.Fatalf("Import() error = %v, want ErrNoValidPuzzles", err)
 	}
@@ -253,7 +276,7 @@ over-depth,`+standardStartingFEN+`,`+moves+`,1200,60,95,200,,,`+"\n")
 	}
 }
 
-func TestLichessImporterCancellationAbortsStaging(t *testing.T) {
+func TestCollectionImporterCancellationAbortsLichessStaging(t *testing.T) {
 	var fixture strings.Builder
 	fixture.WriteString("PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags\n")
 	for index := 0; index < 20_000; index++ {
@@ -266,10 +289,10 @@ func TestLichessImporterCancellationAbortsStaging(t *testing.T) {
 	path := writeZstandardFixture(t, fixture.String())
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
-	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
+	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
 	ctx, cancel := context.WithCancel(context.Background())
 
-	_, err := importer.Import(ctx, "lichess", path, func(progress Progress) {
+	_, err := inspectAndImportLichess(ctx, importer, path, func(progress Progress) {
 		if progress.RowsRead >= 10_000 {
 			cancel()
 		}
@@ -282,13 +305,13 @@ func TestLichessImporterCancellationAbortsStaging(t *testing.T) {
 	}
 }
 
-func TestLichessImporterRejectsMissingHeader(t *testing.T) {
+func TestCollectionImporterRejectsMissingLichessHeader(t *testing.T) {
 	path := writeZstandardFixture(t, "PuzzleId,Moves\nmate1,h7h8 f7f8\n")
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
-	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
+	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
 
-	_, err := importer.Import(context.Background(), "lichess", path, nil)
+	_, err := inspectAndImportLichess(context.Background(), importer, path, nil)
 	if err == nil || !strings.Contains(err.Error(), "missing required Lichess column") {
 		t.Fatalf("Import() err=%v", err)
 	}
@@ -303,7 +326,7 @@ func TestLichessImporterRejectsMissingHeader(t *testing.T) {
 	}
 }
 
-func TestLichessImporterRejectsTruncatedZstandard(t *testing.T) {
+func TestCollectionImporterRejectsTruncatedLichessZstandard(t *testing.T) {
 	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
 mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https://lichess.org/example,
 `)
@@ -316,9 +339,9 @@ mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https
 	}
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
-	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
+	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
 
-	if _, err := importer.Import(context.Background(), "lichess", path, nil); err == nil {
+	if _, err := inspectAndImportLichess(context.Background(), importer, path, nil); err == nil {
 		t.Fatal("Import() unexpectedly succeeded")
 	}
 	if catalog.beginCalled != 0 || generation.abandoned != 0 || generation.seals != 0 || generation.activations != 0 {
@@ -332,20 +355,15 @@ mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https
 	}
 }
 
-func TestLichessImporterChecksDiskBeforeStaging(t *testing.T) {
+func TestCollectionImporterChecksDiskBeforeLichessStaging(t *testing.T) {
 	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
 `)
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
-	importer := LichessImporter{
-		Catalog:          catalog,
-		CatalogDirectory: filepath.Dir(path),
-		AvailableBytes: func(string) (uint64, error) {
-			return 0, nil
-		},
-	}
+	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
+	importer.AvailableBytes = func(string) (uint64, error) { return 0, nil }
 
-	if _, err := importer.Import(context.Background(), "lichess", path, nil); err == nil {
+	if _, err := inspectAndImportLichess(context.Background(), importer, path, nil); err == nil {
 		t.Fatal("Import() unexpectedly succeeded")
 	}
 	if catalog.beginCalled != 0 {
@@ -383,14 +401,14 @@ func writeGeneratedLichessFixture(t *testing.T, count int) string {
 	return writeZstandardFixture(t, fixture.String())
 }
 
-func TestLichessImporterStreamingAllocations(t *testing.T) {
+func TestCollectionImporterLichessStreamingAllocations(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping 100,000-row streaming allocation probe in short mode")
 	}
 	path := writeGeneratedLichessFixture(t, 100_000)
 	generation := &discardGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
-	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
+	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
 
 	runtime.GC()
 	var memory runtime.MemStats
@@ -417,7 +435,7 @@ func TestLichessImporterStreamingAllocations(t *testing.T) {
 		}
 	}()
 
-	report, err := importer.Import(context.Background(), "lichess", path, nil)
+	report, err := inspectAndImportLichess(context.Background(), importer, path, nil)
 	close(done)
 	if err != nil {
 		t.Fatal(err)

@@ -367,7 +367,20 @@ func newCollectionRunner(
 	}, path, generation
 }
 
-func TestCollectionImporterImportFormatSealsChecksumAndActivatesInOrder(t *testing.T) {
+func mustInspectCollection(
+	t *testing.T,
+	importer CollectionImporter,
+	path string,
+) ImportInspection {
+	t.Helper()
+	inspection, err := importer.Inspect(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return inspection
+}
+
+func TestCollectionImporterImportSealsChecksumAndActivatesInOrder(t *testing.T) {
 	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{ExternalID: "one"}}
 	rejection := Rejection{Ordinal: 2, Reason: "bad row"}
 	var decoder *fakePuzzleDecoder
@@ -380,7 +393,8 @@ func TestCollectionImporterImportFormatSealsChecksumAndActivatesInOrder(t *testi
 	})
 	var progress []Progress
 
-	report, err := importer.ImportFormat(context.Background(), FormatLinearFENUCI, path, path, func(got Progress) {
+	inspection := mustInspectCollection(t, importer, path)
+	report, err := importer.Import(context.Background(), inspection, func(got Progress) {
 		progress = append(progress, got)
 	})
 	if err != nil {
@@ -457,22 +471,22 @@ func TestCollectionImporterImportRevalidatesOnlyConfirmedAdapter(t *testing.T) {
 	}
 }
 
-func TestCollectionImporterImportFormatAbandonsWhenNoValidPuzzles(t *testing.T) {
+func TestCollectionImporterImportAbandonsWhenNoValidPuzzles(t *testing.T) {
 	rejection := Rejection{Ordinal: 1, Reason: "invalid"}
 	importer, path, generation := newCollectionRunner(t, "only rejected", func() PuzzleDecoder {
 		return &fakePuzzleDecoder{records: []DecodedRecord{{Rejection: &rejection}}}
 	})
 
-	_, err := importer.ImportFormat(context.Background(), FormatLinearFENUCI, path, path, nil)
+	_, err := importer.Import(context.Background(), mustInspectCollection(t, importer, path), nil)
 	if !errors.Is(err, ErrNoValidPuzzles) {
-		t.Fatalf("ImportFormat() error = %v, want ErrNoValidPuzzles", err)
+		t.Fatalf("Import() error = %v, want ErrNoValidPuzzles", err)
 	}
 	if generation.abandonCalls != 1 || generation.sealCalls != 0 || generation.activateCalls != 0 {
 		t.Fatalf("lifecycle calls = abandon %d, seal %d, activate %d", generation.abandonCalls, generation.sealCalls, generation.activateCalls)
 	}
 }
 
-func TestCollectionImporterImportFormatAbandonsAfterLateFatalError(t *testing.T) {
+func TestCollectionImporterImportAbandonsAfterLateFatalError(t *testing.T) {
 	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{ExternalID: "one"}}
 	importer, path, generation := newCollectionRunner(t, "truncated", func() PuzzleDecoder {
 		return &fakePuzzleDecoder{
@@ -481,9 +495,9 @@ func TestCollectionImporterImportFormatAbandonsAfterLateFatalError(t *testing.T)
 		}
 	})
 
-	_, err := importer.ImportFormat(context.Background(), FormatLinearFENUCI, path, path, nil)
+	_, err := importer.Import(context.Background(), mustInspectCollection(t, importer, path), nil)
 	if err == nil || !strings.Contains(err.Error(), "truncated source") {
-		t.Fatalf("ImportFormat() error = %v", err)
+		t.Fatalf("Import() error = %v", err)
 	}
 	if generation.abandonCalls != 1 || generation.sealCalls != 0 || generation.activateCalls != 0 {
 		t.Fatalf("lifecycle calls = abandon %d, seal %d, activate %d", generation.abandonCalls, generation.sealCalls, generation.activateCalls)
@@ -517,12 +531,11 @@ func TestCollectionImporterCanonicalJSONAbandonsLateSyntaxError(t *testing.T) {
 		},
 		Adapters: []PuzzleAdapter{NewCanonicalJSONAdapter(chessrules.Rules{})},
 	}
+	inspection := mustInspectCollection(t, importer, path)
 
-	_, err := importer.ImportFormat(
-		context.Background(), FormatCanonicalJSON, "club-json", path, nil,
-	)
+	_, err := importer.Import(context.Background(), inspection, nil)
 	if err == nil {
-		t.Fatal("ImportFormat() error = nil, want fatal JSON syntax error")
+		t.Fatal("Import() error = nil, want fatal JSON syntax error")
 	}
 	if !mutated || catalog.beginCalls != 1 {
 		t.Fatalf("mutation/begin calls = %v/%d, want true/1", mutated, catalog.beginCalls)
@@ -535,7 +548,7 @@ func TestCollectionImporterCanonicalJSONAbandonsLateSyntaxError(t *testing.T) {
 	}
 }
 
-func TestCollectionImporterImportFormatCancellationUsesCleanupContext(t *testing.T) {
+func TestCollectionImporterImportCancellationUsesCleanupContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	importer, path, generation := newCollectionRunner(t, "cancelled", func() PuzzleDecoder {
 		return &fakePuzzleDecoder{
@@ -544,9 +557,9 @@ func TestCollectionImporterImportFormatCancellationUsesCleanupContext(t *testing
 		}
 	})
 
-	_, err := importer.ImportFormat(ctx, FormatLinearFENUCI, path, path, nil)
+	_, err := importer.Import(ctx, mustInspectCollection(t, importer, path), nil)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("ImportFormat() error = %v, want context.Canceled", err)
+		t.Fatalf("Import() error = %v, want context.Canceled", err)
 	}
 	if generation.abandonCalls != 1 || generation.sealCalls != 0 || generation.activateCalls != 0 {
 		t.Fatalf("lifecycle calls = abandon %d, seal %d, activate %d", generation.abandonCalls, generation.sealCalls, generation.activateCalls)
@@ -556,55 +569,19 @@ func TestCollectionImporterImportFormatCancellationUsesCleanupContext(t *testing
 	}
 }
 
-func TestCollectionImporterImportFormatRejectsStaleInspectionIdentity(t *testing.T) {
+func TestCollectionImporterImportRejectsStaleInspectionIdentity(t *testing.T) {
 	importer, path, generation := newCollectionRunner(t, "identity", func() PuzzleDecoder {
 		return &fakePuzzleDecoder{}
 	})
 
-	_, err := importer.ImportFormat(context.Background(), FormatLinearFENUCI, "stale-source", path, nil)
+	inspection := mustInspectCollection(t, importer, path)
+	inspection.SourceID = "stale-source"
+	_, err := importer.Import(context.Background(), inspection, nil)
 	if err == nil || !strings.Contains(err.Error(), "source ID") {
-		t.Fatalf("ImportFormat() error = %v, want source ID mismatch", err)
+		t.Fatalf("Import() error = %v, want source ID mismatch", err)
 	}
 	if generation.abandonCalls != 0 || generation.sealCalls != 0 || generation.activateCalls != 0 {
 		t.Fatalf("stale inspection entered generation lifecycle: %+v", generation)
-	}
-}
-
-func TestCollectionImporterImportFormatReinspectionUsesRegistrySelection(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "collection.pgn")
-	if err := os.WriteFile(path, []byte("shared-signature"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	normalizedPath, err := normalizeImportPath(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{ExternalID: "one"}}
-	generation := &collectionCaptureGeneration{report: ImportReport{Accepted: 1}}
-	catalog := &collectionCaptureCatalog{generation: generation}
-	importer := CollectionImporter{
-		Catalog:          catalog,
-		CatalogDirectory: t.TempDir(),
-		AvailableBytes:   func(string) (uint64, error) { return math.MaxUint64, nil },
-		Adapters: []PuzzleAdapter{
-			fakePuzzleAdapter{
-				format: FormatLinearFENUCI, signature: "shared-signature",
-				decoder: func() PuzzleDecoder {
-					return &fakePuzzleDecoder{records: []DecodedRecord{{Puzzle: &puzzle}}}
-				},
-			},
-			fakePuzzleAdapter{format: FormatTacticalPGN, signature: "shared-signature"},
-		},
-	}
-
-	_, err = importer.ImportFormat(
-		context.Background(), FormatLinearFENUCI, normalizedPath, normalizedPath, nil,
-	)
-	if err == nil || !strings.Contains(err.Error(), "format") {
-		t.Fatalf("ImportFormat() error = %v, want authoritative format mismatch", err)
-	}
-	if catalog.beginCalls != 0 {
-		t.Fatalf("BeginImport calls = %d, want 0", catalog.beginCalls)
 	}
 }
 
@@ -639,16 +616,11 @@ func TestCollectionImporterTacticalPGNAbandonsConflictingSourceIdentity(t *testi
 				AvailableBytes:   func(string) (uint64, error) { return math.MaxUint64, nil },
 				Adapters:         []PuzzleAdapter{NewTacticalPGNAdapter(chessrules.Rules{})},
 			}
+			inspection := mustInspectCollection(t, importer, path)
 
-			_, err := importer.ImportFormat(
-				context.Background(),
-				FormatTacticalPGN,
-				"club-tactics",
-				path,
-				nil,
-			)
+			_, err := importer.Import(context.Background(), inspection, nil)
 			if err == nil || !strings.Contains(err.Error(), "SourceId") {
-				t.Errorf("ImportFormat() error = %v, want fatal SourceId conflict", err)
+				t.Errorf("Import() error = %v, want fatal SourceId conflict", err)
 			}
 			if generation.activateCalls != 0 || generation.sealCalls != 0 || generation.abandonCalls != 1 {
 				t.Errorf("lifecycle = activate %d, seal %d, abandon %d", generation.activateCalls, generation.sealCalls, generation.abandonCalls)
@@ -681,16 +653,11 @@ func TestCollectionImporterTacticalPGNAbandonsWhenFirstGameLosesEmbeddedIdentity
 		},
 		Adapters: []PuzzleAdapter{NewTacticalPGNAdapter(chessrules.Rules{})},
 	}
+	inspection := mustInspectCollection(t, importer, path)
 
-	_, err := importer.ImportFormat(
-		context.Background(),
-		FormatTacticalPGN,
-		"club-tactics",
-		path,
-		nil,
-	)
+	_, err := importer.Import(context.Background(), inspection, nil)
 	if err == nil || !strings.Contains(err.Error(), "SourceId") {
-		t.Fatalf("ImportFormat() error = %v, want fatal first-game SourceId mismatch", err)
+		t.Fatalf("Import() error = %v, want fatal first-game SourceId mismatch", err)
 	}
 	if !mutated {
 		t.Fatal("source was not mutated at the post-inspection lifecycle boundary")
@@ -705,7 +672,7 @@ func TestCollectionImporterTacticalPGNAbandonsWhenFirstGameLosesEmbeddedIdentity
 	}
 }
 
-func TestCollectionImporterImportFormatCancelsUnreadRawDrain(t *testing.T) {
+func TestCollectionImporterImportCancelsUnreadRawDrain(t *testing.T) {
 	const contents = "unread trailing raw source bytes"
 	ctx, cancel := context.WithCancel(context.Background())
 	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{ExternalID: "one"}}
@@ -717,11 +684,12 @@ func TestCollectionImporterImportFormatCancelsUnreadRawDrain(t *testing.T) {
 	})
 	var progress []Progress
 
-	_, err := importer.ImportFormat(ctx, FormatLinearFENUCI, path, path, func(got Progress) {
+	inspection := mustInspectCollection(t, importer, path)
+	_, err := importer.Import(ctx, inspection, func(got Progress) {
 		progress = append(progress, got)
 	})
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("ImportFormat() error = %v, want context.Canceled", err)
+		t.Fatalf("Import() error = %v, want context.Canceled", err)
 	}
 	var maximumBytesRead int64
 	for _, snapshot := range progress {
@@ -741,10 +709,6 @@ func TestCollectionImporterLucasFNSAbandonsAfterFatalLineFramingError(t *testing
 	if err := os.WriteFile(path, []byte(valid+strings.Repeat("x", (1<<20)+1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	normalizedPath, err := normalizeImportPath(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	generation := &collectionCaptureGeneration{report: ImportReport{Accepted: 1}}
 	importer := CollectionImporter{
 		Catalog:          &collectionCaptureCatalog{generation: generation},
@@ -752,16 +716,11 @@ func TestCollectionImporterLucasFNSAbandonsAfterFatalLineFramingError(t *testing
 		AvailableBytes:   func(string) (uint64, error) { return math.MaxUint64, nil },
 		Adapters:         []PuzzleAdapter{NewLucasFNSAdapter(chessrules.Rules{})},
 	}
+	inspection := mustInspectCollection(t, importer, path)
 
-	_, err = importer.ImportFormat(
-		context.Background(),
-		FormatLucasFNS,
-		normalizedPath,
-		path,
-		nil,
-	)
+	_, err := importer.Import(context.Background(), inspection, nil)
 	if !errors.Is(err, bufio.ErrTooLong) {
-		t.Fatalf("ImportFormat() error = %v, want bufio.ErrTooLong", err)
+		t.Fatalf("Import() error = %v, want bufio.ErrTooLong", err)
 	}
 	if len(generation.puzzles) != 1 {
 		t.Fatalf("staged puzzles = %d, want first record staged", len(generation.puzzles))

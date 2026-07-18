@@ -227,48 +227,6 @@ func (i CollectionImporter) Import(
 	return i.importResolved(ctx, adapter, inspection, emit)
 }
 
-func (i CollectionImporter) ImportFormat(
-	ctx context.Context,
-	format ImportFormat,
-	sourceID string,
-	path string,
-	progress ProgressSink,
-) (ImportReport, error) {
-	emit := importProgressEmitter(progress)
-	emit(ImportDetecting, 0, 0, 0)
-
-	normalizedPath, err := normalizeImportPath(path)
-	if err != nil {
-		return ImportReport{}, err
-	}
-	adapter, inspection, err := i.inspectRegistry(ctx, normalizedPath)
-	if err != nil {
-		return ImportReport{}, err
-	}
-	if inspection.Format != format {
-		return ImportReport{}, fmt.Errorf(
-			"puzzle import format changed after inspection: got %q, want %q",
-			inspection.Format,
-			format,
-		)
-	}
-	if inspection.Path != normalizedPath {
-		return ImportReport{}, fmt.Errorf(
-			"puzzle import path changed after inspection: got %q, want %q",
-			inspection.Path,
-			normalizedPath,
-		)
-	}
-	if sourceID != inspection.SourceID {
-		return ImportReport{}, fmt.Errorf(
-			"puzzle import source ID changed after inspection: got %q, want %q",
-			inspection.SourceID,
-			sourceID,
-		)
-	}
-	return i.importResolved(ctx, adapter, inspection, emit)
-}
-
 func importProgressEmitter(progress ProgressSink) func(ImportPhase, int64, int64, int64) {
 	return func(phase ImportPhase, rowsRead, bytesRead, totalBytes int64) {
 		if progress != nil {

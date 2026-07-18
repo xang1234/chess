@@ -252,9 +252,7 @@ func TestMultiFormatImportFailuresPreserveThePriorPGNHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := importer.ImportFormat(
-		ctx, zeroInspection.Format, zeroInspection.SourceID, zeroInspection.Path, nil,
-	); !errors.Is(err, ErrNoValidPuzzles) {
+	if _, err := importer.Import(ctx, zeroInspection, nil); !errors.Is(err, ErrNoValidPuzzles) {
 		t.Fatalf("zero-valid import error = %v, want ErrNoValidPuzzles", err)
 	}
 	assertMultiFormatHeadUnchanged(t, catalog, store, stable, stableHead)
@@ -265,11 +263,8 @@ func TestMultiFormatImportFailuresPreserveThePriorPGNHead(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancelContext, cancel := context.WithCancel(ctx)
-	_, err = importer.ImportFormat(
-		cancelContext,
-		cancelInspection.Format,
-		cancelInspection.SourceID,
-		cancelInspection.Path,
+	_, err = importer.Import(
+		cancelContext, cancelInspection,
 		func(progress Progress) {
 			if progress.Phase == ImportParsing {
 				cancel()
@@ -297,13 +292,8 @@ func TestMultiFormatImportFailuresPreserveThePriorPGNHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := importer.ImportFormat(
-		ctx,
-		conflictInspection.Format,
-		conflictInspection.SourceID,
-		conflictInspection.Path,
-		nil,
-	); err == nil || !strings.Contains(err.Error(), "conflicts with inspected source ID") {
+	if _, err := importer.Import(ctx, conflictInspection, nil); err == nil ||
+		!strings.Contains(err.Error(), "conflicts with inspected source ID") {
 		t.Fatalf("late-conflicting import error = %v", err)
 	}
 	assertMultiFormatHeadUnchanged(t, catalog, store, stable, stableHead)
@@ -352,9 +342,7 @@ func importMultiFormatFixture(
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := importer.ImportFormat(
-		context.Background(), inspection.Format, inspection.SourceID, inspection.Path, nil,
-	)
+	report, err := importer.Import(context.Background(), inspection, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,28 +31,6 @@ var lichessColumns = []string{
 	"OpeningTags",
 }
 
-type LichessImporter struct {
-	Catalog          CatalogWriter
-	Rules            chessrules.Rules
-	CatalogDirectory string
-	AvailableBytes   func(string) (uint64, error)
-}
-
-func (i LichessImporter) Import(
-	ctx context.Context,
-	sourceID string,
-	path string,
-	progress ProgressSink,
-) (ImportReport, error) {
-	collection := CollectionImporter{
-		Catalog:          i.Catalog,
-		Adapters:         []PuzzleAdapter{NewLichessAdapter(i.Rules)},
-		CatalogDirectory: i.CatalogDirectory,
-		AvailableBytes:   i.AvailableBytes,
-	}
-	return collection.ImportFormat(ctx, FormatLichess, sourceID, path, progress)
-}
-
 type lichessAdapter struct {
 	rules chessrules.Rules
 }
