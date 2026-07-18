@@ -1,6 +1,7 @@
 package puzzles
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -34,6 +35,93 @@ const canonicalJSONSource = `{
   "url": "https://example.test/club",
   "attribution": "Club coach"
 }`
+
+func TestCanonicalJSONSolutionRepresentationDoesNotRetainRawSubtrees(t *testing.T) {
+	field, present := reflect.TypeOf(canonicalPuzzle{}).FieldByName("Solution")
+	if !present {
+		t.Fatal("canonicalPuzzle has no Solution field")
+	}
+	want := reflect.TypeOf([]domain.MoveNode(nil))
+	if field.Type != want {
+		t.Fatalf("canonicalPuzzle.Solution type = %v, want %v", field.Type, want)
+	}
+}
+
+func TestCanonicalJSONValueFramingCapsCaptureAndConsumesOversizedValue(t *testing.T) {
+	reader := bufio.NewReader(strings.NewReader(
+		`{"blob":"` + strings.Repeat("x", 256) + `"}, {"next":true}`,
+	))
+	raw, oversized, err := readCanonicalJSONValue(reader, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !oversized || len(raw) != 33 {
+		t.Fatalf("first capture oversized/bytes = %v/%d, want true/33", oversized, len(raw))
+	}
+	separator, err := readCanonicalJSONNonSpace(reader)
+	if err != nil || separator != ',' {
+		t.Fatalf("separator/error = %q/%v, want comma", separator, err)
+	}
+	second, oversized, err := readCanonicalJSONValue(reader, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oversized || string(second) != `{"next":true}` {
+		t.Fatalf("second capture oversized/value = %v/%q", oversized, second)
+	}
+}
+
+func TestCanonicalJSONValueFramingPreservesNestedValueExactly(t *testing.T) {
+	reader := bufio.NewReader(strings.NewReader(canonicalJSONWhitePuzzle))
+	raw, oversized, err := readCanonicalJSONValue(reader, maxCanonicalJSONPuzzleBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oversized || string(raw) != canonicalJSONWhitePuzzle {
+		t.Fatalf("framed nested value oversized/matches = %v/%v\nraw: %s", oversized, string(raw) == canonicalJSONWhitePuzzle, raw)
+	}
+}
+
+func TestCanonicalJSONValueFramingRejectsMalformedAndTruncatedValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "invalid escape after capture limit", value: `{"blob":"` + strings.Repeat("x", 64) + `\q"}`},
+		{name: "truncated oversized string", value: `{"blob":"` + strings.Repeat("x", 64)},
+		{name: "leading zero", value: `{"value":01}`},
+		{name: "missing fraction digit", value: `{"value":1.}`},
+		{name: "missing exponent digit", value: `{"value":1e}`},
+		{name: "invalid literal", value: `{"value":truX}`},
+		{name: "object trailing comma", value: `{"value":1,}`},
+		{name: "array trailing comma", value: `[1,]`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := bufio.NewReader(strings.NewReader(test.value))
+			if _, _, err := readCanonicalJSONValue(reader, 16); err == nil {
+				t.Fatalf("readCanonicalJSONValue(%q) error = nil", test.value)
+			}
+		})
+	}
+}
+
+func TestCanonicalJSONDecoderContinuesAfterOversizedPuzzle(t *testing.T) {
+	oversized := `{"id":"` + strings.Repeat("x", 2*1024*1024) + `"}`
+	contents := `{
+  "schema":"chess-trainer-puzzles/v1",
+  "puzzles":[` + oversized + `,` + canonicalJSONWhitePuzzle + `],
+  "source":` + canonicalJSONSource + `
+}`
+	adapter, path, inspection := inspectCanonicalJSON(t, contents)
+	records := decodeCanonicalJSONFile(t, adapter, path, inspection)
+	if len(records) != 2 || records[0].Rejection == nil || records[1].Puzzle == nil {
+		t.Fatalf("records = %+v, want oversized rejection then puzzle", records)
+	}
+	if records[0].Rejection.Ordinal != 1 || !strings.Contains(records[0].Rejection.Reason, "maximum") {
+		t.Fatalf("first rejection = %+v", records[0].Rejection)
+	}
+}
 
 func TestCanonicalJSONAdapterStreamsPuzzlesBeforeSourceAndAppliesDefaults(t *testing.T) {
 	contents := `{
@@ -361,6 +449,35 @@ func TestCanonicalJSONDecoderTreatsBrokenFramingAsFatal(t *testing.T) {
 	}
 	if _, err := decoder.Next(context.Background()); err == nil {
 		t.Fatal("second Next() error = nil, want fatal JSON framing error")
+	}
+}
+
+func TestCanonicalJSONDecoderTreatsInvalidRecordDelimiterAsFatal(t *testing.T) {
+	contents := `{
+  "schema":"chess-trainer-puzzles/v1",
+  "source":` + canonicalJSONSource + `,
+  "puzzles":[` + canonicalJSONWhitePuzzle + `,` + canonicalJSONWhitePuzzle + `x]
+}`
+	decoder, err := NewCanonicalJSONAdapter(chessrules.Rules{}).NewDecoder(
+		strings.NewReader(contents),
+		ImportInspection{
+			SourceID:       "club-json",
+			SourceIDOrigin: SourceIDEmbedded,
+			SourceName:     "Club JSON",
+			URL:            "https://example.test/club",
+			Attribution:    "Club coach",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer decoder.Close()
+	first, err := decoder.Next(context.Background())
+	if err != nil || first.Puzzle == nil {
+		t.Fatalf("first record/error = %+v/%v, want puzzle", first, err)
+	}
+	if record, err := decoder.Next(context.Background()); err == nil || record.Puzzle != nil || record.Rejection != nil {
+		t.Fatalf("second record/error = %+v/%v, want immediate fatal delimiter error", record, err)
 	}
 }
 
