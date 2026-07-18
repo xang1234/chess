@@ -150,6 +150,27 @@ func TestCollectionImporterInspectUsesContentAndPathFallback(t *testing.T) {
 	}
 }
 
+func TestCollectionImporterInspectSelectsLinearFENContentWithMisleadingPGNExtension(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "misleading.pgn")
+	contents := "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1 e2e4 e8f7 1375\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	importer := CollectionImporter{Adapters: []PuzzleAdapter{
+		NewTacticalPGNAdapter(chessrules.Rules{}),
+		NewLinearFENAdapter(chessrules.Rules{}),
+	}}
+
+	got, err := importer.Inspect(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Format != FormatLinearFENUCI || got.SourceID != got.Path ||
+		got.SourceIDOrigin != SourceIDPath || got.Filename != "misleading.pgn" {
+		t.Fatalf("inspection = %+v", got)
+	}
+}
+
 func TestCollectionImporterInspectRejectsNoContentMatch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "unsupported.pgn")
 	if err := os.WriteFile(path, []byte("unknown"), 0o600); err != nil {
