@@ -136,10 +136,7 @@ func (d *tacticalPGNDecoder) Next(ctx context.Context) (DecodedRecord, error) {
 		), nil
 	}
 
-	tokens, tags, err := tokenizeTacticalPGNGame(scanned)
-	if err != nil {
-		return tacticalPGNRejection(d.ordinal, err), nil
-	}
+	tokens, tags, tokenizeErr := tokenizeTacticalPGNGame(scanned)
 	for _, value := range tags["SourceId"] {
 		recordSourceID := strings.TrimSpace(value)
 		firstGameFallback := d.ordinal == 1 && recordSourceID == ""
@@ -151,6 +148,9 @@ func (d *tacticalPGNDecoder) Next(ctx context.Context) (DecodedRecord, error) {
 				d.sourceID,
 			)
 		}
+	}
+	if tokenizeErr != nil {
+		return tacticalPGNRejection(d.ordinal, tokenizeErr), nil
 	}
 	game, err := parseTacticalPGNTokens(tokens)
 	if err != nil {
@@ -178,11 +178,6 @@ func tokenizeTacticalPGNGame(
 	}
 	tags := make(map[string][]string)
 	tagCount := 0
-	for _, token := range tokens {
-		if token.Error != nil {
-			return nil, nil, fmt.Errorf("tokenize PGN game: %w", token.Error)
-		}
-	}
 	for position := 0; position+3 < len(tokens); position += 4 {
 		if tokens[position].Type != chess.TagStart ||
 			tokens[position+1].Type != chess.TagKey ||
@@ -195,11 +190,16 @@ func tokenizeTacticalPGNGame(
 		tagCount++
 	}
 	if tagCount > maxTacticalPGNTags {
-		return nil, nil, fmt.Errorf(
+		return tokens, tags, fmt.Errorf(
 			"PGN game has %d tag pairs, maximum is %d",
 			tagCount,
 			maxTacticalPGNTags,
 		)
+	}
+	for _, token := range tokens {
+		if token.Error != nil {
+			return tokens, tags, fmt.Errorf("tokenize PGN game: %w", token.Error)
+		}
 	}
 	return tokens, tags, nil
 }

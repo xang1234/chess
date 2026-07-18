@@ -513,6 +513,7 @@ func TestCollectionImporterTacticalPGNAbandonsConflictingSourceIdentity(t *testi
 	}{
 		{name: "valid conflicting record", sourceID: "other-club", movetext: "1. e4 *"},
 		{name: "conflict before illegal movetext", sourceID: "other-club", movetext: "1. e5 *"},
+		{name: "conflict before genuine lexer error", sourceID: "other-club", movetext: "1. e *"},
 		{name: "explicit empty identity", sourceID: "   ", movetext: "1. e4 *"},
 	}
 
@@ -544,10 +545,10 @@ func TestCollectionImporterTacticalPGNAbandonsConflictingSourceIdentity(t *testi
 				nil,
 			)
 			if err == nil || !strings.Contains(err.Error(), "SourceId") {
-				t.Fatalf("ImportFormat() error = %v, want fatal SourceId conflict", err)
+				t.Errorf("ImportFormat() error = %v, want fatal SourceId conflict", err)
 			}
 			if generation.activateCalls != 0 || generation.sealCalls != 0 || generation.abandonCalls != 1 {
-				t.Fatalf("lifecycle = activate %d, seal %d, abandon %d", generation.activateCalls, generation.sealCalls, generation.abandonCalls)
+				t.Errorf("lifecycle = activate %d, seal %d, abandon %d", generation.activateCalls, generation.sealCalls, generation.abandonCalls)
 			}
 		})
 	}

@@ -14,6 +14,8 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
+
+	"github.com/corentings/chess/v2"
 )
 
 const tacticalPGNDirectSolver = `[Event "Direct solver turn"]
@@ -259,6 +261,43 @@ func TestTacticalPGNDecoderTreatsAnyLaterExplicitSourceConflictAsFatal(t *testin
 				t.Fatalf("second record/error = %+v/%v, want fatal SourceId conflict", second, err)
 			}
 		})
+	}
+}
+
+func TestTacticalPGNDecoderChecksConflictingSourceBeforeGenuineLexerError(t *testing.T) {
+	conflicting := `[Event "Conflicting identity"]
+[SourceId "other-club"]
+[FEN "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"]
+[White "solver"][Black "?"]
+
+1. e *
+`
+	tokens, err := chess.TokenizeGame(&chess.GameScanned{Raw: conflicting})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lexerError error
+	for _, token := range tokens {
+		if token.Error != nil {
+			lexerError = token.Error
+			break
+		}
+	}
+	if lexerError == nil || !strings.Contains(lexerError.Error(), "invalid square") {
+		t.Fatalf("fixture lexer error = %v, want genuine invalid-square token error", lexerError)
+	}
+
+	decoder := newTacticalPGNTestDecoder(
+		t,
+		tacticalPGNDirectSolver+"\n"+conflicting,
+		"club-tactics",
+	)
+	if first, err := decoder.Next(context.Background()); err != nil || first.Puzzle == nil {
+		t.Fatalf("first record/error = %+v/%v, want puzzle", first, err)
+	}
+	second, err := decoder.Next(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "SourceId") || second.Rejection != nil || second.Puzzle != nil {
+		t.Fatalf("second record/error = %+v/%v, want fatal SourceId conflict before lexer rejection", second, err)
 	}
 }
 
