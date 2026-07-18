@@ -107,11 +107,15 @@ batch finishes. A completed or cancelled import remains queryable by job ID,
 while the prior active generation stays readable until a sealed replacement is
 activated.
 
-Choose the compressed source with the native **Choose puzzle database** dialog;
-the production app does not require an absolute path to be typed or a Terminal
-to be opened. The current job and its event subscription belong to the root app,
-so progress, cancellation, and the terminal report remain available after
-navigating away from the import screen and returning during the same app run.
+Choose a `.zst`, `.pgn`, `.json`, `.fns`, or `.txt` source with the native
+**Choose puzzle collection** dialog; the production app does not require an
+absolute path to be typed or a Terminal to be opened. Confirm the content-
+detected format and source ID before starting. The current job and its event
+subscription belong to the root app, so progress, cancellation, and the terminal
+report remain available after navigating away from the import screen and
+returning during the same app run. See the
+[puzzle import format guide](puzzle-import-formats.md) for exact grammars,
+identity rules, atomicity, and limits.
 
 Application shutdown first rejects new jobs, cancels active import and cleanup
 contexts, and waits for their registered goroutines. SQLite handles close only
@@ -198,10 +202,11 @@ extractions, and user npm configuration are never release inputs.
 
 Use a backup from Parent view before testing restore against valuable data.
 
-1. Complete first-run setup and choose a small `.csv.zst` fixture with the
-   native file dialog. During a second import, navigate home and back to Parent
-   view, confirm progress is still present, then cancel it and confirm the
-   previous catalogue remains available.
+1. Complete first-run setup and choose a small synthetic `.pgn`, `.json`,
+   `.fns`, or `.txt` fixture with the native file dialog. Confirm its source ID
+   and format before importing. During a second import, navigate home and back
+   to Parent view, confirm progress is still present, then cancel it and confirm
+   the previous catalogue remains available.
 2. Start guided training, make one move, force-quit the app, relaunch it, and
    confirm **Continue today's training** restores the same board and progress.
 3. Finish or pause the session. Confirm the home hub is interactive within
@@ -234,5 +239,6 @@ instead of scanning the complete catalogue.
   selected during backup.
 - `puzzles.sqlite` is replaceable and intentionally excluded. If its preserved
   file is corrupt or incompatible, quit, retain or move it for diagnosis,
-  relaunch with the path absent, and reimport the compressed Lichess source.
+  relaunch with the path absent, and reimport the required local puzzle
+  collections.
 - Restore keeps timestamped pre-restore copies in the `backups` directory.

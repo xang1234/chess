@@ -2,7 +2,8 @@
 
 Chess Trainer is a calm, local-first macOS puzzle app designed for a child to
 use without a browser account, advertisements, or a hosted service. It imports
-downloaded Lichess puzzle data, keeps learner history on the Mac, and includes a
+local Lichess zstd/CSV, tactical PGN, canonical JSON, Lucas `.fns`, and linear
+FEN/UCI puzzle collections, keeps learner history on the Mac, and includes a
 basic PGN game library. The puzzle board uses Chessground for familiar click,
 drag, selection, and move-marker behavior.
 
@@ -36,7 +37,9 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.12.0 dev
 See [the local build and acceptance guide](docs/operations/local-build.md) for
 the complete test matrix, puzzle-import acceptance, recovery behavior, and the
 ordinary local `.app` build. Local builds identify their source as
-`development`.
+`development`. The [puzzle import format guide](docs/operations/puzzle-import-formats.md)
+defines the supported grammars, source IDs, rating behavior, atomic replacement,
+and exact resource limits.
 
 ## Public releases
 

@@ -155,7 +155,7 @@ export async function installTestBackend(
       jobId: 'unused',
       request: { kind: 'lichess', sourceId: 'lichess', path: '' },
       status: 'cancelled',
-      progress: { rowsRead: 0, bytesRead: 0 },
+      progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
     }
     const normalController: NormalControllerMock = {
@@ -172,6 +172,10 @@ export async function installTestBackend(
         learnerRatingBounds: { minimum: 800, maximum: 2200 }
       }),
       GetProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
+      InspectPuzzleImport: async () => ({
+        path: '', filename: '', format: 'tactical-pgn', sourceId: '',
+        sourceIdOrigin: 'embedded', replacesExisting: false
+      }),
       OpenDataFolder: async () => {},
       PauseSession: async () => {},
       PlayMove: async () => { throw new Error('test backend has no move response') },
@@ -337,11 +341,13 @@ export async function installTestBackend(
     let hintLevel = 0
     let importedPath = ''
     let holdImportOpen = false
+    const importPath = '/Users/family/Downloads/club-tactics.pgn'
+    const importBytes = 4096
     let importResult: WireImportResult = {
       jobId: 'job-1',
-      request: { kind: 'lichess', sourceId: 'lichess', path: '' },
+      request: { kind: 'tactical-pgn', sourceId: 'club-tactics', path: '' },
       status: 'running',
-      progress: { rowsRead: 0, bytesRead: 0 },
+      progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: importBytes },
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
     }
 
@@ -353,8 +359,13 @@ export async function installTestBackend(
     state.holdImportOpen = () => { holdImportOpen = true }
     state.selectedImportPath = () => importedPath
     state.reportImportProgress = (rowsRead: number, bytesRead: number) => {
-      const progress = { jobId: 'job-1', rowsRead, bytesRead }
-      importResult = { ...importResult, progress: { rowsRead, bytesRead } }
+      const progress = {
+        jobId: 'job-1', phase: 'parsing', rowsRead, bytesRead, totalBytes: importBytes
+      }
+      importResult = {
+        ...importResult,
+        progress: { phase: 'parsing', rowsRead, bytesRead, totalBytes: importBytes }
+      }
       emit('import:progress', progress)
     }
 
@@ -450,23 +461,42 @@ export async function installTestBackend(
           total: 2, completed: 2, firstTry: 0, usedHint: 1, revealed: 1
         }]
       }),
-      ChoosePuzzleImportFile: async () => '/Users/family/Downloads/lichess_db_puzzle.csv.zst',
-      StartLichessImport: async (path: string) => {
+      ChoosePuzzleImportFile: async () => importPath,
+      InspectPuzzleImport: async (path: string) => {
+        if (path !== importPath) throw new Error(`unexpected inspection path ${path}`)
+        return {
+          path: importPath,
+          filename: 'club-tactics.pgn',
+          format: 'tactical-pgn',
+          sourceId: 'club-tactics',
+          sourceIdOrigin: 'embedded',
+          replacesExisting: false
+        }
+      },
+      StartPuzzleImport: async (path: string) => {
         importedPath = path
         importResult = {
           jobId: 'job-1',
-          request: { kind: 'lichess', sourceId: 'lichess', path },
+          request: { kind: 'tactical-pgn', sourceId: 'club-tactics', path },
           status: 'running',
-          progress: { rowsRead: 0, bytesRead: 0 },
+          progress: {
+            phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: importBytes
+          },
           report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
         }
         if (holdImportOpen) return 'job-1'
         setTimeout(() => {
-          emit('import:progress', { jobId: 'job-1', rowsRead: 10_000, bytesRead: 2048 })
+          emit('import:progress', {
+            jobId: 'job-1', phase: 'parsing', rowsRead: 10_000,
+            bytesRead: 2048, totalBytes: importBytes
+          })
           importResult = {
             ...importResult,
             status: 'succeeded',
-            progress: { rowsRead: 10_000, bytesRead: 2048 },
+            progress: {
+              phase: 'activating', rowsRead: 10_000,
+              bytesRead: importBytes, totalBytes: importBytes
+            },
             report: { accepted: 9800, duplicates: 150, rejected: 50, examples: [] }
           }
           emit('import:finished', importResult)
