@@ -1071,6 +1071,7 @@ func canonicalJSONRejection(ordinal int64, err error) DecodedRecord {
 }
 
 const maxCanonicalJSONNestingDepth = 10_000
+const initialCanonicalJSONCaptureBytes = 256
 
 type canonicalJSONCapture struct {
 	limit     int
@@ -1082,16 +1083,27 @@ func newCanonicalJSONCapture(limit int) *canonicalJSONCapture {
 	if limit < 0 {
 		limit = 0
 	}
+	initialCapacity := min(limit+1, initialCanonicalJSONCaptureBytes)
 	return &canonicalJSONCapture{
 		limit: limit,
-		bytes: make([]byte, 0, limit+1),
+		bytes: make([]byte, 0, initialCapacity),
 	}
 }
 
 func (c *canonicalJSONCapture) append(value byte) {
-	if len(c.bytes) <= c.limit {
-		c.bytes = append(c.bytes, value)
+	maximum := c.limit + 1
+	if len(c.bytes) >= maximum {
+		c.oversized = true
+		return
 	}
+	if len(c.bytes) == cap(c.bytes) {
+		capacity := max(1, cap(c.bytes)*2)
+		capacity = min(capacity, maximum)
+		grown := make([]byte, len(c.bytes), capacity)
+		copy(grown, c.bytes)
+		c.bytes = grown
+	}
+	c.bytes = append(c.bytes, value)
 	if len(c.bytes) > c.limit {
 		c.oversized = true
 	}
@@ -1118,14 +1130,17 @@ func consumeCanonicalJSONValue(
 	first byte,
 	depth int,
 ) error {
-	if depth > maxCanonicalJSONNestingDepth {
-		return fmt.Errorf("JSON nesting exceeds maximum of %d", maxCanonicalJSONNestingDepth)
-	}
 	capture.append(first)
 	switch first {
 	case '{':
+		if depth > maxCanonicalJSONNestingDepth {
+			return fmt.Errorf("JSON nesting exceeds maximum of %d", maxCanonicalJSONNestingDepth)
+		}
 		return consumeCanonicalJSONObject(reader, capture, depth)
 	case '[':
+		if depth > maxCanonicalJSONNestingDepth {
+			return fmt.Errorf("JSON nesting exceeds maximum of %d", maxCanonicalJSONNestingDepth)
+		}
 		return consumeCanonicalJSONArray(reader, capture, depth)
 	case '"':
 		return consumeCanonicalJSONString(reader, capture)
