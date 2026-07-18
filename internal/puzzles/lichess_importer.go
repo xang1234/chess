@@ -328,28 +328,3 @@ func nullableInteger(record []string, columns map[string]int, name string) (*int
 	}
 	return &value, nil
 }
-
-func solverFromFEN(fen string) (domain.Color, error) {
-	fields := strings.Fields(fen)
-	if len(fields) < 2 {
-		return "", errors.New("displayed FEN has no active-color field")
-	}
-	switch fields[1] {
-	case "w":
-		return domain.White, nil
-	case "b":
-		return domain.Black, nil
-	default:
-		return "", fmt.Errorf("invalid active color %q", fields[1])
-	}
-}
-
-func moveLine(moves []string) []domain.MoveNode {
-	if len(moves) == 0 {
-		return nil
-	}
-	return []domain.MoveNode{{
-		UCI:      strings.ToLower(moves[0]),
-		Children: moveLine(moves[1:]),
-	}}
-}
