@@ -1,6 +1,7 @@
 package puzzles
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -626,5 +627,46 @@ func TestCollectionImporterImportFormatCancelsUnreadRawDrain(t *testing.T) {
 	}
 	if generation.abandonCalls != 1 || generation.sealCalls != 0 || generation.activateCalls != 0 {
 		t.Fatalf("lifecycle calls = abandon %d, seal %d, activate %d", generation.abandonCalls, generation.sealCalls, generation.activateCalls)
+	}
+}
+
+func TestCollectionImporterLucasFNSAbandonsAfterFatalLineFramingError(t *testing.T) {
+	valid := "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1|valid|1. e4 *\n"
+	path := filepath.Join(t.TempDir(), "Pin.fns")
+	if err := os.WriteFile(path, []byte(valid+strings.Repeat("x", (1<<20)+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	normalizedPath, err := normalizeImportPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := &collectionCaptureGeneration{report: ImportReport{Accepted: 1}}
+	importer := CollectionImporter{
+		Catalog:          &collectionCaptureCatalog{generation: generation},
+		CatalogDirectory: t.TempDir(),
+		AvailableBytes:   func(string) (uint64, error) { return math.MaxUint64, nil },
+		Adapters:         []PuzzleAdapter{NewLucasFNSAdapter(chessrules.Rules{})},
+	}
+
+	_, err = importer.ImportFormat(
+		context.Background(),
+		FormatLucasFNS,
+		normalizedPath,
+		path,
+		nil,
+	)
+	if !errors.Is(err, bufio.ErrTooLong) {
+		t.Fatalf("ImportFormat() error = %v, want bufio.ErrTooLong", err)
+	}
+	if len(generation.puzzles) != 1 {
+		t.Fatalf("staged puzzles = %d, want first record staged", len(generation.puzzles))
+	}
+	if generation.abandonCalls != 1 || generation.sealCalls != 0 || generation.activateCalls != 0 {
+		t.Fatalf(
+			"lifecycle = abandon %d, seal %d, activate %d",
+			generation.abandonCalls,
+			generation.sealCalls,
+			generation.activateCalls,
+		)
 	}
 }
