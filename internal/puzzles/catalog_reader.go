@@ -570,7 +570,6 @@ func (c *SQLiteCatalog) LearnerRatingBounds(ctx context.Context) (RatingBounds, 
 	rows, err := tx.QueryContext(
 		ctx,
 		`SELECT
-		   source.kind,
 		   (SELECT rated.rating_key
 		    FROM occurrence_ratings AS rated
 		    WHERE rated.generation_id = head.generation_id
@@ -587,7 +586,6 @@ func (c *SQLiteCatalog) LearnerRatingBounds(ctx context.Context) (RatingBounds, 
 		 JOIN source_generations AS generation
 		   ON generation.source_id = head.source_id
 		  AND generation.generation_id = head.generation_id
-		 JOIN sources AS source ON source.source_id = head.source_id
 		 WHERE generation.status = 'sealed'`,
 		nullPuzzleRatingKey,
 		nullPuzzleRatingKey,
@@ -597,14 +595,12 @@ func (c *SQLiteCatalog) LearnerRatingBounds(ctx context.Context) (RatingBounds, 
 	}
 	summaries := make([]SourceSummary, 0)
 	for rows.Next() {
-		var kind string
 		var minimum, maximum sql.NullInt64
-		if err := rows.Scan(&kind, &minimum, &maximum); err != nil {
+		if err := rows.Scan(&minimum, &maximum); err != nil {
 			rows.Close()
 			return RatingBounds{}, fmt.Errorf("scan learner rating bounds: %w", err)
 		}
 		summaries = append(summaries, SourceSummary{
-			Kind:          kind,
 			MinimumRating: generationIntPointer(minimum),
 			MaximumRating: generationIntPointer(maximum),
 		})

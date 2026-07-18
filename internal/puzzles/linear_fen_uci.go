@@ -3,7 +3,6 @@ package puzzles
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,10 +13,7 @@ import (
 	"chess-trainer/internal/chessrules"
 )
 
-const (
-	maxLinearFENLineBytes     = 1 << 20
-	maxLinearFENMetadataBytes = 64 * 1024
-)
+const maxLinearFENLineBytes = 1 << 20
 
 type linearFENAdapter struct {
 	rules chessrules.Rules
@@ -265,16 +261,6 @@ func parseLinearFENLine(
 	core, err := finalizeCore(rules, normalizedFEN, solver, solution)
 	if err != nil {
 		return PuzzleCore{}, nil, fmt.Errorf("validate linear UCI move line: %w", err)
-	}
-	encodedMetadata, err := json.Marshal(metadata)
-	if err != nil {
-		return PuzzleCore{}, nil, fmt.Errorf("serialize linear FEN/UCI metadata: %w", err)
-	}
-	if len(encodedMetadata) > maxLinearFENMetadataBytes {
-		return PuzzleCore{}, nil, fmt.Errorf(
-			"metadata exceeds maximum of %d bytes",
-			maxLinearFENMetadataBytes,
-		)
 	}
 	return core, metadata, nil
 }

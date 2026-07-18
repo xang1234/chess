@@ -482,6 +482,34 @@ func TestLearnerRatingBoundsDoNotReadOccurrencePayloadTables(t *testing.T) {
 	}
 }
 
+func TestLearnerRatingBoundsDoesNotRequireSourcesTable(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("bounds-without-sources", "lichess", "/bounds-without-sources")
+	high := testTrainingPuzzle(source, "bounds-high", 2200)
+	high.Occurrence.Ordinal = 2
+	seedActiveReaderGeneration(
+		t,
+		store,
+		source,
+		testTrainingPuzzle(source, "bounds-low", 900),
+		high,
+	)
+	if _, err := store.Writer.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Writer.Exec(`DROP TABLE sources`); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := catalog.LearnerRatingBounds(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (RatingBounds{Minimum: 900, Maximum: 2200}); got != want {
+		t.Fatalf("LearnerRatingBounds() = %+v, want %+v", got, want)
+	}
+}
+
 func TestRatedCandidatesPreferOnlySourcesInsideRatingWindow(t *testing.T) {
 	catalog, _ := openTestGenerationalCatalog(t)
 	alpha := testSource("alpha", "csv", "/rated-window-alpha")
