@@ -360,6 +360,61 @@ func TestResultKeepsMonotonicProgress(t *testing.T) {
 	}
 }
 
+func TestImportProgressPhaseAndTotalsRemainMonotonic(t *testing.T) {
+	emitter := newRecordingEmitter()
+	service := NewService(map[Kind]Importer{
+		KindCanonicalJSON: scriptedImporter{
+			progress: []puzzles.Progress{
+				{Phase: puzzles.ImportDetecting, RowsRead: 1, BytesRead: 2, TotalBytes: 100},
+				{Phase: puzzles.ImportSealing, RowsRead: 10, BytesRead: 90, TotalBytes: 100},
+				{Phase: puzzles.ImportParsing, RowsRead: 12, BytesRead: 80, TotalBytes: 50},
+				{Phase: puzzles.ImportActivating, RowsRead: 11, BytesRead: 100, TotalBytes: 120},
+			},
+		},
+	}, nil, emitter)
+	t.Cleanup(service.Close)
+
+	jobID, err := service.Start(context.Background(), ImportRequest{
+		Kind: KindCanonicalJSON, SourceID: "club", Path: "/club.json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []puzzles.Progress{
+		{Phase: puzzles.ImportDetecting, RowsRead: 1, BytesRead: 2, TotalBytes: 100},
+		{Phase: puzzles.ImportSealing, RowsRead: 10, BytesRead: 90, TotalBytes: 100},
+		{Phase: puzzles.ImportSealing, RowsRead: 12, BytesRead: 90, TotalBytes: 100},
+		{Phase: puzzles.ImportActivating, RowsRead: 12, BytesRead: 100, TotalBytes: 120},
+	}
+	for index, expected := range want {
+		event := receive(t, emitter.progress)
+		if event.jobID != jobID || event.snapshot != expected {
+			t.Fatalf("progress[%d] = %+v, want job %q snapshot %+v", index, event, jobID, expected)
+		}
+	}
+	finished := receive(t, emitter.finished)
+	if finished.Progress != want[len(want)-1] {
+		t.Fatalf("finished progress = %+v, want %+v", finished.Progress, want[len(want)-1])
+	}
+	stored, err := service.Result(jobID)
+	if err != nil || stored.Progress != want[len(want)-1] {
+		t.Fatalf("Result() = %+v, %v", stored, err)
+	}
+
+	kinds := map[Kind]string{
+		KindLichess:       "lichess",
+		KindTacticalPGN:   "tactical-pgn",
+		KindCanonicalJSON: "canonical-json",
+		KindLucasFNS:      "lucas-fns",
+		KindLinearFENUCI:  "linear-fen-uci",
+	}
+	for kind, expected := range kinds {
+		if string(kind) != expected {
+			t.Fatalf("kind = %q, want %q", kind, expected)
+		}
+	}
+}
+
 func TestConcurrentProgressEmitsMonotonicSnapshots(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once

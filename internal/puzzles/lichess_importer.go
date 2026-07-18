@@ -33,31 +33,11 @@ var lichessColumns = []string{
 	"OpeningTags",
 }
 
-type Progress struct {
-	RowsRead  int64 `json:"rowsRead"`
-	BytesRead int64 `json:"bytesRead"`
-}
-
-type ProgressSink func(Progress)
-
 type LichessImporter struct {
 	Catalog          CatalogWriter
 	Rules            chessrules.Rules
 	CatalogDirectory string
 	AvailableBytes   func(string) (uint64, error)
-}
-
-const abandonImportTimeout = 5 * time.Second
-
-type countingReader struct {
-	reader io.Reader
-	read   int64
-}
-
-func (r *countingReader) Read(buffer []byte) (int, error) {
-	count, err := r.reader.Read(buffer)
-	r.read += int64(count)
-	return count, err
 }
 
 func (i LichessImporter) Import(

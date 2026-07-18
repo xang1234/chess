@@ -16,7 +16,13 @@ const cleanupBatchSize = 1_000
 
 type Kind string
 
-const KindLichess Kind = "lichess"
+const (
+	KindLichess       Kind = "lichess"
+	KindTacticalPGN   Kind = "tactical-pgn"
+	KindCanonicalJSON Kind = "canonical-json"
+	KindLucasFNS      Kind = "lucas-fns"
+	KindLinearFENUCI  Kind = "linear-fen-uci"
+)
 
 type ImportRequest struct {
 	Kind     Kind   `json:"kind"`
@@ -189,12 +195,31 @@ func (s *Service) recordProgress(jobID string, progress puzzles.Progress) {
 	}
 	state.result.Progress.RowsRead = max(state.result.Progress.RowsRead, progress.RowsRead)
 	state.result.Progress.BytesRead = max(state.result.Progress.BytesRead, progress.BytesRead)
+	state.result.Progress.TotalBytes = max(state.result.Progress.TotalBytes, progress.TotalBytes)
+	if importPhaseRank(progress.Phase) >= importPhaseRank(state.result.Progress.Phase) {
+		state.result.Progress.Phase = progress.Phase
+	}
 	snapshot := state.result.Progress
 	emitter := s.emitter
 	s.mu.Unlock()
 
 	if emitter != nil {
 		emitter.Progress(jobID, snapshot)
+	}
+}
+
+func importPhaseRank(phase puzzles.ImportPhase) int {
+	switch phase {
+	case puzzles.ImportDetecting:
+		return 0
+	case puzzles.ImportParsing:
+		return 1
+	case puzzles.ImportSealing:
+		return 2
+	case puzzles.ImportActivating:
+		return 3
+	default:
+		return -1
 	}
 }
 
