@@ -64,15 +64,15 @@ The file chooser accepts `.zst`, `.pgn`, `.json`, `.fns`, and `.txt`. After sele
 
 The confirmation view presents the source ID as the primary identity. If the format has no embedded or fixed ID, it explicitly labels the normalized absolute path as the fallback source ID. Format and file details remain visible before the user starts the import.
 
-Detection errors disable the start action. Starting an import re-runs detection rather than trusting a stale inspection result. Existing progress, cancellation, completion counts, and bounded error summaries remain available. The backend's generic entry point is `StartPuzzleImport`; the old Lichess-specific entry point delegates to it for compatibility.
+Detection errors disable the start action. The confirmation object is passed intact to `StartPuzzleImport` and becomes the expected import identity. At job execution, the runner re-inspects only the confirmed adapter and rejects a changed format, path, source ID, source-ID origin, or embedded source metadata before staging. It does not re-run the full adapter registry or repeat the catalogue lookup used only to display replacement status. Existing progress, cancellation, completion counts, and bounded error summaries remain available. `StartPuzzleImport` is the only import-start entry point; the obsolete Lichess-specific controller and importer wrappers are removed.
 
 Supported-content detection follows unambiguous signatures:
 
 - Zstandard magic plus the required Lichess CSV header identifies Lichess.
 - A JSON object carrying the supported schema identifier identifies canonical JSON.
-- PGN tag pairs and a tactical `FEN` tag identify tactical PGN.
+- PGN tag pairs and a non-empty tactical `FEN` tag identify tactical PGN without requiring the game movetext or position to be semantically valid.
 - A valid six-field FEN before the first `|`, followed by the Lucas three-field structure, identifies `.fns`.
-- A valid six-field FEN followed by one or more UCI tokens identifies the linear format.
+- A syntactically recognizable six-field FEN shape followed by one or more UCI-shaped tokens identifies the linear format without requiring the position or moves to be legal.
 
 An extension narrows ambiguous text inspection but does not override contradictory content. Unsupported zstd payloads, JSON schemas, and text grammars produce an inspection error.
 
@@ -82,7 +82,7 @@ Source identity resolution is deterministic:
 
 1. Lichess uses the fixed source ID `lichess`.
 2. Canonical JSON uses `source.id` when it is non-empty.
-3. Tactical PGN uses a non-empty `SourceId` tag on the first game. Every later explicit `SourceId` must match; later games may omit it.
+3. Tactical PGN uses a non-empty `SourceId` tag on the first game carrying a non-empty `FEN` tag. Every explicit `SourceId` in the file must match; other games may omit it.
 4. All other inputs, and JSON or PGN without an embedded ID, use the normalized absolute file path.
 
 The normalized path is cleaned, made absolute, and symlinks are resolved when the operating system can resolve them. The chosen path string is stored in the generation metadata and used verbatim as the fallback source ID.
@@ -162,7 +162,7 @@ Each PGN game is one puzzle and follows this convention:
 - `SourceId` follows the file-level consistency rule above.
 - Other bounded tag pairs may be retained in metadata, excluding redundant full movetext and presentation fields.
 
-A malformed game is rejected when the scanner can recover the next game boundary. An unrecoverable PGN tokenization or read error is fatal. Adjacent tag pairs without intervening blank lines are accepted when the PGN parser can tokenize them legally.
+A malformed game is rejected when the scanner can recover the next game boundary. Inspection recognizes a bounded game from its tags and does not require its movetext, FEN, or moves to pass semantic validation. It may continue past non-tactical or oversized records to find the first bounded game with a non-empty `FEN` tag. An unrecoverable PGN framing or read error is fatal. Adjacent tag pairs without intervening blank lines are accepted when the PGN tokenizer can recover their tags.
 
 ## Lucas `.fns` Adapter
 
@@ -198,7 +198,7 @@ Each non-comment line follows the approved grammar:
 - The one-based line number is the external ID.
 - Blank lines and lines whose first non-space character is `#` are ignored. Inline comments are not part of the grammar.
 
-Each malformed or illegal line is independently rejected.
+Each malformed or illegal line is independently rejected. Inspection scans for the first line with the linear record's structural shape; semantic FEN and move validation belongs exclusively to decoding, so an invalid leading record cannot hide valid later records behind an unsupported-format error.
 
 ## Shared Import Pipeline
 
@@ -211,7 +211,7 @@ Format decoders implement one internal pull contract. Each pull returns one of:
 
 The shared runner owns the following lifecycle:
 
-1. Detect the format and resolve the source identity.
+1. Revalidate the confirmed source identity with its selected adapter.
 2. Create a hidden `building` generation.
 3. Stream and validate normalized records while calculating the raw-file checksum and reporting progress.
 4. Add accepted records through the existing bounded generational writer.
@@ -222,6 +222,8 @@ The shared runner owns the following lifecycle:
 Existing fingerprint behavior remains authoritative: stable displayed FEN, solver, and recursively normalized solution tree identify a core. Equal cores from different sources share canonical content while retaining distinct source occurrences and metadata. Existing deterministic duplicate handling within one generation remains unchanged.
 
 Progress exposes detection, parsing/validation, sealing, and activation phases. Byte progress uses the raw file size and a counting reader where available. Record counts are always reported. Checksums cover the exact selected source bytes, including compressed bytes for Lichess.
+
+Every import result contains a progress snapshot. The frontend treats that field as required and rejects backend payloads that omit it.
 
 ## Rating and Scheduling Behavior
 
