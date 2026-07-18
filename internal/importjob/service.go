@@ -32,12 +32,11 @@ const (
 )
 
 type Result struct {
-	JobID      string                   `json:"jobId"`
-	Inspection puzzles.ImportInspection `json:"inspection"`
-	Status     Status                   `json:"status"`
-	Progress   puzzles.Progress         `json:"progress"`
-	Report     puzzles.ImportReport     `json:"report"`
-	Error      string                   `json:"error,omitempty"`
+	JobID    string               `json:"jobId"`
+	Status   Status               `json:"status"`
+	Progress puzzles.Progress     `json:"progress"`
+	Report   puzzles.ImportReport `json:"report"`
+	Error    string               `json:"error,omitempty"`
 }
 
 type Emitter interface {
@@ -140,7 +139,7 @@ func (s *Service) Start(
 	s.jobs[jobID] = &jobState{
 		cancel: cancel,
 		result: Result{
-			JobID: jobID, Inspection: inspection, Status: Running,
+			JobID: jobID, Status: Running,
 			Progress: puzzles.Progress{Phase: puzzles.ImportDetecting},
 		},
 	}

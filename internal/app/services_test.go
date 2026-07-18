@@ -263,9 +263,6 @@ mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https
 			if result.Status != importjob.Succeeded {
 				t.Fatalf("route %q result = %+v", inspection.Format, result)
 			}
-			if result.Inspection != inspection {
-				t.Fatalf("route %q inspection = %+v, want %+v", inspection.Format, result.Inspection, inspection)
-			}
 		})
 	}
 }

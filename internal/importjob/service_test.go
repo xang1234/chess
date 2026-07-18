@@ -2,6 +2,7 @@ package importjob
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -296,8 +297,32 @@ func TestStartPassesCanonicalFormatToImporter(t *testing.T) {
 	call.finish <- importOutcome{report: puzzles.ImportReport{Accepted: 3}}
 
 	finished := receive(t, emitter.finished)
-	if finished.JobID != jobID || finished.Inspection != inspection || finished.Status != Succeeded {
+	if finished.JobID != jobID || finished.Status != Succeeded {
 		t.Fatalf("finished = %+v", finished)
+	}
+}
+
+func TestResultJSONOmitsInspection(t *testing.T) {
+	payload, err := json.Marshal(Result{
+		JobID:    "job-1",
+		Status:   Succeeded,
+		Progress: puzzles.Progress{Phase: puzzles.ImportActivating, RowsRead: 3},
+		Report:   puzzles.ImportReport{Accepted: 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := wire["inspection"]; exists {
+		t.Fatalf("serialized Result exposes inspection: %s", payload)
+	}
+	for _, required := range []string{"jobId", "status", "progress", "report"} {
+		if _, exists := wire[required]; !exists {
+			t.Fatalf("serialized Result lacks %q: %s", required, payload)
+		}
 	}
 }
 
@@ -691,10 +716,9 @@ func TestCompletedResultRemainsQueryableAfterLaterJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Inspection != firstInspection || result.Status != Succeeded ||
-		result.Progress != (puzzles.Progress{
-			Phase: puzzles.ImportDetecting, RowsRead: 7, BytesRead: 11,
-		}) || result.Report.Accepted != 1 {
+	if result.Status != Succeeded || result.Progress != (puzzles.Progress{
+		Phase: puzzles.ImportDetecting, RowsRead: 7, BytesRead: 11,
+	}) || result.Report.Accepted != 1 {
 		t.Fatalf("first result after later job = %+v", result)
 	}
 }

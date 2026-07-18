@@ -224,7 +224,6 @@ export namespace importjob {
 
 	export class Result {
 	    jobId: string;
-	    inspection: puzzles.ImportInspection;
 	    status: string;
 	    progress: puzzles.Progress;
 	    report: puzzles.ImportReport;
@@ -237,7 +236,6 @@ export namespace importjob {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.jobId = source["jobId"];
-	        this.inspection = this.convertValues(source["inspection"], puzzles.ImportInspection);
 	        this.status = source["status"];
 	        this.progress = this.convertValues(source["progress"], puzzles.Progress);
 	        this.report = this.convertValues(source["report"], puzzles.ImportReport);
@@ -456,6 +454,7 @@ export namespace puzzles {
 	    path: string;
 	    filename: string;
 	    format: string;
+	    formatLabel: string;
 	    sourceId: string;
 	    sourceIdOrigin: string;
 	    sourceName?: string;
@@ -472,6 +471,7 @@ export namespace puzzles {
 	        this.path = source["path"];
 	        this.filename = source["filename"];
 	        this.format = source["format"];
+	        this.formatLabel = source["formatLabel"];
 	        this.sourceId = source["sourceId"];
 	        this.sourceIdOrigin = source["sourceIdOrigin"];
 	        this.sourceName = source["sourceName"];
