@@ -224,6 +224,47 @@ func TestTacticalPGNDecoderContinuesAfterRecoverablyFramedParseError(t *testing.
 	}
 }
 
+func TestTacticalPGNInspectionAllowsMalformedLeadingGame(t *testing.T) {
+	contents := `[Event "Broken move"]
+[SourceId "club-tactics"]
+[FEN "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"]
+[White "solver"][Black "?"]
+
+1. e5 *
+
+[Event "Recovered"]
+[FEN "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"]
+[White "solver"][Black "?"]
+
+1. e4 *
+`
+	path := filepath.Join(t.TempDir(), "recovery.pgn")
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewTacticalPGNAdapter(chessrules.Rules{})
+	inspection, matched, err := adapter.Inspect(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matched || inspection.SourceID != "club-tactics" ||
+		inspection.SourceIDOrigin != SourceIDEmbedded {
+		t.Fatalf("inspection/matched = %+v/%v", inspection, matched)
+	}
+	decoder, err := adapter.NewDecoder(strings.NewReader(contents), inspection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := decoder.Next(context.Background())
+	if err != nil || first.Rejection == nil || first.Rejection.Ordinal != 1 {
+		t.Fatalf("first record/error = %+v/%v, want ordinal-1 rejection", first, err)
+	}
+	second, err := decoder.Next(context.Background())
+	if err != nil || second.Puzzle == nil || second.Puzzle.Occurrence.Ordinal != 2 {
+		t.Fatalf("second record/error = %+v/%v, want recovered ordinal-2 puzzle", second, err)
+	}
+}
+
 func TestTacticalPGNDecoderTreatsAnyLaterExplicitSourceConflictAsFatal(t *testing.T) {
 	tests := []struct {
 		name     string

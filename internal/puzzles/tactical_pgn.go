@@ -56,37 +56,50 @@ func (a tacticalPGNAdapter) Inspect(
 	defer file.Close()
 
 	scanner := chess.NewScanner(contextReader{ctx: ctx, reader: file})
-	scanned, err := scanner.ScanGame()
-	if errors.Is(err, io.EOF) {
-		return ImportInspection{}, false, nil
-	}
-	if err != nil {
-		return ImportInspection{}, false, fmt.Errorf("inspect tactical PGN: scan first game: %w", err)
-	}
-	if len(scanned.Raw) > maxTacticalPGNGameBytes {
-		return ImportInspection{}, false, fmt.Errorf(
-			"unsupported tactical PGN content: first game exceeds maximum of %d bytes",
-			maxTacticalPGNGameBytes,
-		)
-	}
-	game, _, err := parseTacticalPGNGame(scanned)
-	if err != nil {
-		return ImportInspection{}, false, fmt.Errorf("unsupported tactical PGN content: %w", err)
-	}
-	if strings.TrimSpace(game.GetTagPair("FEN")) == "" {
-		return ImportInspection{}, false, nil
-	}
+	for {
+		scanned, err := scanner.ScanGame()
+		if errors.Is(err, io.EOF) {
+			return ImportInspection{}, false, nil
+		}
+		if err != nil {
+			return ImportInspection{}, false, fmt.Errorf("inspect tactical PGN: scan game: %w", err)
+		}
+		if len(scanned.Raw) > maxTacticalPGNGameBytes {
+			continue
+		}
+		_, tags, _ := tokenizeTacticalPGNGame(scanned)
+		if !tacticalPGNHasNonEmptyTag(tags, "FEN") {
+			continue
+		}
 
-	sourceID := strings.TrimSpace(game.GetTagPair("SourceId"))
-	origin := SourceIDEmbedded
-	if sourceID == "" {
-		sourceID = path
-		origin = SourceIDPath
+		sourceID := firstTacticalPGNTag(tags, "SourceId")
+		origin := SourceIDEmbedded
+		if sourceID == "" {
+			sourceID = path
+			origin = SourceIDPath
+		}
+		return ImportInspection{
+			SourceID:       sourceID,
+			SourceIDOrigin: origin,
+		}, true, nil
 	}
-	return ImportInspection{
-		SourceID:       sourceID,
-		SourceIDOrigin: origin,
-	}, true, nil
+}
+
+func tacticalPGNHasNonEmptyTag(tags map[string][]string, name string) bool {
+	for _, value := range tags[name] {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func firstTacticalPGNTag(tags map[string][]string, name string) string {
+	values := tags[name]
+	if len(values) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(values[0])
 }
 
 func (a tacticalPGNAdapter) NewDecoder(
@@ -221,18 +234,6 @@ func parseTacticalPGNTokens(tokens []chess.Token) (*chess.Game, error) {
 		return nil, fmt.Errorf("parse PGN game: %w", err)
 	}
 	return game, nil
-}
-
-func parseTacticalPGNGame(scanned *chess.GameScanned) (*chess.Game, map[string][]string, error) {
-	tokens, tags, err := tokenizeTacticalPGNGame(scanned)
-	if err != nil {
-		return nil, nil, err
-	}
-	game, err := parseTacticalPGNTokens(tokens)
-	if err != nil {
-		return nil, nil, err
-	}
-	return game, tags, nil
 }
 
 func (d *tacticalPGNDecoder) normalizeGame(

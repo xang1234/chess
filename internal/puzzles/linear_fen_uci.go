@@ -55,8 +55,8 @@ func (a linearFENAdapter) Inspect(
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if _, _, err := parseLinearFENLine(a.rules, line); err != nil {
-			return ImportInspection{}, false, nil
+		if !looksLikeLinearFENRecord(line) {
+			continue
 		}
 		return ImportInspection{
 			SourceID:       path,
@@ -71,6 +71,83 @@ func (a linearFENAdapter) Inspect(
 		)
 	}
 	return ImportInspection{}, false, nil
+}
+
+func looksLikeLinearFENRecord(line string) bool {
+	fields := strings.Fields(line)
+	if len(fields) < 7 || !looksLikeFENFields(fields[:6]) {
+		return false
+	}
+	moves := fields[6:]
+	if len(moves) > 1 {
+		if _, err := strconv.Atoi(moves[len(moves)-1]); err == nil {
+			moves = moves[:len(moves)-1]
+		}
+	}
+	if len(moves) == 0 {
+		return false
+	}
+	for _, move := range moves {
+		if !looksLikeUCIMove(move) {
+			return false
+		}
+	}
+	return true
+}
+
+func looksLikeFENFields(fields []string) bool {
+	if len(fields) != 6 || (fields[1] != "w" && fields[1] != "b") {
+		return false
+	}
+	ranks := strings.Split(fields[0], "/")
+	if len(ranks) != 8 {
+		return false
+	}
+	for _, rank := range ranks {
+		squares := 0
+		for _, piece := range rank {
+			switch {
+			case piece >= '1' && piece <= '8':
+				squares += int(piece - '0')
+			case strings.ContainsRune("prnbqkPRNBQK", piece):
+				squares++
+			default:
+				return false
+			}
+		}
+		if squares != 8 {
+			return false
+		}
+	}
+	if fields[2] != "-" {
+		for _, right := range fields[2] {
+			if !strings.ContainsRune("KQkq", right) {
+				return false
+			}
+		}
+	}
+	if fields[3] != "-" && (len(fields[3]) != 2 || fields[3][0] < 'a' ||
+		fields[3][0] > 'h' || fields[3][1] < '1' || fields[3][1] > '8') {
+		return false
+	}
+	if _, err := strconv.ParseUint(fields[4], 10, 64); err != nil {
+		return false
+	}
+	if _, err := strconv.ParseUint(fields[5], 10, 64); err != nil {
+		return false
+	}
+	return true
+}
+
+func looksLikeUCIMove(move string) bool {
+	if len(move) != 4 && len(move) != 5 {
+		return false
+	}
+	if move[0] < 'a' || move[0] > 'h' || move[1] < '1' || move[1] > '8' ||
+		move[2] < 'a' || move[2] > 'h' || move[3] < '1' || move[3] > '8' {
+		return false
+	}
+	return len(move) == 4 || strings.ContainsRune("qrbn", rune(move[4]))
 }
 
 func (a linearFENAdapter) NewDecoder(

@@ -132,7 +132,7 @@ func TestLinearFENDecoderRejectsOverDepthBeforeMoveValidation(t *testing.T) {
 	}
 }
 
-func TestLinearFENInspectionValidatesOnlyTheFirstMeaningfulLine(t *testing.T) {
+func TestLinearFENInspectionAllowsMalformedLeadingRecord(t *testing.T) {
 	const fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
 	path := filepath.Join(t.TempDir(), "misleading.txt")
 	contents := "\n# comment\n" + fen + " 1375\n" + fen + " e2e4\n"
@@ -146,8 +146,17 @@ func TestLinearFENInspectionValidatesOnlyTheFirstMeaningfulLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if matched || inspection != (ImportInspection{}) {
-		t.Fatalf("inspection/matched = %+v/%v, want no content match", inspection, matched)
+	if !matched || inspection.SourceID != path || inspection.SourceIDOrigin != SourceIDPath {
+		t.Fatalf("inspection/matched = %+v/%v, want linear content match", inspection, matched)
+	}
+	decoder := newLinearFENTestDecoder(t, contents, inspection)
+	first, err := decoder.Next(context.Background())
+	if err != nil || first.Rejection == nil || first.Rejection.Ordinal != 3 {
+		t.Fatalf("first record/error = %+v/%v, want ordinal-3 rejection", first, err)
+	}
+	second, err := decoder.Next(context.Background())
+	if err != nil || second.Puzzle == nil || second.Puzzle.Occurrence.Ordinal != 4 {
+		t.Fatalf("second record/error = %+v/%v, want recovered ordinal-4 puzzle", second, err)
 	}
 }
 
