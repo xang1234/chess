@@ -1,8 +1,9 @@
 import { writable, type Readable } from 'svelte/store'
-import type { ImportProgress, ImportResult, NormalAPI } from './api'
+import type { ImportInspection, ImportProgress, ImportResult, NormalAPI } from './api'
 
 export type ImportSessionState = {
   path: string
+  inspection: ImportInspection | null
   jobId: string
   running: boolean
   busy: boolean
@@ -19,24 +20,44 @@ export type ImportSession = Readable<ImportSessionState> & {
   refresh(): Promise<void>
 }
 
-const emptyProgress = (): ImportProgress => ({ jobId: '', rowsRead: 0, bytesRead: 0 })
+type ProgressSnapshot = Omit<ImportProgress, 'jobId'>
+
+const phaseRank: Record<ImportProgress['phase'], number> = {
+  detecting: 0,
+  parsing: 1,
+  sealing: 2,
+  activating: 3
+}
+
+const emptyProgress = (): ImportProgress => ({
+  jobId: '',
+  phase: 'detecting',
+  rowsRead: 0,
+  bytesRead: 0,
+  totalBytes: 0
+})
 
 function mergeProgress(
   currentProgress: ImportProgress,
   jobId: string,
-  nextProgress: { rowsRead: number; bytesRead: number }
+  nextProgress: ProgressSnapshot
 ): ImportProgress {
   if (currentProgress.jobId !== jobId) return { jobId, ...nextProgress }
   return {
     jobId,
+    phase: phaseRank[nextProgress.phase] >= phaseRank[currentProgress.phase]
+      ? nextProgress.phase
+      : currentProgress.phase,
     rowsRead: Math.max(currentProgress.rowsRead, nextProgress.rowsRead),
-    bytesRead: Math.max(currentProgress.bytesRead, nextProgress.bytesRead)
+    bytesRead: Math.max(currentProgress.bytesRead, nextProgress.bytesRead),
+    totalBytes: Math.max(currentProgress.totalBytes, nextProgress.totalBytes)
   }
 }
 
 export function createImportSession(api: () => NormalAPI): ImportSession {
   const state = writable<ImportSessionState>({
     path: '',
+    inspection: null,
     jobId: '',
     running: false,
     busy: false,
@@ -81,7 +102,23 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
       state.update((value) => ({ ...value, busy: true, error: '' }))
       try {
         const path = await api().choosePuzzleImportFile()
-        if (path) state.update((value) => ({ ...value, path }))
+        if (!path) return
+        state.update((value) => ({
+          ...value,
+          path: '',
+          inspection: null,
+          jobId: '',
+          running: false,
+          progress: emptyProgress(),
+          result: null
+        }))
+        const inspection = await api().inspectPuzzleImport(path)
+        state.update((value) => ({
+          ...value,
+          path: inspection.path,
+          inspection,
+          result: null
+        }))
       } catch (cause) {
         state.update((value) => ({
           ...value,
@@ -92,21 +129,23 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
       }
     },
     async start() {
-      if (!current.path || current.running) return
+      const inspection = current.inspection
+      if (!inspection || current.running) return
       state.update((value) => ({
         ...value,
+        jobId: '',
         busy: true,
         error: '',
         result: null,
         progress: emptyProgress()
       }))
       try {
-        const jobId = await api().startLichessImport(current.path)
+        const jobId = await api().startPuzzleImport(inspection.path)
         state.update((value) => ({
           ...value,
           jobId,
           running: true,
-          progress: { jobId, rowsRead: 0, bytesRead: 0 }
+          progress: { jobId, phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 }
         }))
         await this.refresh()
       } catch (cause) {

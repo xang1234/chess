@@ -305,8 +305,8 @@ test('keeps monitoring an active import while navigating away and reconciles it 
   const getImportResult = vi.fn(async (jobId: string): Promise<ImportResult> => ({
     jobId,
     status: 'running',
-    progress: { rowsRead: 10_000, bytesRead: 2048 },
-    report: { accepted: 0, duplicates: 0, rejected: 0 }
+    progress: { phase: 'parsing', rowsRead: 10_000, bytesRead: 2048, totalBytes: 4096 },
+    report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
   }))
   const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
@@ -325,10 +325,12 @@ test('keeps monitoring an active import while navigating away and reconciles it 
 
   await fireEvent.click(await screen.findByRole('button', { name: 'Parent settings' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
-  await fireEvent.click(screen.getByRole('button', { name: 'Choose puzzle database' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Choose puzzle collection' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
-  progressListener({ jobId: 'job-1', rowsRead: 10_000, bytesRead: 2048 })
+  progressListener({
+    jobId: 'job-1', phase: 'parsing', rowsRead: 10_000, bytesRead: 2048, totalBytes: 4096
+  })
 
   await fireEvent.click(screen.getByRole('button', { name: 'Parent settings' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
@@ -340,7 +342,7 @@ test('keeps monitoring an active import while navigating away and reconciles it 
   finishedListener({
     jobId: 'job-1',
     status: 'succeeded',
-    report: { accepted: 9800, duplicates: 150, rejected: 50 }
+    report: { accepted: 9800, duplicates: 150, rejected: 50, examples: [] }
   })
   await waitFor(() => expect(screen.getByText('9,800 accepted')).toBeInTheDocument())
 })
