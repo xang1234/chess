@@ -3,6 +3,7 @@ package puzzles
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -125,6 +126,58 @@ func TestLucasFNSDecoderIgnoresBlankCommentsAndRecoversAfterRejectedLines(t *tes
 	}
 }
 
+func TestLucasFNSDecoderRejectsMeaningfulMovetextAfterFirstResult(t *testing.T) {
+	const fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
+	for _, test := range []struct {
+		name     string
+		movetext string
+	}{
+		{name: "moves after result", movetext: "1. e4 * 1... Kf7 *"},
+		{name: "tag pair after result", movetext: `1. e4 * [Event "smuggled"]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			decoder := newLucasFNSTestDecoder(
+				t,
+				fen+"|trailing content|"+test.movetext,
+				ImportInspection{
+					SourceID:       "/collections/trailing.fns",
+					SourceIDOrigin: SourceIDPath,
+					Filename:       "trailing.fns",
+				},
+			)
+
+			record, err := decoder.Next(context.Background())
+			if err != nil {
+				t.Fatalf("Next() fatal error = %v, want record rejection", err)
+			}
+			if record.Rejection == nil || record.Puzzle != nil ||
+				!strings.Contains(record.Rejection.Reason, "after result") {
+				t.Fatalf("record = %+v, want trailing-movetext rejection", record)
+			}
+		})
+	}
+}
+
+func TestLucasFNSDecoderAcceptsCommentsNAGsAndVariationsBeforeResult(t *testing.T) {
+	contents := "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1|annotated|" +
+		"1. e4 $1 {solver note} Kf7 (1... Kd7 $2 {variation note}) *"
+	decoder := newLucasFNSTestDecoder(t, contents, ImportInspection{
+		SourceID:       "/collections/annotated.fns",
+		SourceIDOrigin: SourceIDPath,
+		Filename:       "annotated.fns",
+	})
+
+	record, err := decoder.Next(context.Background())
+	if err != nil || record.Puzzle == nil || record.Rejection != nil {
+		t.Fatalf("record/error = %+v/%v, want accepted annotated puzzle", record, err)
+	}
+	root := record.Puzzle.Core.Solution
+	if len(root) != 1 || root[0].UCI != "e2e4" || len(root[0].Children) != 2 ||
+		root[0].Children[0].UCI != "e8f7" || root[0].Children[1].UCI != "e8d7" {
+		t.Fatalf("annotated solution tree = %+v", root)
+	}
+}
+
 func TestLucasFNSDecoderTreatsOverlongLineAsFatalFramingError(t *testing.T) {
 	decoder := newLucasFNSTestDecoder(t, strings.Repeat("x", (1<<20)+1), ImportInspection{
 		SourceID:       "/collections/oversized.fns",
@@ -135,6 +188,46 @@ func TestLucasFNSDecoderTreatsOverlongLineAsFatalFramingError(t *testing.T) {
 	record, err := decoder.Next(context.Background())
 	if !errors.Is(err, bufio.ErrTooLong) || record.Puzzle != nil || record.Rejection != nil {
 		t.Fatalf("record/error = %+v/%v, want fatal bufio.ErrTooLong", record, err)
+	}
+}
+
+func TestLucasFNSDecoderRejectsOversizedMetadataAndRecoversNextLine(t *testing.T) {
+	const fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
+	description := strings.Repeat("x", 64*1024) + " Difficulty **"
+	encoded, err := json.Marshal(map[string]any{
+		"description":      description,
+		"sourceDifficulty": "**",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) <= 64*1024 {
+		t.Fatalf("oversized metadata fixture serialized to only %d bytes", len(encoded))
+	}
+	contents := fen + "|" + description + "|1. e4 *\n" +
+		fen + "|recovered|1. e4 *"
+	decoder := newLucasFNSTestDecoder(t, contents, ImportInspection{
+		SourceID:       "/collections/metadata.fns",
+		SourceIDOrigin: SourceIDPath,
+		Filename:       "metadata.fns",
+	})
+
+	first, err := decoder.Next(context.Background())
+	if err != nil {
+		t.Fatalf("first Next() fatal error = %v, want record rejection", err)
+	}
+	if first.Rejection == nil || first.Puzzle != nil || first.Rejection.Ordinal != 1 ||
+		!strings.Contains(first.Rejection.Reason, "metadata exceeds maximum of 65536 bytes") {
+		t.Fatalf("first record = %+v, want metadata-limit rejection", first)
+	}
+	second, err := decoder.Next(context.Background())
+	if err != nil || second.Puzzle == nil || second.Rejection != nil {
+		t.Fatalf("second record/error = %+v/%v, want recovered puzzle", second, err)
+	}
+	if second.Puzzle.Occurrence.Ordinal != 2 ||
+		second.Puzzle.Occurrence.ExternalID != "2" ||
+		second.Puzzle.Occurrence.Metadata["description"] != "recovered" {
+		t.Fatalf("recovered puzzle = %+v", *second.Puzzle)
 	}
 }
 

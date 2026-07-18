@@ -3,6 +3,7 @@ package puzzles
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +19,10 @@ import (
 	"github.com/corentings/chess/v2"
 )
 
-const maxLucasFNSLineBytes = 1 << 20
+const (
+	maxLucasFNSLineBytes     = 1 << 20
+	maxLucasFNSMetadataBytes = 64 * 1024
+)
 
 var (
 	lucasFNSDifficultyPattern = regexp.MustCompile(
@@ -205,6 +209,16 @@ func (d *lucasFNSDecoder) decodeLine(line string) (TrainingPuzzle, error) {
 	if match := lucasFNSDifficultyPattern.FindStringSubmatch(description); len(match) == 2 {
 		metadata["sourceDifficulty"] = match[1]
 	}
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return TrainingPuzzle{}, fmt.Errorf("serialize Lucas FNS metadata: %w", err)
+	}
+	if len(encodedMetadata) > maxLucasFNSMetadataBytes {
+		return TrainingPuzzle{}, fmt.Errorf(
+			"metadata exceeds maximum of %d bytes",
+			maxLucasFNSMetadataBytes,
+		)
+	}
 	var themes []string
 	if d.theme != "" {
 		themes = []string{d.theme}
@@ -234,7 +248,14 @@ func parseLucasFNSMovetext(fen string, movetext string) (*chess.Game, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan Lucas FNS movetext: %w", err)
 	}
-	game, _, err := parseTacticalPGNGame(scanned)
+	tokens, _, err := tokenizeTacticalPGNGame(scanned)
+	if err != nil {
+		return nil, fmt.Errorf("parse Lucas FNS movetext: %w", err)
+	}
+	if err := validateLucasFNSTerminalResult(tokens); err != nil {
+		return nil, err
+	}
+	game, err := parseTacticalPGNTokens(tokens)
 	if err != nil {
 		return nil, fmt.Errorf("parse Lucas FNS movetext: %w", err)
 	}
@@ -244,6 +265,23 @@ func parseLucasFNSMovetext(fen string, movetext string) (*chess.Game, error) {
 		return nil, fmt.Errorf("scan trailing Lucas FNS movetext: %w", err)
 	}
 	return game, nil
+}
+
+func validateLucasFNSTerminalResult(tokens []chess.Token) error {
+	for index, token := range tokens {
+		if token.Type != chess.RESULT {
+			continue
+		}
+		if index+1 != len(tokens) {
+			return fmt.Errorf(
+				"movetext contains token %q after result %q",
+				tokens[index+1].Value,
+				token.Value,
+			)
+		}
+		return nil
+	}
+	return nil
 }
 
 func lucasFNSMoveNodes(
