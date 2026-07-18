@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"chess-trainer/internal/chessrules"
 )
 
 type fakePuzzleAdapter struct {
@@ -500,6 +502,54 @@ func TestCollectionImporterImportFormatReinspectionUsesRegistrySelection(t *test
 	}
 	if catalog.beginCalls != 0 {
 		t.Fatalf("BeginImport calls = %d, want 0", catalog.beginCalls)
+	}
+}
+
+func TestCollectionImporterTacticalPGNAbandonsConflictingSourceIdentity(t *testing.T) {
+	tests := []struct {
+		name     string
+		sourceID string
+		movetext string
+	}{
+		{name: "valid conflicting record", sourceID: "other-club", movetext: "1. e4 *"},
+		{name: "conflict before illegal movetext", sourceID: "other-club", movetext: "1. e5 *"},
+		{name: "explicit empty identity", sourceID: "   ", movetext: "1. e4 *"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contents := tacticalPGNDirectSolver + `
+[Event "Conflicting identity"]
+[SourceId "` + test.sourceID + `"]
+[FEN "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"]
+[White "solver"][Black "?"]
+` + "\n" + test.movetext + "\n"
+			path := filepath.Join(t.TempDir(), "conflict.pgn")
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			generation := &collectionCaptureGeneration{report: ImportReport{Accepted: 1}}
+			importer := CollectionImporter{
+				Catalog:          &collectionCaptureCatalog{generation: generation},
+				CatalogDirectory: t.TempDir(),
+				AvailableBytes:   func(string) (uint64, error) { return math.MaxUint64, nil },
+				Adapters:         []PuzzleAdapter{NewTacticalPGNAdapter(chessrules.Rules{})},
+			}
+
+			_, err := importer.ImportFormat(
+				context.Background(),
+				FormatTacticalPGN,
+				"club-tactics",
+				path,
+				nil,
+			)
+			if err == nil || !strings.Contains(err.Error(), "SourceId") {
+				t.Fatalf("ImportFormat() error = %v, want fatal SourceId conflict", err)
+			}
+			if generation.activateCalls != 0 || generation.sealCalls != 0 || generation.abandonCalls != 1 {
+				t.Fatalf("lifecycle = activate %d, seal %d, abandon %d", generation.activateCalls, generation.sealCalls, generation.abandonCalls)
+			}
+		})
 	}
 }
 
