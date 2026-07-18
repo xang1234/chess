@@ -173,7 +173,7 @@ export type ImportReport = {
 export type ImportResult = {
   jobId: string
   status: 'running' | 'succeeded' | 'failed' | 'cancelled'
-  progress?: ImportProgressSnapshot
+  progress: ImportProgressSnapshot
   report: ImportReport
   error?: string
 }
@@ -506,13 +506,10 @@ export function decodeImportProgress(value: unknown): ImportProgress {
 
 export function decodeImportResult(value: unknown): ImportResult {
   const raw = record(value, 'import result')
-  const progress = raw.progress === undefined
-    ? undefined
-    : decodeImportProgressSnapshot(raw.progress, 'import result.progress')
   return {
     jobId: string(raw.jobId, 'import result.jobId'),
     status: enumeration(raw.status, ['running', 'succeeded', 'failed', 'cancelled'], 'import result.status'),
-    progress,
+    progress: decodeImportProgressSnapshot(raw.progress, 'import result.progress'),
     report: decodeImportReport(raw.report, 'import result.report'),
     error: optionalString(raw.error, 'import result.error')
   }

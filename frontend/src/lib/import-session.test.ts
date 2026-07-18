@@ -93,6 +93,7 @@ test('clears stale selection and result while inspecting a newly chosen file', a
   finishedListener({
     jobId: 'job-1',
     status: 'succeeded',
+    progress: { phase: 'activating', rowsRead: 10, bytesRead: 50, totalBytes: 50 },
     report: { accepted: 10, duplicates: 0, rejected: 0, examples: [] }
   })
   expect(observed.state().result?.status).toBe('succeeded')
@@ -376,6 +377,7 @@ test('resets progress for a new job and never lets a running snapshot replace a 
   finishedListener({
     jobId: 'job-1',
     status: 'succeeded',
+    progress: { phase: 'activating', rowsRead: 110, bytesRead: 2_000, totalBytes: 2_000 },
     report: { accepted: 100, duplicates: 0, rejected: 0, examples: [] }
   })
   resolveFirstSnapshot({

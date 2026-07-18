@@ -342,6 +342,7 @@ test('keeps monitoring an active import while navigating away and reconciles it 
   finishedListener({
     jobId: 'job-1',
     status: 'succeeded',
+    progress: { phase: 'activating', rowsRead: 10_000, bytesRead: 4096, totalBytes: 4096 },
     report: { accepted: 9800, duplicates: 150, rejected: 50, examples: [] }
   })
   await waitFor(() => expect(screen.getByText('9,800 accepted')).toBeInTheDocument())

@@ -130,6 +130,7 @@ test('renders only backend-provided rejection examples as plain text', async () 
   finishedListener({
     jobId: 'job-1',
     status: 'succeeded',
+    progress: { phase: 'activating', rowsRead: 10_000, bytesRead: 4_096, totalBytes: 4_096 },
     report: {
       accepted: 9_800,
       duplicates: 150,

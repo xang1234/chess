@@ -460,13 +460,23 @@ test('strictly decodes import phases, byte totals, and rejection examples', () =
   expect(() => decodeImportResult({
     jobId: 'job-1',
     status: 'failed',
+    progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
     report: { accepted: 0, duplicates: 0, rejected: 1, examples: [{ ordinal: 1 }] }
   })).toThrow('reason')
   expect(() => decodeImportResult({
     jobId: 'job-1',
     status: 'succeeded',
+    progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
     report: { accepted: 1, duplicates: 0, rejected: 0 }
   })).toThrow('examples')
+})
+
+test('rejects an import result without its required progress snapshot', () => {
+  expect(() => decodeImportResult({
+    jobId: 'job-1',
+    status: 'running',
+    report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
+  })).toThrow('import result.progress must be an object')
 })
 
 test('normalizes a nil Go rejection sample to an empty decoded array', () => {

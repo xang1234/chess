@@ -87,9 +87,7 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
     state.update((value) => ({
       ...value,
       phase: result.status === 'running' ? 'running' : 'finished',
-      progress: result.progress
-        ? mergeProgress(value.progress, result.jobId, result.progress)
-        : value.progress,
+      progress: mergeProgress(value.progress, result.jobId, result.progress),
       result: result.status === 'running' ? null : result,
       error: result.status === 'failed' ? (result.error ?? 'Import failed') : ''
     }))
