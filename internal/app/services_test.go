@@ -13,6 +13,8 @@ import (
 	"chess-trainer/internal/importjob"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 func TestServicesDoesNotExposeBackupImplementation(t *testing.T) {
@@ -179,6 +181,146 @@ func TestOpenCreatesAndClosesAllStores(t *testing.T) {
 	}
 	if err := services.Close(); err != nil {
 		t.Fatalf("second Close()=%v", err)
+	}
+}
+
+func TestOpenComposesEveryPuzzleImportFormat(t *testing.T) {
+	services, err := Open(storage.PathsAt(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+
+	directory := t.TempDir()
+	fixtures := []struct {
+		name     string
+		filename string
+		contents string
+		format   puzzles.ImportFormat
+		zstd     bool
+	}{
+		{
+			name: "Lichess zstandard", filename: "lichess.csv.zst", format: puzzles.FormatLichess, zstd: true,
+			contents: `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
+mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https://lichess.org/example,
+`,
+		},
+		{
+			name: "canonical JSON", filename: "club.json", format: puzzles.FormatCanonicalJSON,
+			contents: `{
+  "schema":"chess-trainer-puzzles/v1",
+  "source":{"id":"club-json"},
+  "puzzles":[{
+    "id":"json-1",
+    "displayedFen":"4k3/8/8/8/8/8/4P3/4K3 w - - 0 1",
+    "solver":"white",
+    "solution":[{"uci":"e2e4","children":[{"uci":"e8f7"}]}]
+  }]
+}`,
+		},
+		{
+			name: "tactical PGN", filename: "club.pgn", format: puzzles.FormatTacticalPGN,
+			contents: `[Event "Direct solver turn"]
+[SourceId "club-pgn"]
+[PuzzleId "white-1"]
+[SetUp "1"]
+[FEN "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"]
+[White "solver"]
+[Black "?"]
+
+1. e4 Kf7 *
+`,
+		},
+		{
+			name: "Lucas FNS", filename: "pin.fns", format: puzzles.FormatLucasFNS,
+			contents: "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1|Difficulty **|1. e4 Kf7 (1... Kd7) 2. Kf2 *\n",
+		},
+		{
+			name: "linear FEN UCI", filename: "larion.txt", format: puzzles.FormatLinearFENUCI,
+			contents: "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1 e2e4 e8f7 1375\n",
+		},
+	}
+
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			path := filepath.Join(directory, fixture.filename)
+			writeServiceImportFixture(t, path, fixture.contents, fixture.zstd)
+			inspection, err := services.Importer.Inspect(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if inspection.Format != fixture.format {
+				t.Fatalf("inspection format = %q, want %q", inspection.Format, fixture.format)
+			}
+
+			request := importjob.ImportRequest{
+				Kind: importjob.Kind(inspection.Format), SourceID: inspection.SourceID, Path: inspection.Path,
+			}
+			jobID, err := services.ImportJobs.Start(context.Background(), request)
+			if err != nil {
+				t.Fatalf("route %q is not configured: %v", request.Kind, err)
+			}
+			result := waitForServiceImportResult(t, services.ImportJobs, jobID)
+			if result.Status != importjob.Succeeded {
+				t.Fatalf("route %q result = %+v", request.Kind, result)
+			}
+			if result.Request != request {
+				t.Fatalf("route %q request = %+v, want %+v", request.Kind, result.Request, request)
+			}
+		})
+	}
+}
+
+func writeServiceImportFixture(t *testing.T, path, contents string, compressed bool) {
+	t.Helper()
+	if !compressed {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := zstd.NewWriter(file)
+	if err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte(contents)); err != nil {
+		writer.Close()
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitForServiceImportResult(
+	t *testing.T,
+	jobs *importjob.Service,
+	jobID string,
+) importjob.Result {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		result, err := jobs.Result(jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != importjob.Running {
+			return result
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("import job %q did not finish", jobID)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

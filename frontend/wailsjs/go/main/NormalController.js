@@ -30,6 +30,10 @@ export function GetProfile() {
   return window['go']['main']['NormalController']['GetProfile']();
 }
 
+export function InspectPuzzleImport(arg1) {
+  return window['go']['main']['NormalController']['InspectPuzzleImport'](arg1);
+}
+
 export function OpenDataFolder() {
   return window['go']['main']['NormalController']['OpenDataFolder']();
 }

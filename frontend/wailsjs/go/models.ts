@@ -468,6 +468,34 @@ export namespace profile {
 
 export namespace puzzles {
 
+	export class ImportInspection {
+	    path: string;
+	    filename: string;
+	    format: string;
+	    sourceId: string;
+	    sourceIdOrigin: string;
+	    sourceName?: string;
+	    url?: string;
+	    attribution?: string;
+	    replacesExisting: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ImportInspection(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.filename = source["filename"];
+	        this.format = source["format"];
+	        this.sourceId = source["sourceId"];
+	        this.sourceIdOrigin = source["sourceIdOrigin"];
+	        this.sourceName = source["sourceName"];
+	        this.url = source["url"];
+	        this.attribution = source["attribution"];
+	        this.replacesExisting = source["replacesExisting"];
+	    }
+	}
 	export class Rejection {
 	    ordinal: number;
 	    reason: string;
@@ -519,8 +547,10 @@ export namespace puzzles {
 		}
 	}
 	export class Progress {
+	    phase: string;
 	    rowsRead: number;
 	    bytesRead: number;
+	    totalBytes: number;
 
 	    static createFrom(source: any = {}) {
 	        return new Progress(source);
@@ -528,8 +558,10 @@ export namespace puzzles {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.phase = source["phase"];
 	        this.rowsRead = source["rowsRead"];
 	        this.bytesRead = source["bytesRead"];
+	        this.totalBytes = source["totalBytes"];
 	    }
 	}
 	export class RatingBounds {

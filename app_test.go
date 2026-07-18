@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,6 +28,12 @@ type bindingImporter struct {
 
 type bindingEmitter struct {
 	finished chan importjob.Result
+}
+
+type bindingInspectionAdapter struct {
+	format    puzzles.ImportFormat
+	sourceID  string
+	inspected chan string
 }
 
 type fakeNativeDialogs struct {
@@ -66,6 +74,29 @@ func (e bindingEmitter) Finished(result importjob.Result) {
 	e.finished <- result
 }
 
+func (a bindingInspectionAdapter) Format() puzzles.ImportFormat {
+	return a.format
+}
+
+func (a bindingInspectionAdapter) Inspect(
+	_ context.Context,
+	path string,
+) (puzzles.ImportInspection, bool, error) {
+	if a.inspected != nil {
+		a.inspected <- path
+	}
+	return puzzles.ImportInspection{
+		SourceID: a.sourceID, SourceIDOrigin: puzzles.SourceIDEmbedded,
+	}, true, nil
+}
+
+func (bindingInspectionAdapter) NewDecoder(
+	io.Reader,
+	puzzles.ImportInspection,
+) (puzzles.PuzzleDecoder, error) {
+	return nil, errors.New("binding inspection adapter does not decode")
+}
+
 func TestAppImportBindingsDelegateValidation(t *testing.T) {
 	services, err := appservices.Open(storage.PathsAt(t.TempDir()))
 	if err != nil {
@@ -74,8 +105,11 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 	defer services.Close()
 	app := NewNormalController(services)
 
-	if _, err := app.StartPuzzleImport(importjob.ImportRequest{}); err == nil {
-		t.Fatal("StartPuzzleImport() unexpectedly accepted an empty request")
+	if _, err := app.InspectPuzzleImport(""); err == nil {
+		t.Fatal("InspectPuzzleImport() unexpectedly accepted an empty path")
+	}
+	if _, err := app.StartPuzzleImport(""); err == nil {
+		t.Fatal("StartPuzzleImport() unexpectedly accepted an empty path")
 	}
 	if _, err := app.StartLichessImport(""); err == nil {
 		t.Fatal("StartLichessImport() unexpectedly accepted an empty path")
@@ -88,15 +122,21 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 	}
 }
 
-func TestChoosePuzzleImportFileUsesCompressedCSVFilter(t *testing.T) {
+func TestChoosePuzzleImportFileUsesMacSafeZstandardFilter(t *testing.T) {
 	dialogs := fakeNativeDialogs{
 		openPath: "/tmp/lichess.csv.zst",
 		open: func(options runtime.OpenDialogOptions) {
-			if options.Title != "Choose a Lichess puzzle database" {
+			if options.Title != "Choose a puzzle collection" {
 				t.Fatalf("Title = %q", options.Title)
 			}
-			if len(options.Filters) != 1 || options.Filters[0].Pattern != "*.csv.zst" {
+			wantPatterns := []string{"*.zst", "*.pgn", "*.json", "*.fns", "*.txt"}
+			if len(options.Filters) != len(wantPatterns) {
 				t.Fatalf("Filters = %+v", options.Filters)
+			}
+			for index, want := range wantPatterns {
+				if options.Filters[index].Pattern != want {
+					t.Fatalf("Filters[%d].Pattern = %q, want %q", index, options.Filters[index].Pattern, want)
+				}
 			}
 		},
 	}
@@ -115,35 +155,104 @@ func TestChoosePuzzleImportFileUsesCompressedCSVFilter(t *testing.T) {
 	}
 }
 
-func TestAppImportBindingsPreserveTypedAndLegacyFlows(t *testing.T) {
+func TestInspectPuzzleImportDelegatesToCollectionImporter(t *testing.T) {
+	inspected := make(chan string, 1)
+	collection := &puzzles.CollectionImporter{Adapters: []puzzles.PuzzleAdapter{
+		bindingInspectionAdapter{
+			format: puzzles.FormatCanonicalJSON, sourceID: "authoritative-source", inspected: inspected,
+		},
+	}}
+	app := NewNormalController(&appservices.Services{Importer: collection})
+	path := filepath.Join(t.TempDir(), "collection.json")
+
+	inspection, err := app.InspectPuzzleImport(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalizedPath, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := <-inspected; got != normalizedPath {
+		t.Fatalf("inspected path = %q, want %q", got, normalizedPath)
+	}
+	if inspection.Format != puzzles.FormatCanonicalJSON ||
+		inspection.SourceID != "authoritative-source" ||
+		inspection.Path != normalizedPath {
+		t.Fatalf("inspection = %+v", inspection)
+	}
+}
+
+func TestStartPuzzleImportUsesAuthoritativeInspection(t *testing.T) {
 	importer := bindingImporter{called: make(chan bindingImportCall, 2)}
 	emitter := bindingEmitter{finished: make(chan importjob.Result, 2)}
 	jobs := importjob.NewService(map[importjob.Kind]importjob.Importer{
-		importjob.KindLichess: importer,
+		importjob.KindCanonicalJSON: importer,
 	}, nil, emitter)
 	defer jobs.Close()
-	app := NewNormalController(&appservices.Services{ImportJobs: jobs})
+	collection := &puzzles.CollectionImporter{Adapters: []puzzles.PuzzleAdapter{
+		bindingInspectionAdapter{
+			format: puzzles.FormatCanonicalJSON, sourceID: "authoritative-source",
+		},
+	}}
+	app := NewNormalController(&appservices.Services{Importer: collection, ImportJobs: jobs})
+	path := filepath.Join(t.TempDir(), "selected.json")
 
-	request := importjob.ImportRequest{
-		Kind: importjob.KindLichess, SourceID: "school", Path: "/school.csv.zst",
-	}
-	if _, err := app.StartPuzzleImport(request); err != nil {
+	if _, err := app.StartPuzzleImport(path); err != nil {
 		t.Fatal(err)
 	}
 	call := receiveBindingCall(t, importer.called)
-	if call.sourceID != request.SourceID || call.path != request.Path {
-		t.Fatalf("typed call = %+v", call)
-	}
-	receiveImportResult(t, emitter.finished)
-
-	if _, err := app.StartLichessImport("/lichess.csv.zst"); err != nil {
+	normalizedPath, err := filepath.Abs(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	call = receiveBindingCall(t, importer.called)
-	if call.sourceID != "lichess" || call.path != "/lichess.csv.zst" {
+	if call.sourceID != "authoritative-source" || call.path != normalizedPath {
+		t.Fatalf("generic call = %+v, want authoritative source/path", call)
+	}
+	receiveImportResult(t, emitter.finished)
+}
+
+func TestStartLichessImportDelegatesToGenericInspectionFlow(t *testing.T) {
+	importer := bindingImporter{called: make(chan bindingImportCall, 1)}
+	emitter := bindingEmitter{finished: make(chan importjob.Result, 1)}
+	jobs := importjob.NewService(map[importjob.Kind]importjob.Importer{
+		importjob.KindCanonicalJSON: importer,
+	}, nil, emitter)
+	defer jobs.Close()
+	collection := &puzzles.CollectionImporter{Adapters: []puzzles.PuzzleAdapter{
+		bindingInspectionAdapter{
+			format: puzzles.FormatCanonicalJSON, sourceID: "legacy-authoritative-source",
+		},
+	}}
+	app := NewNormalController(&appservices.Services{Importer: collection, ImportJobs: jobs})
+	path := filepath.Join(t.TempDir(), "legacy-name.csv.zst")
+
+	if _, err := app.StartLichessImport(path); err != nil {
+		t.Fatal(err)
+	}
+	call := receiveBindingCall(t, importer.called)
+	normalizedPath, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.sourceID != "legacy-authoritative-source" || call.path != normalizedPath {
 		t.Fatalf("legacy call = %+v", call)
 	}
 	receiveImportResult(t, emitter.finished)
+}
+
+func TestGenericImportBindingsRespectNormalOperationLifecycle(t *testing.T) {
+	services := &appservices.Services{Importer: &puzzles.CollectionImporter{}}
+	if err := services.Close(); err != nil {
+		t.Fatal(err)
+	}
+	app := NewNormalController(services)
+	if _, err := app.InspectPuzzleImport("/collection.json"); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
+		t.Fatalf("InspectPuzzleImport() error = %v, want runtime unavailable", err)
+	}
+	if _, err := app.StartPuzzleImport("/collection.json"); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
+		t.Fatalf("StartPuzzleImport() error = %v, want runtime unavailable", err)
+	}
 }
 
 func receiveBindingCall(t *testing.T, calls <-chan bindingImportCall) bindingImportCall {
