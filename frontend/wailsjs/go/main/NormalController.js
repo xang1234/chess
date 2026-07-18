@@ -30,6 +30,10 @@ export function GetProfile() {
   return window['go']['main']['NormalController']['GetProfile']();
 }
 
+export function InspectPuzzleImport(arg1) {
+  return window['go']['main']['NormalController']['InspectPuzzleImport'](arg1);
+}
+
 export function OpenDataFolder() {
   return window['go']['main']['NormalController']['OpenDataFolder']();
 }
@@ -64,10 +68,6 @@ export function StartFreePractice(arg1) {
 
 export function StartGuided() {
   return window['go']['main']['NormalController']['StartGuided']();
-}
-
-export function StartLichessImport(arg1) {
-  return window['go']['main']['NormalController']['StartLichessImport'](arg1);
 }
 
 export function StartPuzzleImport(arg1) {

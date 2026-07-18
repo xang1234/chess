@@ -197,3 +197,24 @@ func TestPracticeFiltersUseDefaultLearnerBoundsWithoutCataloguedRatings(t *testi
 			filters.LearnerRatingBounds, puzzles.DefaultLearnerRatingBounds())
 	}
 }
+
+func TestProfilePracticeFiltersIncludeEveryRatedSourceInLearnerRatingBounds(t *testing.T) {
+	userDB := openProfileStore(t)
+	jsonMin, jsonMax := 900, 2100
+	lichessMin, lichessMax := 1100, 1800
+	filters, err := NewService(
+		userDB,
+		&profileTestCatalog{summaries: []puzzles.SourceSummary{
+			{SourceID: "canonical", Kind: "canonical-json", MinimumRating: &jsonMin, MaximumRating: &jsonMax},
+			{SourceID: "lichess", Kind: "lichess", MinimumRating: &lichessMin, MaximumRating: &lichessMax},
+			{SourceID: "pgn", Kind: "tactical-pgn"},
+		}},
+		training.NewUserStore(userDB),
+	).PracticeFilters(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (puzzles.RatingBounds{Minimum: 900, Maximum: 2100}); filters.LearnerRatingBounds != want {
+		t.Fatalf("learner rating bounds = %+v, want %+v", filters.LearnerRatingBounds, want)
+	}
+}

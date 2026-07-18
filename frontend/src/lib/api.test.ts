@@ -1,9 +1,15 @@
 import type {
+  ImportInspection,
   MoveResult,
   NormalAPI,
   RecoveryAPI,
   SessionView
 } from './api'
+import {
+  decodeImportInspection,
+  decodeImportProgress,
+  decodeImportResult
+} from './api-contract'
 
 type HasKey<Value, Key extends PropertyKey> = Key extends keyof Value ? true : false
 type APIModule = typeof import('./api')
@@ -26,7 +32,8 @@ const production = vi.hoisted(() => ({
   openDataFolder: vi.fn(),
   quit: vi.fn(),
   choosePuzzleImportFile: vi.fn(),
-  startLichessImport: vi.fn(),
+  inspectPuzzleImport: vi.fn(),
+  startPuzzleImport: vi.fn(),
   cancelImport: vi.fn()
 }))
 
@@ -44,7 +51,8 @@ vi.mock('../../wailsjs/go/main/NormalController', () => ({
   OpenDataFolder: production.openDataFolder,
   Quit: production.quit,
   ChoosePuzzleImportFile: production.choosePuzzleImportFile,
-  StartLichessImport: production.startLichessImport,
+  InspectPuzzleImport: production.inspectPuzzleImport,
+  StartPuzzleImport: production.startPuzzleImport,
   CancelImport: production.cancelImport
 }))
 vi.mock('../../wailsjs/go/main/RecoveryController', () => ({
@@ -317,4 +325,218 @@ test('production parent summary accepts paused recent sessions', async () => {
   await expect(application.api.getParentSummary()).resolves.toMatchObject({
     recentSessions: [{ status: 'paused' }]
   })
+})
+
+test('decodes an authoritative puzzle import inspection', () => {
+  expect(decodeImportInspection({
+    path: '/collections/club.pgn',
+    filename: 'club.pgn',
+    format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
+    sourceId: 'club-tactics',
+    sourceIdOrigin: 'embedded',
+    sourceName: 'Club tactics',
+    url: 'https://example.test/club',
+    attribution: 'Club authors',
+    replacesExisting: true
+  })).toEqual({
+    path: '/collections/club.pgn',
+    filename: 'club.pgn',
+    format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
+    sourceId: 'club-tactics',
+    sourceIdOrigin: 'embedded',
+    sourceName: 'Club tactics',
+    url: 'https://example.test/club',
+    attribution: 'Club authors',
+    replacesExisting: true
+  })
+})
+
+test.each([
+  'lichess',
+  'tactical-pgn',
+  'canonical-json',
+  'lucas-fns',
+  'linear-fen-uci'
+] as const)('accepts the supported import format %s', (format) => {
+  expect(decodeImportInspection({
+    path: '/collections/puzzles',
+    filename: 'puzzles',
+    format,
+    formatLabel: 'Supported format',
+    sourceId: 'source',
+    sourceIdOrigin: 'fixed',
+    replacesExisting: false
+  }).format).toBe(format)
+})
+
+test.each(['fixed', 'embedded', 'path'] as const)(
+  'accepts the supported source ID origin %s',
+  (sourceIdOrigin) => {
+    expect(decodeImportInspection({
+      path: '/collections/puzzles',
+      filename: 'puzzles',
+      format: 'lichess',
+      formatLabel: 'Lichess',
+      sourceId: 'source',
+      sourceIdOrigin,
+      replacesExisting: false
+    }).sourceIdOrigin).toBe(sourceIdOrigin)
+  }
+)
+
+test.each([
+  ['format', 'future-format'],
+  ['sourceIdOrigin', 'guessed']
+])('rejects an unknown import inspection %s', (field, value) => {
+  expect(() => decodeImportInspection({
+    path: '/collections/club.pgn',
+    filename: 'club.pgn',
+    format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
+    sourceId: 'club-tactics',
+    sourceIdOrigin: 'embedded',
+    replacesExisting: false,
+    [field]: value
+  })).toThrow(field)
+})
+
+test.each([
+  [{}, 'path'],
+  [{
+    path: '/collections/club.pgn',
+    filename: 42,
+    format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
+    sourceId: 'club-tactics',
+    sourceIdOrigin: 'embedded',
+    replacesExisting: false
+  }, 'filename'],
+  [{
+    path: '/collections/club.pgn',
+    filename: 'club.pgn',
+    format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
+    sourceId: 'club-tactics',
+    sourceIdOrigin: 'embedded',
+    replacesExisting: 'yes'
+  }, 'replacesExisting']
+])('rejects a malformed import inspection', (value, message) => {
+  expect(() => decodeImportInspection(value)).toThrow(message)
+})
+
+test('requires the backend-provided import format label', () => {
+  expect(() => decodeImportInspection({
+    path: '/collections/club.pgn',
+    filename: 'club.pgn',
+    format: 'tactical-pgn',
+    sourceId: 'club-tactics',
+    sourceIdOrigin: 'embedded',
+    replacesExisting: false
+  })).toThrow('import inspection.formatLabel must be a string')
+})
+
+test('strictly decodes import phases, byte totals, and rejection examples', () => {
+  expect(decodeImportProgress({
+    jobId: 'job-1',
+    phase: 'sealing',
+    rowsRead: 12,
+    bytesRead: 500,
+    totalBytes: 750
+  })).toEqual({
+    jobId: 'job-1',
+    phase: 'sealing',
+    rowsRead: 12,
+    bytesRead: 500,
+    totalBytes: 750
+  })
+
+  expect(decodeImportResult({
+    jobId: 'job-1',
+    status: 'succeeded',
+    progress: {
+      phase: 'activating',
+      rowsRead: 12,
+      bytesRead: 750,
+      totalBytes: 750
+    },
+    report: {
+      accepted: 10,
+      duplicates: 1,
+      rejected: 1,
+      examples: [{ ordinal: 7, reason: 'illegal move e2e5' }]
+    }
+  })).toMatchObject({
+    progress: { phase: 'activating', totalBytes: 750 },
+    report: { examples: [{ ordinal: 7, reason: 'illegal move e2e5' }] }
+  })
+
+  expect(() => decodeImportProgress({
+    jobId: 'job-1', phase: 'uploading', rowsRead: 0, bytesRead: 0, totalBytes: 0
+  })).toThrow('phase')
+  expect(() => decodeImportResult({
+    jobId: 'job-1',
+    status: 'failed',
+    progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
+    report: { accepted: 0, duplicates: 0, rejected: 1, examples: [{ ordinal: 1 }] }
+  })).toThrow('reason')
+  expect(() => decodeImportResult({
+    jobId: 'job-1',
+    status: 'succeeded',
+    progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
+    report: { accepted: 1, duplicates: 0, rejected: 0 }
+  })).toThrow('examples')
+})
+
+test('rejects an import result without its required progress snapshot', () => {
+  expect(() => decodeImportResult({
+    jobId: 'job-1',
+    status: 'running',
+    report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
+  })).toThrow('import result.progress must be an object')
+})
+
+test('normalizes a nil Go rejection sample to an empty decoded array', () => {
+  expect(decodeImportResult({
+    jobId: 'job-1',
+    status: 'running',
+    progress: {
+      phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 100
+    },
+    report: { accepted: 0, duplicates: 0, rejected: 0, examples: null }
+  }).report.examples).toEqual([])
+})
+
+test.each(['detecting', 'parsing', 'sealing', 'activating'] as const)(
+  'accepts the supported import phase %s',
+  (phase) => {
+    expect(decodeImportProgress({
+      jobId: 'job-1', phase, rowsRead: 0, bytesRead: 0, totalBytes: 0
+    }).phase).toBe(phase)
+  }
+)
+
+test('production API inspects and starts puzzle imports through generic generated bindings', async () => {
+  const inspection: ImportInspection = {
+    path: '/normalized/club.pgn',
+    filename: 'club.pgn',
+    format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
+    sourceId: 'club-tactics',
+    sourceIdOrigin: 'embedded',
+    replacesExisting: false
+  }
+  enableProduction()
+  production.inspectPuzzleImport.mockResolvedValue(inspection)
+  production.startPuzzleImport.mockResolvedValue('job-42')
+
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal production API')
+
+  await expect(application.api.inspectPuzzleImport('/chosen/club.pgn')).resolves.toEqual(inspection)
+  await expect(application.api.startPuzzleImport(inspection)).resolves.toBe('job-42')
+  expect(production.inspectPuzzleImport).toHaveBeenCalledWith('/chosen/club.pgn')
+  expect(production.startPuzzleImport).toHaveBeenCalledWith(inspection)
+  expect('startLichessImport' in application.api).toBe(false)
 })

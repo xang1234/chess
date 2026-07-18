@@ -90,3 +90,16 @@ func TestTrainingPuzzleKeepsSourceOccurrencesIndependent(t *testing.T) {
 		t.Fatalf("second.Key() = %+v, want %+v", got, want)
 	}
 }
+
+func TestLearnerRatingBoundsIncludeEveryRatedSource(t *testing.T) {
+	jsonMin, jsonMax := 900, 2100
+	lichessMin, lichessMax := 1100, 1800
+	got := LearnerRatingBoundsFromSourceSummaries([]SourceSummary{
+		{Kind: "canonical-json", MinimumRating: &jsonMin, MaximumRating: &jsonMax},
+		{Kind: "lichess", MinimumRating: &lichessMin, MaximumRating: &lichessMax},
+		{Kind: "tactical-pgn"},
+	})
+	if got != (RatingBounds{Minimum: 900, Maximum: 2100}) {
+		t.Fatalf("bounds = %+v", got)
+	}
+}

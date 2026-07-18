@@ -558,9 +558,9 @@ func (c *SQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSumm
 	return summaries, nil
 }
 
-// LearnerRatingBounds returns the combined range of the currently active,
-// rated Lichess sources. A catalogue without rated Lichess occurrences keeps
-// the stable application defaults used before catalogue-backed bounds existed.
+// LearnerRatingBounds returns the combined range of every currently active
+// source with explicit ratings. A catalogue without active rated occurrences
+// keeps the stable application defaults used before catalogue-backed bounds existed.
 func (c *SQLiteCatalog) LearnerRatingBounds(ctx context.Context) (RatingBounds, error) {
 	tx, err := c.readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -586,8 +586,7 @@ func (c *SQLiteCatalog) LearnerRatingBounds(ctx context.Context) (RatingBounds, 
 		 JOIN source_generations AS generation
 		   ON generation.source_id = head.source_id
 		  AND generation.generation_id = head.generation_id
-		 JOIN sources AS source ON source.source_id = head.source_id
-		 WHERE generation.status = 'sealed' AND source.kind = 'lichess'`,
+		 WHERE generation.status = 'sealed'`,
 		nullPuzzleRatingKey,
 		nullPuzzleRatingKey,
 	)
@@ -602,7 +601,6 @@ func (c *SQLiteCatalog) LearnerRatingBounds(ctx context.Context) (RatingBounds, 
 			return RatingBounds{}, fmt.Errorf("scan learner rating bounds: %w", err)
 		}
 		summaries = append(summaries, SourceSummary{
-			Kind:          "lichess",
 			MinimumRating: generationIntPointer(minimum),
 			MaximumRating: generationIntPointer(maximum),
 		})

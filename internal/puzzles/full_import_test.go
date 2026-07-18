@@ -86,9 +86,9 @@ func TestFullLichessImport(t *testing.T) {
 	)
 
 	timedCatalog := &activationTimingCatalog{CatalogWriter: catalog}
-	importer := LichessImporter{
+	importer := CollectionImporter{
 		Catalog:          timedCatalog,
-		Rules:            chessrules.Rules{},
+		Adapters:         []PuzzleAdapter{NewLichessAdapter(chessrules.Rules{})},
 		CatalogDirectory: root,
 	}
 	var before runtime.MemStats
@@ -103,7 +103,7 @@ func TestFullLichessImport(t *testing.T) {
 	importContext, cancelImport := context.WithCancel(context.Background())
 	defer cancelImport()
 
-	report, importErr := importer.Import(importContext, "lichess", path, func(progress Progress) {
+	report, importErr := inspectAndImportLichess(importContext, importer, path, func(progress Progress) {
 		visibilityChecks++
 		old, readErr := catalog.Get(importContext, prior.Key())
 		if readErr != nil && visibilityErr == nil {

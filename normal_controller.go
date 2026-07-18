@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	appservices "chess-trainer/internal/app"
 	"chess-trainer/internal/domain"
@@ -63,26 +64,36 @@ func (c *NormalController) Quit() {
 	c.actions.quit()
 }
 
-func (c *NormalController) StartLichessImport(path string) (string, error) {
-	return c.StartPuzzleImport(importjob.ImportRequest{
-		Kind:     importjob.KindLichess,
-		SourceID: "lichess",
-		Path:     path,
-	})
-}
-
 func (c *NormalController) ChoosePuzzleImportFile() (string, error) {
+	descriptors, err := c.services.Importer.FormatDescriptors()
+	if err != nil {
+		return "", err
+	}
+	filters := make([]runtime.FileFilter, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		filters = append(filters, runtime.FileFilter{
+			DisplayName: fmt.Sprintf(
+				"%s (*%s)",
+				descriptor.FileFilterDescription,
+				descriptor.CanonicalExtension,
+			),
+			Pattern: "*" + descriptor.CanonicalExtension,
+		})
+	}
 	return c.actions.dialogs.OpenFileDialog(c.actions.ctx, runtime.OpenDialogOptions{
-		Title: "Choose a Lichess puzzle database",
-		Filters: []runtime.FileFilter{{
-			DisplayName: "Compressed CSV (*.csv.zst)", Pattern: "*.csv.zst",
-		}},
+		Title: "Choose a puzzle collection", Filters: filters,
 	})
 }
 
-func (c *NormalController) StartPuzzleImport(request importjob.ImportRequest) (string, error) {
+func (c *NormalController) InspectPuzzleImport(path string) (puzzles.ImportInspection, error) {
+	return runNormalOperation(c, func() (puzzles.ImportInspection, error) {
+		return c.services.Importer.Inspect(c.actions.ctx, path)
+	})
+}
+
+func (c *NormalController) StartPuzzleImport(inspection puzzles.ImportInspection) (string, error) {
 	return runNormalOperation(c, func() (string, error) {
-		return c.services.ImportJobs.Start(c.actions.ctx, request)
+		return c.services.ImportJobs.Start(c.actions.ctx, inspection)
 	})
 }
 

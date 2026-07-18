@@ -14,16 +14,6 @@ import (
 
 const cleanupBatchSize = 1_000
 
-type Kind string
-
-const KindLichess Kind = "lichess"
-
-type ImportRequest struct {
-	Kind     Kind   `json:"kind"`
-	SourceID string `json:"sourceId"`
-	Path     string `json:"path"`
-}
-
 type BusyError struct {
 	ActiveJobID string `json:"activeJobId"`
 }
@@ -43,7 +33,6 @@ const (
 
 type Result struct {
 	JobID    string               `json:"jobId"`
-	Request  ImportRequest        `json:"request"`
 	Status   Status               `json:"status"`
 	Progress puzzles.Progress     `json:"progress"`
 	Report   puzzles.ImportReport `json:"report"`
@@ -56,7 +45,12 @@ type Emitter interface {
 }
 
 type Importer interface {
-	Import(context.Context, string, string, puzzles.ProgressSink) (puzzles.ImportReport, error)
+	Supports(puzzles.ImportFormat) bool
+	Import(
+		context.Context,
+		puzzles.ImportInspection,
+		puzzles.ProgressSink,
+	) (puzzles.ImportReport, error)
 }
 
 type Maintenance interface {
@@ -74,7 +68,7 @@ type Service struct {
 	mu             sync.Mutex
 	eventMu        sync.Mutex
 	writer         sync.Mutex
-	importers      map[Kind]Importer
+	importer       Importer
 	maintenance    Maintenance
 	emitter        Emitter
 	jobs           map[string]*jobState
@@ -87,17 +81,13 @@ type Service struct {
 }
 
 func NewService(
-	importers map[Kind]Importer,
+	importer Importer,
 	maintenance Maintenance,
 	emitter Emitter,
 ) *Service {
-	ownedImporters := make(map[Kind]Importer, len(importers))
-	for kind, importer := range importers {
-		ownedImporters[kind] = importer
-	}
 	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
 	service := &Service{
-		importers:      ownedImporters,
+		importer:       importer,
 		maintenance:    maintenance,
 		emitter:        emitter,
 		jobs:           make(map[string]*jobState),
@@ -116,19 +106,21 @@ func (s *Service) SetEmitter(emitter Emitter) {
 	s.emitter = emitter
 }
 
-func (s *Service) Start(ctx context.Context, request ImportRequest) (string, error) {
-	if strings.TrimSpace(string(request.Kind)) == "" {
+func (s *Service) Start(
+	ctx context.Context,
+	inspection puzzles.ImportInspection,
+) (string, error) {
+	if strings.TrimSpace(string(inspection.Format)) == "" {
 		return "", errors.New("import kind is required")
 	}
-	if strings.TrimSpace(request.SourceID) == "" {
+	if strings.TrimSpace(inspection.SourceID) == "" {
 		return "", errors.New("import source ID is required")
 	}
-	if strings.TrimSpace(request.Path) == "" {
+	if strings.TrimSpace(inspection.Path) == "" {
 		return "", errors.New("import path is required")
 	}
-	importer, exists := s.importers[request.Kind]
-	if !exists || importer == nil {
-		return "", fmt.Errorf("importer for kind %q is not configured", request.Kind)
+	if s.importer == nil || !s.importer.Supports(inspection.Format) {
+		return "", fmt.Errorf("importer for kind %q is not configured", inspection.Format)
 	}
 
 	jobID := uuid.NewString()
@@ -146,7 +138,10 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 	s.activeJobID = jobID
 	s.jobs[jobID] = &jobState{
 		cancel: cancel,
-		result: Result{JobID: jobID, Request: request, Status: Running},
+		result: Result{
+			JobID: jobID, Status: Running,
+			Progress: puzzles.Progress{Phase: puzzles.ImportDetecting},
+		},
 	}
 	// Add and the closing check share mu so Close cannot begin Wait concurrently.
 	s.wg.Add(1)
@@ -155,7 +150,7 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 	go func() {
 		defer s.wg.Done()
 		defer cancel()
-		s.run(jobCtx, jobID, request, importer)
+		s.run(jobCtx, jobID, inspection)
 	}()
 	return jobID, nil
 }
@@ -163,14 +158,17 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 func (s *Service) run(
 	ctx context.Context,
 	jobID string,
-	request ImportRequest,
-	importer Importer,
+	inspection puzzles.ImportInspection,
 ) {
 	// Import and cleanup writes share this gate. Never wait for it while holding mu.
 	s.writer.Lock()
-	report, err := importer.Import(ctx, request.SourceID, request.Path, func(progress puzzles.Progress) {
-		s.recordProgress(jobID, progress)
-	})
+	report, err := s.importer.Import(
+		ctx,
+		inspection,
+		func(progress puzzles.Progress) {
+			s.recordProgress(jobID, progress)
+		},
+	)
 	s.writer.Unlock()
 
 	s.finish(jobID, report, err)
@@ -189,12 +187,31 @@ func (s *Service) recordProgress(jobID string, progress puzzles.Progress) {
 	}
 	state.result.Progress.RowsRead = max(state.result.Progress.RowsRead, progress.RowsRead)
 	state.result.Progress.BytesRead = max(state.result.Progress.BytesRead, progress.BytesRead)
+	state.result.Progress.TotalBytes = max(state.result.Progress.TotalBytes, progress.TotalBytes)
+	if importPhaseRank(progress.Phase) >= importPhaseRank(state.result.Progress.Phase) {
+		state.result.Progress.Phase = progress.Phase
+	}
 	snapshot := state.result.Progress
 	emitter := s.emitter
 	s.mu.Unlock()
 
 	if emitter != nil {
 		emitter.Progress(jobID, snapshot)
+	}
+}
+
+func importPhaseRank(phase puzzles.ImportPhase) int {
+	switch phase {
+	case puzzles.ImportDetecting:
+		return 0
+	case puzzles.ImportParsing:
+		return 1
+	case puzzles.ImportSealing:
+		return 2
+	case puzzles.ImportActivating:
+		return 3
+	default:
+		return -1
 	}
 }
 

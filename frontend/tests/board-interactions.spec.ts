@@ -456,9 +456,9 @@ test('keeps desktop geometry side-by-side and narrow geometry stacked without cl
   expect(narrowBoard).not.toBeNull()
   expect(narrowPanel).not.toBeNull()
   expect(narrowPanel!.y).toBeGreaterThanOrEqual(narrowBoard!.y + narrowBoard!.height)
-  const horizontalOverflow = await page.evaluate(() =>
-    document.documentElement.scrollWidth - document.documentElement.clientWidth)
-  expect(horizontalOverflow).toBeLessThanOrEqual(0)
+  await expect.poll(() => page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth))
+    .toBeLessThanOrEqual(0)
   const files = await page.locator('.chessground-host coords.files').boundingBox()
   expect(files).not.toBeNull()
   expect(files!.x).toBeGreaterThan(narrowBoard!.x)

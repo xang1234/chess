@@ -6,6 +6,7 @@ import {
   decodeApplicationMode,
   decodeBuildInfo,
   decodeHintResult,
+  decodeImportInspection,
   decodeImportProgress,
   decodeImportResult,
   decodeMoveResult,
@@ -20,6 +21,7 @@ import {
   type BuildInfo,
   type CompletedSessionView,
   type HintResult,
+  type ImportInspection,
   type ImportProgress,
   type ImportResult,
   type MoveResult,
@@ -41,9 +43,14 @@ export type {
   CompletedSessionView,
   ContinuingMoveResult,
   HintResult,
+  ImportFormat,
+  ImportInspection,
+  ImportPhase,
   ImportProgress,
+  ImportRejection,
   ImportReport,
   ImportResult,
+  ImportSourceIDOrigin,
   IncorrectMoveResult,
   MoveResult,
   ParentSummary,
@@ -89,7 +96,8 @@ export interface NormalAPI extends BackupAPI {
   getParentSummary(): Promise<ParentSummary>
   getPracticeFilters(): Promise<PracticeFilters>
   choosePuzzleImportFile(): Promise<string>
-  startLichessImport(path: string): Promise<string>
+  inspectPuzzleImport(path: string): Promise<ImportInspection>
+  startPuzzleImport(inspection: ImportInspection): Promise<string>
   cancelImport(jobId: string): Promise<void>
   getImportResult(jobId: string): Promise<ImportResult>
   onImportProgress(listener: (progress: ImportProgress) => void): () => void
@@ -134,7 +142,8 @@ const productionNormalAPI: NormalAPI = {
   openDataFolder: Normal.OpenDataFolder,
   quit: Normal.Quit,
   choosePuzzleImportFile: Normal.ChoosePuzzleImportFile,
-  startLichessImport: Normal.StartLichessImport,
+  inspectPuzzleImport: async (path) => decodeImportInspection(await Normal.InspectPuzzleImport(path)),
+  startPuzzleImport: Normal.StartPuzzleImport,
   cancelImport: Normal.CancelImport,
   getImportResult: async (jobId) => decodeImportResult(await Normal.GetImportResult(jobId)),
   onImportProgress: (listener) => EventsOn('import:progress', (payload: unknown) => {
@@ -335,10 +344,22 @@ const previewNormalAPI: NormalAPI = {
   openDataFolder: async () => {},
   quit: async () => {},
   choosePuzzleImportFile: async () => '/Users/preview/Downloads/lichess_db_puzzle.csv.zst',
-  startLichessImport: async () => 'preview-import',
+  inspectPuzzleImport: async () => ({
+    path: '/Users/preview/Downloads/lichess_db_puzzle.csv.zst',
+    filename: 'lichess_db_puzzle.csv.zst',
+    format: 'lichess',
+    formatLabel: 'Lichess',
+    sourceId: 'lichess',
+    sourceIdOrigin: 'fixed',
+    replacesExisting: false
+  }),
+  startPuzzleImport: async () => 'preview-import',
   cancelImport: async () => {},
   getImportResult: async (jobId) => ({
-    jobId, status: 'running', report: { accepted: 0, duplicates: 0, rejected: 0 }
+    jobId,
+    status: 'running',
+    progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
+    report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
   }),
   onImportProgress: () => () => {},
   onImportFinished: () => () => {}

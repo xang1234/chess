@@ -26,7 +26,7 @@ type Services struct {
 	UserDB        *sql.DB
 	LibraryDB     *sql.DB
 	Catalog       *puzzles.SQLiteCatalog
-	Importer      *puzzles.LichessImporter
+	Importer      *puzzles.CollectionImporter
 	ImportJobs    *importjob.Service
 	UserStore     *training.UserStore
 	Training      *training.Service
@@ -127,20 +127,26 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 		return recoverFrom(paths.LibraryDB, err)
 	}
 
-	services.Importer = &puzzles.LichessImporter{
-		Catalog:          services.Catalog,
-		Rules:            chessrules.Rules{},
+	rules := chessrules.Rules{}
+	services.Importer = &puzzles.CollectionImporter{
+		Catalog: services.Catalog,
+		Reader:  services.Catalog,
+		Adapters: []puzzles.PuzzleAdapter{
+			puzzles.NewLichessAdapter(rules),
+			puzzles.NewCanonicalJSONAdapter(rules),
+			puzzles.NewTacticalPGNAdapter(rules),
+			puzzles.NewLucasFNSAdapter(rules),
+			puzzles.NewLinearFENAdapter(rules),
+		},
 		CatalogDirectory: filepath.Dir(paths.PuzzlesDB),
 		AvailableBytes:   storage.AvailableBytes,
 	}
-	services.ImportJobs = importjob.NewService(map[importjob.Kind]importjob.Importer{
-		importjob.KindLichess: services.Importer,
-	}, services.Catalog, nil)
+	services.ImportJobs = importjob.NewService(services.Importer, services.Catalog, nil)
 	services.UserStore = training.NewUserStore(services.UserDB)
 	services.Training = training.NewService(
 		services.Catalog,
 		services.UserStore,
-		chessrules.Rules{},
+		rules,
 		rand.New(rand.NewSource(time.Now().UnixNano())),
 	)
 	services.Profile = profile.NewService(services.UserDB, services.Catalog, services.UserStore)

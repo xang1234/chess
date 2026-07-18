@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
 
 	"github.com/klauspost/compress/zstd"
@@ -144,14 +145,15 @@ func (i *lichessGenerationImport) Abandon(ctx context.Context) error {
 func newLichessGenerationHarness(
 	catalogDirectory string,
 	availableBytes func(string) (uint64, error),
-) (LichessImporter, *lichessGenerationCatalog, *lichessGenerationImport) {
+) (CollectionImporter, *lichessGenerationCatalog, *lichessGenerationImport) {
 	importing := &lichessGenerationImport{report: ImportReport{Accepted: 1}}
 	catalog := &lichessGenerationCatalog{
 		importing: importing,
 		head:      "previous-generation",
 	}
-	return LichessImporter{
+	return CollectionImporter{
 		Catalog:          catalog,
+		Adapters:         []PuzzleAdapter{NewLichessAdapter(chessrules.Rules{})},
 		CatalogDirectory: catalogDirectory,
 		AvailableBytes:   availableBytes,
 	}, catalog, importing
@@ -204,7 +206,7 @@ func TestLichessProducesCoreAndOccurrence(t *testing.T) {
 		func(string) (uint64, error) { return math.MaxUint64, nil },
 	)
 
-	report, err := importer.Import(context.Background(), "lichess-main", path, nil)
+	report, err := inspectAndImportLichess(context.Background(), importer, path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,9 +216,13 @@ func TestLichessProducesCoreAndOccurrence(t *testing.T) {
 	if catalog.beginCalls != 1 {
 		t.Fatalf("BeginImport calls = %d, want 1", catalog.beginCalls)
 	}
-	if catalog.beginSource.ID != "lichess-main" ||
+	normalizedPath, err := normalizeImportPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.beginSource.ID != "lichess" ||
 		catalog.beginSource.Kind != "lichess" ||
-		catalog.beginSource.Path != path ||
+		catalog.beginSource.Path != normalizedPath ||
 		catalog.beginSource.StartedAt.IsZero() {
 		t.Fatalf("generation source = %+v", catalog.beginSource)
 	}
@@ -236,7 +242,7 @@ func TestLichessProducesCoreAndOccurrence(t *testing.T) {
 	}
 	wantRating, wantPopularity, wantPlayCount := 1200, 95, 200
 	wantOccurrence := PuzzleOccurrence{
-		SourceID:    "lichess-main",
+		SourceID:    "lichess",
 		SourceKind:  "lichess",
 		ExternalID:  "mate1",
 		SourceFEN:   "8/5Q1k/6K1/8/8/8/8/8 b - - 0 1",
@@ -267,7 +273,7 @@ func TestLichessPreflightUsesCatalogueVolume(t *testing.T) {
 	catalogDirectory := t.TempDir()
 	path := writeLichessGenerationFixture(t, sourceDirectory, lichessGenerationCSV)
 	var checkedPaths []string
-	var importer LichessImporter
+	var importer CollectionImporter
 	var catalog *lichessGenerationCatalog
 	importer, catalog, _ = newLichessGenerationHarness(
 		catalogDirectory,
@@ -281,7 +287,7 @@ func TestLichessPreflightUsesCatalogueVolume(t *testing.T) {
 		},
 	)
 
-	if _, err := importer.Import(context.Background(), "lichess", path, nil); err != nil {
+	if _, err := inspectAndImportLichess(context.Background(), importer, path, nil); err != nil {
 		t.Fatalf("Import() using ample catalogue volume: %v", err)
 	}
 	if !reflect.DeepEqual(checkedPaths, []string{catalogDirectory}) {
@@ -308,7 +314,7 @@ func TestLichessPreflightFailureCreatesNoGeneration(t *testing.T) {
 		},
 	)
 
-	if _, err := importer.Import(context.Background(), "lichess", path, nil); err == nil {
+	if _, err := inspectAndImportLichess(context.Background(), importer, path, nil); err == nil {
 		t.Fatal("Import() unexpectedly passed an insufficient-space preflight")
 	}
 	if checkedPath != catalogDirectory {
@@ -335,7 +341,7 @@ func TestLichessCancellationReturnsPromptlyAndOnlyAbandons(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan lichessGenerationResult, 1)
 	go func() {
-		report, err := importer.Import(ctx, "lichess", path, nil)
+		report, err := inspectAndImportLichess(ctx, importer, path, nil)
 		result <- lichessGenerationResult{report: report, err: err}
 	}()
 
@@ -412,7 +418,7 @@ func TestLichessFailureAndCancellationPreservePreviousHead(t *testing.T) {
 			defer cancel()
 			test.configure(cancel, importing)
 
-			_, err := importer.Import(ctx, "lichess", path, nil)
+			_, err := inspectAndImportLichess(ctx, importer, path, nil)
 			if test.wantError == context.Canceled {
 				if !errors.Is(err, context.Canceled) {
 					t.Fatalf("Import() error = %v, want context.Canceled", err)
@@ -450,7 +456,7 @@ func TestLichessSealsThenActivates(t *testing.T) {
 			func(string) (uint64, error) { return math.MaxUint64, nil },
 		)
 
-		report, err := importer.Import(context.Background(), "lichess", path, nil)
+		report, err := inspectAndImportLichess(context.Background(), importer, path, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -484,7 +490,7 @@ func TestLichessSealsThenActivates(t *testing.T) {
 		activateErr := errors.New("activate generation")
 		importing.activateErr = activateErr
 
-		_, err := importer.Import(context.Background(), "lichess", path, nil)
+		_, err := inspectAndImportLichess(context.Background(), importer, path, nil)
 		if !errors.Is(err, activateErr) {
 			t.Fatalf("Import() error = %v, want activation error", err)
 		}

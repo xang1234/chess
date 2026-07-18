@@ -90,12 +90,22 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
     openDataFolder: async () => {},
     quit: async () => {},
     choosePuzzleImportFile: async () => '/tmp/puzzles.csv.zst',
-    startLichessImport: async () => 'job-1',
+    inspectPuzzleImport: async () => ({
+      path: '/tmp/puzzles.csv.zst',
+      filename: 'puzzles.csv.zst',
+      format: 'lichess',
+      formatLabel: 'Lichess',
+      sourceId: 'lichess',
+      sourceIdOrigin: 'fixed',
+      replacesExisting: false
+    }),
+    startPuzzleImport: async () => 'job-1',
     cancelImport: async () => {},
     getImportResult: async (): Promise<ImportResult> => ({
       jobId: 'job-1',
       status: 'running',
-      report: { accepted: 0, duplicates: 0, rejected: 0 }
+      progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
+      report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
     }),
     onImportProgress: () => () => {},
     onImportFinished: () => () => {},

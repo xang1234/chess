@@ -222,25 +222,8 @@ export namespace domain {
 
 export namespace importjob {
 
-	export class ImportRequest {
-	    kind: string;
-	    sourceId: string;
-	    path: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ImportRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.kind = source["kind"];
-	        this.sourceId = source["sourceId"];
-	        this.path = source["path"];
-	    }
-	}
 	export class Result {
 	    jobId: string;
-	    request: ImportRequest;
 	    status: string;
 	    progress: puzzles.Progress;
 	    report: puzzles.ImportReport;
@@ -253,7 +236,6 @@ export namespace importjob {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.jobId = source["jobId"];
-	        this.request = this.convertValues(source["request"], ImportRequest);
 	        this.status = source["status"];
 	        this.progress = this.convertValues(source["progress"], puzzles.Progress);
 	        this.report = this.convertValues(source["report"], puzzles.ImportReport);
@@ -468,6 +450,36 @@ export namespace profile {
 
 export namespace puzzles {
 
+	export class ImportInspection {
+	    path: string;
+	    filename: string;
+	    format: string;
+	    formatLabel: string;
+	    sourceId: string;
+	    sourceIdOrigin: string;
+	    sourceName?: string;
+	    url?: string;
+	    attribution?: string;
+	    replacesExisting: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ImportInspection(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.filename = source["filename"];
+	        this.format = source["format"];
+	        this.formatLabel = source["formatLabel"];
+	        this.sourceId = source["sourceId"];
+	        this.sourceIdOrigin = source["sourceIdOrigin"];
+	        this.sourceName = source["sourceName"];
+	        this.url = source["url"];
+	        this.attribution = source["attribution"];
+	        this.replacesExisting = source["replacesExisting"];
+	    }
+	}
 	export class Rejection {
 	    ordinal: number;
 	    reason: string;
@@ -519,8 +531,10 @@ export namespace puzzles {
 		}
 	}
 	export class Progress {
+	    phase: string;
 	    rowsRead: number;
 	    bytesRead: number;
+	    totalBytes: number;
 
 	    static createFrom(source: any = {}) {
 	        return new Progress(source);
@@ -528,8 +542,10 @@ export namespace puzzles {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.phase = source["phase"];
 	        this.rowsRead = source["rowsRead"];
 	        this.bytesRead = source["bytesRead"];
+	        this.totalBytes = source["totalBytes"];
 	    }
 	}
 	export class RatingBounds {
