@@ -94,6 +94,18 @@ func (r *countingReader) Read(buffer []byte) (int, error) {
 	return count, err
 }
 
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(buffer []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(buffer)
+}
+
 type CollectionImporter struct {
 	Catalog          CatalogWriter
 	Reader           CatalogReader
@@ -129,9 +141,20 @@ func (i CollectionImporter) Inspect(ctx context.Context, path string) (ImportIns
 	if err != nil {
 		return ImportInspection{}, err
 	}
+	_, inspection, err := i.inspectRegistry(ctx, normalizedPath)
+	return inspection, err
+}
 
+func (i CollectionImporter) inspectRegistry(
+	ctx context.Context,
+	normalizedPath string,
+) (PuzzleAdapter, ImportInspection, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, ImportInspection{}, err
+	}
 	matches := make([]adapterInspection, 0, len(i.Adapters))
 	var inspectionErrors []error
+	var contextErrors []error
 	for _, adapter := range i.Adapters {
 		if adapter == nil {
 			inspectionErrors = append(inspectionErrors, errors.New("puzzle adapter is nil"))
@@ -139,21 +162,29 @@ func (i CollectionImporter) Inspect(ctx context.Context, path string) (ImportIns
 		}
 		inspection, matched, inspectErr := adapter.Inspect(ctx, normalizedPath)
 		if inspectErr != nil {
-			inspectionErrors = append(
-				inspectionErrors,
-				fmt.Errorf("inspect %s puzzle source: %w", adapter.Format(), inspectErr),
-			)
+			wrapped := fmt.Errorf("inspect %s puzzle source: %w", adapter.Format(), inspectErr)
+			if errors.Is(inspectErr, context.Canceled) || errors.Is(inspectErr, context.DeadlineExceeded) {
+				contextErrors = append(contextErrors, wrapped)
+			} else {
+				inspectionErrors = append(inspectionErrors, wrapped)
+			}
 			continue
 		}
 		if matched {
 			matches = append(matches, adapterInspection{adapter: adapter, inspection: inspection})
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		contextErrors = append(contextErrors, err)
+	}
+	if err := errors.Join(contextErrors...); err != nil {
+		return nil, ImportInspection{}, err
+	}
 	if len(matches) == 0 {
 		if err := errors.Join(inspectionErrors...); err != nil {
-			return ImportInspection{}, err
+			return nil, ImportInspection{}, err
 		}
-		return ImportInspection{}, errors.New("unsupported puzzle import format")
+		return nil, ImportInspection{}, errors.New("unsupported puzzle import format")
 	}
 
 	selected := matches[0]
@@ -169,7 +200,7 @@ func (i CollectionImporter) Inspect(ctx context.Context, path string) (ImportIns
 			for _, match := range matches {
 				formats = append(formats, string(match.adapter.Format()))
 			}
-			return ImportInspection{}, fmt.Errorf(
+			return nil, ImportInspection{}, fmt.Errorf(
 				"ambiguous puzzle import format: content matches %s",
 				strings.Join(formats, ", "),
 			)
@@ -177,7 +208,13 @@ func (i CollectionImporter) Inspect(ctx context.Context, path string) (ImportIns
 		selected = extensionMatches[0]
 	}
 
-	return i.completeInspection(ctx, normalizedPath, selected.adapter, selected.inspection)
+	inspection, err := i.completeInspection(
+		ctx, normalizedPath, selected.adapter, selected.inspection,
+	)
+	if err != nil {
+		return nil, ImportInspection{}, err
+	}
+	return selected.adapter, inspection, nil
 }
 
 func (i CollectionImporter) ImportFormat(
@@ -200,9 +237,16 @@ func (i CollectionImporter) ImportFormat(
 	if err != nil {
 		return ImportReport{}, err
 	}
-	adapter, inspection, err := i.inspectFormat(ctx, format, normalizedPath)
+	adapter, inspection, err := i.inspectRegistry(ctx, normalizedPath)
 	if err != nil {
 		return ImportReport{}, err
+	}
+	if inspection.Format != format {
+		return ImportReport{}, fmt.Errorf(
+			"puzzle import format changed after inspection: got %q, want %q",
+			inspection.Format,
+			format,
+		)
 	}
 	if inspection.Path != normalizedPath {
 		return ImportReport{}, fmt.Errorf(
@@ -339,7 +383,7 @@ func (i CollectionImporter) ImportFormat(
 	if err := closeDecoder(); err != nil {
 		return abandon(fmt.Errorf("close puzzle decoder: %w", err))
 	}
-	if _, err := io.Copy(io.Discard, raw); err != nil {
+	if _, err := io.Copy(io.Discard, contextReader{ctx: ctx, reader: raw}); err != nil {
 		return abandon(fmt.Errorf("finish source checksum: %w", err))
 	}
 	emit(ImportParsing, rowsRead, counter.read, totalBytes)
@@ -363,52 +407,15 @@ func (i CollectionImporter) ImportFormat(
 	return report, nil
 }
 
-func (i CollectionImporter) inspectFormat(
-	ctx context.Context,
-	format ImportFormat,
-	normalizedPath string,
-) (PuzzleAdapter, ImportInspection, error) {
-	var selected PuzzleAdapter
-	for _, adapter := range i.Adapters {
-		if adapter != nil && adapter.Format() == format {
-			if selected != nil {
-				return nil, ImportInspection{}, fmt.Errorf(
-					"multiple puzzle adapters are configured for format %q",
-					format,
-				)
-			}
-			selected = adapter
-		}
-	}
-	if selected == nil {
-		return nil, ImportInspection{}, fmt.Errorf(
-			"puzzle adapter for format %q is not configured",
-			format,
-		)
-	}
-	inspection, matched, err := selected.Inspect(ctx, normalizedPath)
-	if err != nil {
-		return nil, ImportInspection{}, err
-	}
-	if !matched {
-		return nil, ImportInspection{}, fmt.Errorf(
-			"puzzle source no longer matches requested format %q",
-			format,
-		)
-	}
-	inspection, err = i.completeInspection(ctx, normalizedPath, selected, inspection)
-	if err != nil {
-		return nil, ImportInspection{}, err
-	}
-	return selected, inspection, nil
-}
-
 func (i CollectionImporter) completeInspection(
 	ctx context.Context,
 	normalizedPath string,
 	adapter PuzzleAdapter,
 	inspection ImportInspection,
 ) (ImportInspection, error) {
+	if err := ctx.Err(); err != nil {
+		return ImportInspection{}, err
+	}
 	inspection.Path = normalizedPath
 	inspection.Filename = filepath.Base(normalizedPath)
 	inspection.Format = adapter.Format()
@@ -422,10 +429,16 @@ func (i CollectionImporter) completeInspection(
 		)
 	}
 	if i.Reader == nil {
+		if err := ctx.Err(); err != nil {
+			return ImportInspection{}, err
+		}
 		return inspection, nil
 	}
 	summaries, err := i.Reader.ActiveSourceSummaries(ctx)
 	if err != nil {
+		return ImportInspection{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return ImportInspection{}, err
 	}
 	for _, summary := range summaries {
@@ -433,6 +446,9 @@ func (i CollectionImporter) completeInspection(
 			inspection.ReplacesExisting = true
 			break
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return ImportInspection{}, err
 	}
 	return inspection, nil
 }

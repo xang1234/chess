@@ -20,6 +20,7 @@ type fakePuzzleAdapter struct {
 	inspection ImportInspection
 	inspected  *[]string
 	decoder    func() PuzzleDecoder
+	preInspect func()
 	inspectErr error
 }
 
@@ -28,6 +29,9 @@ func (a fakePuzzleAdapter) Format() ImportFormat { return a.format }
 func (a fakePuzzleAdapter) Inspect(_ context.Context, path string) (ImportInspection, bool, error) {
 	if a.inspected != nil {
 		*a.inspected = append(*a.inspected, path)
+	}
+	if a.preInspect != nil {
+		a.preInspect()
 	}
 	if a.inspectErr != nil {
 		return ImportInspection{}, false, a.inspectErr
@@ -59,6 +63,7 @@ type fakePuzzleDecoder struct {
 	next           int
 	terminal       error
 	beforeTerminal func()
+	onClose        func()
 	closed         int
 }
 
@@ -85,6 +90,9 @@ func (d *fakePuzzleDecoder) Next(ctx context.Context) (DecodedRecord, error) {
 
 func (d *fakePuzzleDecoder) Close() error {
 	d.closed++
+	if d.onClose != nil {
+		d.onClose()
+	}
 	return nil
 }
 
@@ -188,6 +196,25 @@ func TestCollectionImporterInspectUniqueContentMatchWinsOverOtherProbeErrors(t *
 	}
 	if got.Format != FormatLinearFENUCI {
 		t.Fatalf("format = %q, want %q", got.Format, FormatLinearFENUCI)
+	}
+}
+
+func TestCollectionImporterInspectDoesNotHideCancellationBehindContentMatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "collection.data")
+	if err := os.WriteFile(path, []byte("linear-signature"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	importer := CollectionImporter{Adapters: []PuzzleAdapter{
+		fakePuzzleAdapter{format: FormatLinearFENUCI, signature: "linear-signature"},
+		fakePuzzleAdapter{
+			format: FormatCanonicalJSON, preInspect: cancel, inspectErr: context.Canceled,
+		},
+	}}
+
+	_, err := importer.Inspect(ctx, path)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Inspect() error = %v, want context.Canceled", err)
 	}
 }
 
@@ -435,5 +462,73 @@ func TestCollectionImporterImportFormatRejectsStaleInspectionIdentity(t *testing
 	}
 	if generation.abandonCalls != 0 || generation.sealCalls != 0 || generation.activateCalls != 0 {
 		t.Fatalf("stale inspection entered generation lifecycle: %+v", generation)
+	}
+}
+
+func TestCollectionImporterImportFormatReinspectionUsesRegistrySelection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "collection.pgn")
+	if err := os.WriteFile(path, []byte("shared-signature"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	normalizedPath, err := normalizeImportPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{ExternalID: "one"}}
+	generation := &collectionCaptureGeneration{report: ImportReport{Accepted: 1}}
+	catalog := &collectionCaptureCatalog{generation: generation}
+	importer := CollectionImporter{
+		Catalog:          catalog,
+		CatalogDirectory: t.TempDir(),
+		AvailableBytes:   func(string) (uint64, error) { return math.MaxUint64, nil },
+		Adapters: []PuzzleAdapter{
+			fakePuzzleAdapter{
+				format: FormatLinearFENUCI, signature: "shared-signature",
+				decoder: func() PuzzleDecoder {
+					return &fakePuzzleDecoder{records: []DecodedRecord{{Puzzle: &puzzle}}}
+				},
+			},
+			fakePuzzleAdapter{format: FormatTacticalPGN, signature: "shared-signature"},
+		},
+	}
+
+	_, err = importer.ImportFormat(
+		context.Background(), FormatLinearFENUCI, normalizedPath, normalizedPath, nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "format") {
+		t.Fatalf("ImportFormat() error = %v, want authoritative format mismatch", err)
+	}
+	if catalog.beginCalls != 0 {
+		t.Fatalf("BeginImport calls = %d, want 0", catalog.beginCalls)
+	}
+}
+
+func TestCollectionImporterImportFormatCancelsUnreadRawDrain(t *testing.T) {
+	const contents = "unread trailing raw source bytes"
+	ctx, cancel := context.WithCancel(context.Background())
+	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{ExternalID: "one"}}
+	importer, path, generation := newCollectionRunner(t, contents, func() PuzzleDecoder {
+		return &fakePuzzleDecoder{
+			records: []DecodedRecord{{Puzzle: &puzzle}},
+			onClose: cancel,
+		}
+	})
+	var progress []Progress
+
+	_, err := importer.ImportFormat(ctx, FormatLinearFENUCI, path, path, func(got Progress) {
+		progress = append(progress, got)
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ImportFormat() error = %v, want context.Canceled", err)
+	}
+	var maximumBytesRead int64
+	for _, snapshot := range progress {
+		maximumBytesRead = max(maximumBytesRead, snapshot.BytesRead)
+	}
+	if maximumBytesRead == int64(len(contents)) {
+		t.Fatalf("drain consumed all %d raw bytes after cancellation; progress = %+v", len(contents), progress)
+	}
+	if generation.abandonCalls != 1 || generation.sealCalls != 0 || generation.activateCalls != 0 {
+		t.Fatalf("lifecycle calls = abandon %d, seal %d, activate %d", generation.abandonCalls, generation.sealCalls, generation.activateCalls)
 	}
 }
