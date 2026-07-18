@@ -1,7 +1,7 @@
 # Italian Opening Course Design
 
 Date: 2026-07-18
-Status: Approved design, awaiting written-spec review
+Status: Approved on 2026-07-18
 
 ## Summary
 
