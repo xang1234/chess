@@ -124,6 +124,7 @@ type tacticalPGNDecoder struct {
 	sourceIDOrigin SourceIDOrigin
 	scanner        *chess.Scanner
 	ordinal        int64
+	identitySeen   bool
 	closed         bool
 }
 
@@ -153,18 +154,23 @@ func (d *tacticalPGNDecoder) Next(ctx context.Context) (DecodedRecord, error) {
 
 	tokens, tags, tokenizeErr := tokenizeTacticalPGNGame(scanned)
 	recordSourceIDs, hasSourceID := tags["SourceId"]
-	if d.ordinal == 1 && d.sourceIDOrigin == SourceIDEmbedded && !hasSourceID {
+	firstTacticalRecord := !d.identitySeen && tacticalPGNHasNonEmptyTag(tags, "FEN")
+	if firstTacticalRecord {
+		d.identitySeen = true
+	}
+	if firstTacticalRecord && d.sourceIDOrigin == SourceIDEmbedded && !hasSourceID {
 		return DecodedRecord{}, fmt.Errorf(
-			"PGN game 1 does not reproduce inspected SourceId %q",
+			"PGN game %d does not reproduce inspected SourceId %q",
+			d.ordinal,
 			d.sourceID,
 		)
 	}
 	for _, value := range recordSourceIDs {
 		recordSourceID := strings.TrimSpace(value)
-		firstGameFallback := d.ordinal == 1 &&
+		firstTacticalFallback := firstTacticalRecord &&
 			d.sourceIDOrigin == SourceIDPath &&
 			recordSourceID == ""
-		if recordSourceID != d.sourceID && !firstGameFallback {
+		if recordSourceID != d.sourceID && !firstTacticalFallback {
 			return DecodedRecord{}, fmt.Errorf(
 				"PGN game %d SourceId %q conflicts with inspected source ID %q",
 				d.ordinal,

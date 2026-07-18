@@ -265,6 +265,47 @@ func TestTacticalPGNInspectionAllowsMalformedLeadingGame(t *testing.T) {
 	}
 }
 
+func TestTacticalPGNInspectionFindsFirstTacticalGameAfterOrdinaryPGN(t *testing.T) {
+	contents := `[Event "Ordinary game"]
+[White "Player one"]
+[Black "Player two"]
+
+1. e4 e5 *
+
+[Event "Tactical game"]
+[SourceId "club-tactics"]
+[FEN "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"]
+[White "solver"][Black "?"]
+
+1. e4 *
+`
+	path := filepath.Join(t.TempDir(), "mixed.pgn")
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewTacticalPGNAdapter(chessrules.Rules{})
+	inspection, matched, err := adapter.Inspect(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matched || inspection.SourceID != "club-tactics" ||
+		inspection.SourceIDOrigin != SourceIDEmbedded {
+		t.Fatalf("inspection/matched = %+v/%v", inspection, matched)
+	}
+	decoder, err := adapter.NewDecoder(strings.NewReader(contents), inspection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := decoder.Next(context.Background())
+	if err != nil || first.Rejection == nil || !strings.Contains(first.Rejection.Reason, "FEN is required") {
+		t.Fatalf("first record/error = %+v/%v, want non-tactical rejection", first, err)
+	}
+	second, err := decoder.Next(context.Background())
+	if err != nil || second.Puzzle == nil || second.Puzzle.Occurrence.Ordinal != 2 {
+		t.Fatalf("second record/error = %+v/%v, want ordinal-2 tactical puzzle", second, err)
+	}
+}
+
 func TestTacticalPGNDecoderTreatsAnyLaterExplicitSourceConflictAsFatal(t *testing.T) {
 	tests := []struct {
 		name     string
