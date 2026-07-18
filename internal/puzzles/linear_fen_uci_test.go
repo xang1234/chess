@@ -111,6 +111,27 @@ func TestLinearFENDecoderRejectsMalformedRecordsAndRecovers(t *testing.T) {
 	}
 }
 
+func TestLinearFENDecoderRejectsOverDepthBeforeMoveValidation(t *testing.T) {
+	line := standardStartingFEN + " " +
+		strings.TrimSpace(strings.Repeat("not-a-move ", maxSolutionDepth+1))
+	decoder := newLinearFENTestDecoder(t, line, ImportInspection{
+		SourceID:       "/collections/over-depth.txt",
+		SourceIDOrigin: SourceIDPath,
+		Filename:       "over-depth.txt",
+	})
+
+	record, err := decoder.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next() fatal error = %v, want record rejection", err)
+	}
+	if record.Rejection == nil || record.Puzzle != nil || !strings.Contains(
+		record.Rejection.Reason,
+		"solution depth 257 exceeds maximum of 256",
+	) {
+		t.Fatalf("record = %+v, want bounded depth rejection before invalid-move handling", record)
+	}
+}
+
 func TestLinearFENInspectionValidatesOnlyTheFirstMeaningfulLine(t *testing.T) {
 	const fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
 	path := filepath.Join(t.TempDir(), "misleading.txt")

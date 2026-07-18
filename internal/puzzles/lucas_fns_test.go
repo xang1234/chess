@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -175,6 +176,52 @@ func TestLucasFNSDecoderAcceptsCommentsNAGsAndVariationsBeforeResult(t *testing.
 	if len(root) != 1 || root[0].UCI != "e2e4" || len(root[0].Children) != 2 ||
 		root[0].Children[0].UCI != "e8f7" || root[0].Children[1].UCI != "e8d7" {
 		t.Fatalf("annotated solution tree = %+v", root)
+	}
+}
+
+func TestLucasFNSDecoderHonorsLineContractForLargeValidPGNComments(t *testing.T) {
+	for _, targetBytes := range []int{96 * 1024, maxLucasFNSLineBytes} {
+		t.Run(strconv.Itoa(targetBytes)+" bytes", func(t *testing.T) {
+			const fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
+			prefix := fen + "|comment-heavy|1. e4 {"
+			suffix := "} Kf7 (1... Kd7 {variation note}) 2. Kf2 *"
+			padding := targetBytes - len(prefix) - len(suffix)
+			if padding < 1 {
+				t.Fatalf("target %d is too small for fixture", targetBytes)
+			}
+			line := prefix + strings.Repeat("x", padding) + suffix
+			if len(line) != targetBytes {
+				t.Fatalf("fixture is %d bytes, want %d", len(line), targetBytes)
+			}
+			decoder := newLucasFNSTestDecoder(t, line, ImportInspection{
+				SourceID:       "/collections/comment-heavy.fns",
+				SourceIDOrigin: SourceIDPath,
+				Filename:       "comment-heavy.fns",
+			})
+
+			record, err := decoder.Next(context.Background())
+			if err != nil || record.Puzzle == nil || record.Rejection != nil {
+				reason := ""
+				if record.Rejection != nil {
+					reason = record.Rejection.Reason
+				}
+				t.Fatalf(
+					"record/rejection/error = %+v/%q/%v, want accepted %d-byte puzzle",
+					record,
+					reason,
+					err,
+					targetBytes,
+				)
+			}
+			root := record.Puzzle.Core.Solution
+			if len(root) != 1 || root[0].UCI != "e2e4" || len(root[0].Children) != 2 ||
+				root[0].Children[0].UCI != "e8f7" ||
+				root[0].Children[1].UCI != "e8d7" ||
+				len(root[0].Children[0].Children) != 1 ||
+				root[0].Children[0].Children[0].UCI != "e1f2" {
+				t.Fatalf("solution tree = %+v, want preserved mainline and variation", root)
+			}
+		})
 	}
 }
 

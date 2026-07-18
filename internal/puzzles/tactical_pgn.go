@@ -98,18 +98,20 @@ func (a tacticalPGNAdapter) NewDecoder(
 		return nil, errors.New("tactical PGN source ID is required")
 	}
 	return &tacticalPGNDecoder{
-		rules:    a.rules,
-		sourceID: sourceID,
-		scanner:  chess.NewScanner(reader),
+		rules:          a.rules,
+		sourceID:       sourceID,
+		sourceIDOrigin: inspection.SourceIDOrigin,
+		scanner:        chess.NewScanner(reader),
 	}, nil
 }
 
 type tacticalPGNDecoder struct {
-	rules    chessrules.Rules
-	sourceID string
-	scanner  *chess.Scanner
-	ordinal  int64
-	closed   bool
+	rules          chessrules.Rules
+	sourceID       string
+	sourceIDOrigin SourceIDOrigin
+	scanner        *chess.Scanner
+	ordinal        int64
+	closed         bool
 }
 
 func (d *tacticalPGNDecoder) Next(ctx context.Context) (DecodedRecord, error) {
@@ -137,9 +139,18 @@ func (d *tacticalPGNDecoder) Next(ctx context.Context) (DecodedRecord, error) {
 	}
 
 	tokens, tags, tokenizeErr := tokenizeTacticalPGNGame(scanned)
-	for _, value := range tags["SourceId"] {
+	recordSourceIDs, hasSourceID := tags["SourceId"]
+	if d.ordinal == 1 && d.sourceIDOrigin == SourceIDEmbedded && !hasSourceID {
+		return DecodedRecord{}, fmt.Errorf(
+			"PGN game 1 does not reproduce inspected SourceId %q",
+			d.sourceID,
+		)
+	}
+	for _, value := range recordSourceIDs {
 		recordSourceID := strings.TrimSpace(value)
-		firstGameFallback := d.ordinal == 1 && recordSourceID == ""
+		firstGameFallback := d.ordinal == 1 &&
+			d.sourceIDOrigin == SourceIDPath &&
+			recordSourceID == ""
 		if recordSourceID != d.sourceID && !firstGameFallback {
 			return DecodedRecord{}, fmt.Errorf(
 				"PGN game %d SourceId %q conflicts with inspected source ID %q",
@@ -281,7 +292,11 @@ func (d *tacticalPGNDecoder) normalizeGame(
 		return TrainingPuzzle{}, errors.New("at least one solution move must remain after the prelude")
 	}
 
-	core, err := finalizeCore(d.rules, displayedFEN, solver, linearSolution(moves))
+	solution, err := linearSolution(moves)
+	if err != nil {
+		return TrainingPuzzle{}, fmt.Errorf("validate PGN move line: %w", err)
+	}
+	core, err := finalizeCore(d.rules, displayedFEN, solver, solution)
 	if err != nil {
 		return TrainingPuzzle{}, fmt.Errorf("validate PGN move line: %w", err)
 	}

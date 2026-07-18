@@ -252,7 +252,11 @@ func (d *lichessDecoder) normalizeRecord(
 	if err != nil {
 		return TrainingPuzzle{}, err
 	}
-	core, err := finalizeCore(d.rules, displayedFEN, solver, linearSolution(moves[1:]))
+	solution, err := linearSolution(moves[1:])
+	if err != nil {
+		return TrainingPuzzle{}, fmt.Errorf("validate move line: %w", err)
+	}
+	core, err := finalizeCore(d.rules, displayedFEN, solver, solution)
 	if err != nil {
 		return TrainingPuzzle{}, fmt.Errorf("validate move line: %w", err)
 	}

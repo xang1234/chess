@@ -76,18 +76,26 @@ func solverFromFEN(fen string) (domain.Color, error) {
 	}
 }
 
-func linearSolution(moves []string) []domain.MoveNode {
-	if len(moves) == 0 {
-		return nil
+func linearSolution(moves []string) ([]domain.MoveNode, error) {
+	if len(moves) > maxSolutionDepth {
+		return nil, fmt.Errorf(
+			"solution depth %d exceeds maximum of %d",
+			len(moves),
+			maxSolutionDepth,
+		)
 	}
-	return []domain.MoveNode{{
-		UCI:      strings.ToLower(moves[0]),
-		Children: linearSolution(moves[1:]),
-	}}
-}
+	if len(moves) > maxSolutionNodes {
+		return nil, fmt.Errorf("solution exceeds maximum of %d nodes", maxSolutionNodes)
+	}
 
-func moveLine(moves []string) []domain.MoveNode {
-	return linearSolution(moves)
+	var solution []domain.MoveNode
+	for index := len(moves) - 1; index >= 0; index-- {
+		solution = []domain.MoveNode{{
+			UCI:      strings.ToLower(moves[index]),
+			Children: solution,
+		}}
+	}
+	return solution, nil
 }
 
 func normalizeSolutionTree(

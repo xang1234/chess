@@ -327,6 +327,39 @@ func TestTacticalPGNDecoderUsesMainlineOnlyAndAcceptsAdjacentTags(t *testing.T) 
 	}
 }
 
+func TestTacticalPGNDecoderRejectsOverDepthSolution(t *testing.T) {
+	var movetext strings.Builder
+	cycle := [...]string{"Nf3", "Nf6", "Ng1", "Ng8"}
+	for ply := 0; ply < maxSolutionDepth+1; ply++ {
+		if ply%2 == 0 {
+			movetext.WriteString(strconv.Itoa(ply/2 + 1))
+			movetext.WriteString(". ")
+		}
+		movetext.WriteString(cycle[ply%len(cycle)])
+		movetext.WriteByte(' ')
+	}
+	movetext.WriteByte('*')
+	contents := `[SourceId "club-tactics"]
+[SetUp "1"]
+[FEN "` + standardStartingFEN + `"]
+[White "solver"]
+[Black "?"]
+
+` + movetext.String()
+	decoder := newTacticalPGNTestDecoder(t, contents, "club-tactics")
+
+	record, err := decoder.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next() fatal error = %v, want record rejection", err)
+	}
+	if record.Rejection == nil || record.Puzzle != nil || !strings.Contains(
+		record.Rejection.Reason,
+		"solution depth 257 exceeds maximum of 256",
+	) {
+		t.Fatalf("record = %+v, want bounded depth rejection", record)
+	}
+}
+
 func TestTacticalPGNDecoderEnforcesExactTagLimit(t *testing.T) {
 	for _, test := range []struct {
 		name       string
@@ -425,9 +458,17 @@ func inspectTacticalPGN(t *testing.T, contents string) (PuzzleAdapter, string, I
 
 func newTacticalPGNTestDecoder(t *testing.T, contents, sourceID string) PuzzleDecoder {
 	t.Helper()
+	origin := SourceIDPath
+	scanner := chess.NewScanner(strings.NewReader(contents))
+	if firstGame, scanErr := scanner.ScanGame(); scanErr == nil {
+		_, tags, tokenizeErr := tokenizeTacticalPGNGame(firstGame)
+		if tokenizeErr == nil && len(tags["SourceId"]) > 0 {
+			origin = SourceIDEmbedded
+		}
+	}
 	decoder, err := NewTacticalPGNAdapter(chessrules.Rules{}).NewDecoder(
 		strings.NewReader(contents),
-		ImportInspection{SourceID: sourceID, SourceIDOrigin: SourceIDEmbedded},
+		ImportInspection{SourceID: sourceID, SourceIDOrigin: origin},
 	)
 	if err != nil {
 		t.Fatal(err)

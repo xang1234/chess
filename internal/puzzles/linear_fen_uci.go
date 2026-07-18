@@ -186,7 +186,11 @@ func parseLinearFENLine(
 	if err != nil {
 		return PuzzleCore{}, nil, err
 	}
-	core, err := finalizeCore(rules, normalizedFEN, solver, linearSolution(moves))
+	solution, err := linearSolution(moves)
+	if err != nil {
+		return PuzzleCore{}, nil, fmt.Errorf("validate linear UCI move line: %w", err)
+	}
+	core, err := finalizeCore(rules, normalizedFEN, solver, solution)
 	if err != nil {
 		return PuzzleCore{}, nil, fmt.Errorf("validate linear UCI move line: %w", err)
 	}

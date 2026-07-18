@@ -621,6 +621,54 @@ func TestCollectionImporterTacticalPGNAbandonsConflictingSourceIdentity(t *testi
 	}
 }
 
+func TestCollectionImporterTacticalPGNAbandonsWhenFirstGameLosesEmbeddedIdentityAfterInspection(
+	t *testing.T,
+) {
+	path := filepath.Join(t.TempDir(), "mutated.pgn")
+	if err := os.WriteFile(path, []byte(tacticalPGNDirectSolver), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withoutSourceID := strings.Replace(
+		tacticalPGNDirectSolver,
+		"[SourceId \"club-tactics\"]\n",
+		"",
+		1,
+	)
+	generation := &collectionCaptureGeneration{report: ImportReport{Accepted: 1}}
+	mutated := false
+	importer := CollectionImporter{
+		Catalog:          &collectionCaptureCatalog{generation: generation},
+		CatalogDirectory: t.TempDir(),
+		AvailableBytes: func(string) (uint64, error) {
+			mutated = true
+			return math.MaxUint64, os.WriteFile(path, []byte(withoutSourceID), 0o600)
+		},
+		Adapters: []PuzzleAdapter{NewTacticalPGNAdapter(chessrules.Rules{})},
+	}
+
+	_, err := importer.ImportFormat(
+		context.Background(),
+		FormatTacticalPGN,
+		"club-tactics",
+		path,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "SourceId") {
+		t.Fatalf("ImportFormat() error = %v, want fatal first-game SourceId mismatch", err)
+	}
+	if !mutated {
+		t.Fatal("source was not mutated at the post-inspection lifecycle boundary")
+	}
+	if generation.activateCalls != 0 || generation.sealCalls != 0 || generation.abandonCalls != 1 {
+		t.Fatalf(
+			"lifecycle = activate %d, seal %d, abandon %d",
+			generation.activateCalls,
+			generation.sealCalls,
+			generation.abandonCalls,
+		)
+	}
+}
+
 func TestCollectionImporterImportFormatCancelsUnreadRawDrain(t *testing.T) {
 	const contents = "unread trailing raw source bytes"
 	ctx, cancel := context.WithCancel(context.Background())

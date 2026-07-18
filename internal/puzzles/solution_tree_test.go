@@ -1,6 +1,8 @@
 package puzzles
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -88,6 +90,28 @@ func TestNormalizeSolutionTreeRejectsInvalidStructureAndLimits(t *testing.T) {
 			_, _, err := normalizeSolutionTree(chessrules.Rules{}, fen, test.nodes)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want text %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLinearSolutionRejectsOverDepthBeforeConstruction(t *testing.T) {
+	for _, moveCount := range []int{maxSolutionDepth + 1, 100_000} {
+		t.Run(strconv.Itoa(moveCount)+" moves", func(t *testing.T) {
+			moves := make([]string, moveCount)
+			for index := range moves {
+				moves[index] = "not-a-move"
+			}
+
+			solution, err := linearSolution(moves)
+			if err == nil || !strings.Contains(
+				err.Error(),
+				fmt.Sprintf("solution depth %d exceeds maximum of %d", moveCount, maxSolutionDepth),
+			) {
+				t.Fatalf("linearSolution() error = %v, want precise depth limit", err)
+			}
+			if solution != nil {
+				t.Fatalf("linearSolution() returned %d roots after limit error, want none", len(solution))
 			}
 		})
 	}

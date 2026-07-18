@@ -231,6 +231,28 @@ bad,not-a-fen,a1a2,1500,60,10,2,short,,
 	}
 }
 
+func TestLichessImporterRejectsOverDepthBeforeMoveValidation(t *testing.T) {
+	moves := "e2e4 " + strings.TrimSpace(strings.Repeat("not-a-move ", maxSolutionDepth+1))
+	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
+over-depth,`+standardStartingFEN+`,`+moves+`,1200,60,95,200,,,`+"\n")
+	generation := &captureGenerationImport{}
+	importer := LichessImporter{
+		Catalog:          &captureCatalog{generation: generation},
+		CatalogDirectory: filepath.Dir(path),
+	}
+
+	_, err := importer.Import(context.Background(), "lichess", path, nil)
+	if !errors.Is(err, ErrNoValidPuzzles) {
+		t.Fatalf("Import() error = %v, want ErrNoValidPuzzles", err)
+	}
+	if len(generation.report.Examples) != 1 || !strings.Contains(
+		generation.report.Examples[0].Reason,
+		"solution depth 257 exceeds maximum of 256",
+	) {
+		t.Fatalf("rejections = %+v, want bounded depth error before invalid-move handling", generation.report.Examples)
+	}
+}
+
 func TestLichessImporterCancellationAbortsStaging(t *testing.T) {
 	var fixture strings.Builder
 	fixture.WriteString("PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags\n")

@@ -70,6 +70,9 @@ func (a lucasFNSAdapter) Inspect(
 		if err := ctx.Err(); err != nil {
 			return ImportInspection{}, false, err
 		}
+		if len(scanner.Bytes()) > maxLucasFNSLineBytes {
+			return ImportInspection{}, false, lucasFNSLineLimitError(lineNumber)
+		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -121,7 +124,9 @@ func (a lucasFNSAdapter) NewDecoder(
 
 func newLucasFNSLineScanner(reader io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 64*1024), maxLucasFNSLineBytes)
+	// Leave room for an exact-limit record plus a CRLF delimiter. The explicit
+	// byte check at each successful scan preserves the 1 MiB record limit.
+	scanner.Buffer(make([]byte, 64*1024), maxLucasFNSLineBytes+2)
 	return scanner
 }
 
@@ -145,6 +150,9 @@ func (d *lucasFNSDecoder) Next(ctx context.Context) (DecodedRecord, error) {
 		d.lineNumber++
 		if err := ctx.Err(); err != nil {
 			return DecodedRecord{}, err
+		}
+		if len(d.scanner.Bytes()) > maxLucasFNSLineBytes {
+			return DecodedRecord{}, lucasFNSLineLimitError(d.lineNumber)
 		}
 		line := strings.TrimSpace(d.scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -240,14 +248,7 @@ func (d *lucasFNSDecoder) decodeLine(line string) (TrainingPuzzle, error) {
 
 func parseLucasFNSMovetext(fen string, movetext string) (*chess.Game, error) {
 	rawPGN := fmt.Sprintf("[SetUp \"1\"]\n[FEN %q]\n\n%s", fen, movetext)
-	scanner := chess.NewScanner(strings.NewReader(rawPGN))
-	scanned, err := scanner.ScanGame()
-	if errors.Is(err, io.EOF) {
-		return nil, errors.New("movetext is required")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("scan Lucas FNS movetext: %w", err)
-	}
+	scanned := &chess.GameScanned{Raw: rawPGN}
 	tokens, _, err := tokenizeTacticalPGNGame(scanned)
 	if err != nil {
 		return nil, fmt.Errorf("parse Lucas FNS movetext: %w", err)
@@ -259,12 +260,11 @@ func parseLucasFNSMovetext(fen string, movetext string) (*chess.Game, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse Lucas FNS movetext: %w", err)
 	}
-	if _, err := scanner.ScanGame(); err == nil {
-		return nil, errors.New("movetext must contain exactly one PGN game")
-	} else if !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("scan trailing Lucas FNS movetext: %w", err)
-	}
 	return game, nil
+}
+
+func lucasFNSLineLimitError(lineNumber int64) error {
+	return fmt.Errorf("scan Lucas FNS line %d: %w", lineNumber, bufio.ErrTooLong)
 }
 
 func validateLucasFNSTerminalResult(tokens []chess.Token) error {
