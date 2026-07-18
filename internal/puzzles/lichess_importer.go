@@ -2,23 +2,21 @@ package puzzles
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/csv"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
-	"chess-trainer/internal/storage"
 
 	"github.com/klauspost/compress/zstd"
 )
+
+var lichessZstandardMagic = [4]byte{0x28, 0xb5, 0x2f, 0xfd}
 
 var lichessColumns = []string{
 	"PuzzleId",
@@ -46,129 +44,159 @@ func (i LichessImporter) Import(
 	path string,
 	progress ProgressSink,
 ) (ImportReport, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return ImportReport{}, err
+	collection := CollectionImporter{
+		Catalog:          i.Catalog,
+		Adapters:         []PuzzleAdapter{NewLichessAdapter(i.Rules)},
+		CatalogDirectory: i.CatalogDirectory,
+		AvailableBytes:   i.AvailableBytes,
 	}
-	availableBytes := i.AvailableBytes
-	if availableBytes == nil {
-		availableBytes = storage.AvailableBytes
-	}
-	if strings.TrimSpace(i.CatalogDirectory) == "" {
-		return ImportReport{}, errors.New("puzzle catalogue directory is required")
-	}
-	available, err := availableBytes(i.CatalogDirectory)
-	if err != nil {
-		return ImportReport{}, err
-	}
-	required := storage.RequiredImportBytes(info.Size())
-	if available < required {
-		return ImportReport{}, fmt.Errorf(
-			"not enough free disk space: have %d bytes, need %d bytes",
-			available,
-			required,
-		)
-	}
+	return collection.ImportFormat(ctx, FormatLichess, sourceID, path, progress)
+}
 
+type lichessAdapter struct {
+	rules chessrules.Rules
+}
+
+func NewLichessAdapter(rules chessrules.Rules) PuzzleAdapter {
+	return lichessAdapter{rules: rules}
+}
+
+func (lichessAdapter) Format() ImportFormat {
+	return FormatLichess
+}
+
+func (lichessAdapter) Inspect(
+	ctx context.Context,
+	path string,
+) (ImportInspection, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return ImportInspection{}, false, err
+	}
 	file, err := os.Open(path)
 	if err != nil {
-		return ImportReport{}, err
+		return ImportInspection{}, false, err
 	}
 	defer file.Close()
 
-	generation, err := i.Catalog.BeginImport(ctx, Source{
-		ID:        sourceID,
-		Kind:      "lichess",
-		Path:      path,
-		StartedAt: time.Now(),
-	})
-	if err != nil {
-		return ImportReport{}, err
-	}
-	generation = newOrderedGenerationImport(ctx, generation)
-	sealed := false
-	abandon := func(cause error) (ImportReport, error) {
-		if !sealed {
-			cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), abandonImportTimeout)
-			defer cancel()
-			if abandonErr := generation.Abandon(cleanupContext); abandonErr != nil {
-				cause = errors.Join(cause, fmt.Errorf("abandon import: %w", abandonErr))
-			}
+	var magic [len(lichessZstandardMagic)]byte
+	if _, err := io.ReadFull(contextReader{ctx: ctx, reader: file}, magic[:]); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return ImportInspection{}, false, nil
 		}
-		return ImportReport{}, cause
+		return ImportInspection{}, false, err
+	}
+	if magic != lichessZstandardMagic {
+		return ImportInspection{}, false, nil
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return ImportInspection{}, false, err
 	}
 
-	hash := sha256.New()
-	counter := &countingReader{reader: file}
-	compressed := io.TeeReader(counter, hash)
-	decoder, err := zstd.NewReader(
-		compressed,
-		zstd.WithDecoderConcurrency(1),
-		zstd.WithDecoderLowmem(true),
-	)
+	decoder, err := newLichessZstandardReader(contextReader{ctx: ctx, reader: file})
 	if err != nil {
-		return abandon(err)
+		return ImportInspection{}, false, fmt.Errorf("unsupported Lichess content: %w", err)
 	}
 	defer decoder.Close()
-
-	reader := csv.NewReader(decoder)
-	reader.ReuseRecord = true
-	reader.FieldsPerRecord = -1
+	reader := newLichessCSVReader(decoder)
 	header, err := reader.Read()
 	if err != nil {
-		return abandon(fmt.Errorf("read Lichess header: %w", err))
+		return ImportInspection{}, false, fmt.Errorf("unsupported Lichess content: read header: %w", err)
+	}
+	if _, err := lichessColumnIndexes(header); err != nil {
+		return ImportInspection{}, false, fmt.Errorf("unsupported Lichess content: %w", err)
+	}
+	return ImportInspection{
+		SourceID:       "lichess",
+		SourceIDOrigin: SourceIDFixed,
+	}, true, nil
+}
+
+func (a lichessAdapter) NewDecoder(
+	reader io.Reader,
+	inspection ImportInspection,
+) (PuzzleDecoder, error) {
+	decoder, err := newLichessZstandardReader(reader)
+	if err != nil {
+		return nil, err
+	}
+	csvReader := newLichessCSVReader(decoder)
+	header, err := csvReader.Read()
+	if err != nil {
+		decoder.Close()
+		return nil, fmt.Errorf("read Lichess header: %w", err)
 	}
 	columns, err := lichessColumnIndexes(header)
 	if err != nil {
-		return abandon(err)
+		decoder.Close()
+		return nil, err
+	}
+	return &lichessDecoder{
+		rules:    a.rules,
+		sourceID: inspection.SourceID,
+		decoder:  decoder,
+		reader:   csvReader,
+		columns:  columns,
+	}, nil
+}
+
+func newLichessZstandardReader(reader io.Reader) (*zstd.Decoder, error) {
+	return zstd.NewReader(
+		reader,
+		zstd.WithDecoderConcurrency(1),
+		zstd.WithDecoderLowmem(true),
+	)
+}
+
+func newLichessCSVReader(reader io.Reader) *csv.Reader {
+	csvReader := csv.NewReader(reader)
+	csvReader.ReuseRecord = true
+	csvReader.FieldsPerRecord = -1
+	return csvReader
+}
+
+type lichessDecoder struct {
+	rules    chessrules.Rules
+	sourceID string
+	decoder  *zstd.Decoder
+	reader   *csv.Reader
+	columns  map[string]int
+	rowsRead int64
+	closed   bool
+}
+
+func (d *lichessDecoder) Next(ctx context.Context) (DecodedRecord, error) {
+	if err := ctx.Err(); err != nil {
+		return DecodedRecord{}, err
+	}
+	record, readErr := d.reader.Read()
+	if errors.Is(readErr, io.EOF) {
+		return DecodedRecord{}, io.EOF
+	}
+	d.rowsRead++
+	ordinal := d.rowsRead + 1
+	if readErr != nil {
+		if len(record) == 0 {
+			return DecodedRecord{}, fmt.Errorf("read CSV row %d: %w", ordinal, readErr)
+		}
+		rejection := Rejection{Ordinal: ordinal, Reason: readErr.Error()}
+		return DecodedRecord{Rejection: &rejection}, nil
 	}
 
-	var rowsRead int64
-	for {
-		if err := ctx.Err(); err != nil {
-			return abandon(err)
-		}
-		record, readErr := reader.Read()
-		if errors.Is(readErr, io.EOF) {
-			break
-		}
-		rowsRead++
-		ordinal := rowsRead + 1
-		if readErr != nil {
-			if len(record) == 0 {
-				return abandon(fmt.Errorf("read CSV row %d: %w", ordinal, readErr))
-			}
-			generation.Reject(Rejection{Ordinal: ordinal, Reason: readErr.Error()})
-			continue
-		}
-
-		puzzle, err := i.normalizeRecord(sourceID, ordinal, record, columns)
-		if err != nil {
-			generation.Reject(Rejection{Ordinal: ordinal, Reason: err.Error()})
-		} else if err := generation.Add(ctx, puzzle); err != nil {
-			return abandon(err)
-		}
-		if progress != nil && rowsRead%10_000 == 0 {
-			progress(Progress{RowsRead: rowsRead, BytesRead: counter.read})
-		}
-	}
-
-	decoder.Close()
-	if _, err := io.Copy(io.Discard, compressed); err != nil {
-		return abandon(fmt.Errorf("finish source checksum: %w", err))
-	}
-	if progress != nil {
-		progress(Progress{RowsRead: rowsRead, BytesRead: counter.read})
-	}
-	report, err := generation.Seal(ctx, hex.EncodeToString(hash.Sum(nil)))
+	puzzle, err := d.normalizeRecord(ordinal, record)
 	if err != nil {
-		return abandon(err)
+		rejection := Rejection{Ordinal: ordinal, Reason: err.Error()}
+		return DecodedRecord{Rejection: &rejection}, nil
 	}
-	sealed = true
-	if err := generation.Activate(ctx); err != nil {
-		return report, err
+	return DecodedRecord{Puzzle: &puzzle}, nil
+}
+
+func (d *lichessDecoder) Close() error {
+	if d.closed {
+		return nil
 	}
-	return report, nil
+	d.closed = true
+	d.decoder.Close()
+	return nil
 }
 
 func lichessColumnIndexes(header []string) (map[string]int, error) {
@@ -188,14 +216,12 @@ func lichessColumnIndexes(header []string) (map[string]int, error) {
 	return columns, nil
 }
 
-func (i LichessImporter) normalizeRecord(
-	sourceID string,
+func (d *lichessDecoder) normalizeRecord(
 	ordinal int64,
 	record []string,
-	columns map[string]int,
 ) (TrainingPuzzle, error) {
 	value := func(name string) (string, error) {
-		index := columns[name]
+		index := d.columns[name]
 		if index >= len(record) {
 			return "", fmt.Errorf("row has no %s field", name)
 		}
@@ -218,7 +244,7 @@ func (i LichessImporter) normalizeRecord(
 		return TrainingPuzzle{}, errors.New("Moves must contain a setup move and at least one solution move")
 	}
 
-	displayedFEN, err := i.Rules.ApplyUCILine(sourceFEN, moves)
+	displayedFEN, err := d.rules.ApplyUCI(sourceFEN, moves[0])
 	if err != nil {
 		return TrainingPuzzle{}, fmt.Errorf("validate move line: %w", err)
 	}
@@ -226,19 +252,23 @@ func (i LichessImporter) normalizeRecord(
 	if err != nil {
 		return TrainingPuzzle{}, err
 	}
-	rating, err := nullableInteger(record, columns, "Rating")
+	core, err := finalizeCore(d.rules, displayedFEN, solver, linearSolution(moves[1:]))
+	if err != nil {
+		return TrainingPuzzle{}, fmt.Errorf("validate move line: %w", err)
+	}
+	rating, err := nullableInteger(record, d.columns, "Rating")
 	if err != nil {
 		return TrainingPuzzle{}, err
 	}
-	ratingDeviation, err := nullableInteger(record, columns, "RatingDeviation")
+	ratingDeviation, err := nullableInteger(record, d.columns, "RatingDeviation")
 	if err != nil {
 		return TrainingPuzzle{}, err
 	}
-	popularity, err := nullableInteger(record, columns, "Popularity")
+	popularity, err := nullableInteger(record, d.columns, "Popularity")
 	if err != nil {
 		return TrainingPuzzle{}, err
 	}
-	playCount, err := nullableInteger(record, columns, "NbPlays")
+	playCount, err := nullableInteger(record, d.columns, "NbPlays")
 	if err != nil {
 		return TrainingPuzzle{}, err
 	}
@@ -263,20 +293,10 @@ func (i LichessImporter) normalizeRecord(
 		metadata["openingTags"] = strings.Fields(openingTags)
 	}
 
-	core := PuzzleCore{
-		DisplayedFEN:  displayedFEN,
-		Solver:        solver,
-		Solution:      moveLine(moves[1:]),
-		SolutionPlies: len(moves) - 1,
-	}
-	core.Fingerprint, err = CoreFingerprint(core)
-	if err != nil {
-		return TrainingPuzzle{}, err
-	}
 	return TrainingPuzzle{
 		Core: core,
 		Occurrence: PuzzleOccurrence{
-			SourceID:    sourceID,
+			SourceID:    d.sourceID,
 			SourceKind:  "lichess",
 			ExternalID:  puzzleID,
 			SourceFEN:   sourceFEN,

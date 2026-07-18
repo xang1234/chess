@@ -2,15 +2,20 @@ package puzzles
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"chess-trainer/internal/chessrules"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -88,6 +93,61 @@ func writeZstandardFixture(t *testing.T, contents string) string {
 	return path
 }
 
+func TestLichessAdapterInspectsCompressedHeaderRegardlessOfFilename(t *testing.T) {
+	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
+`)
+	unrelatedName := filepath.Join(filepath.Dir(path), "download.bin")
+	if err := os.Rename(path, unrelatedName); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := NewLichessAdapter(chessrules.Rules{})
+	inspection, matched, err := adapter.Inspect(context.Background(), unrelatedName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matched {
+		t.Fatal("Inspect() did not match a compressed Lichess header")
+	}
+	if adapter.Format() != FormatLichess {
+		t.Fatalf("Format() = %q, want %q", adapter.Format(), FormatLichess)
+	}
+	if inspection.SourceID != "lichess" || inspection.SourceIDOrigin != SourceIDFixed {
+		t.Fatalf("inspection source identity = %q/%q, want lichess/fixed", inspection.SourceID, inspection.SourceIDOrigin)
+	}
+}
+
+func TestLichessAdapterDoesNotMatchPlainCSV(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "looks-like-lichess.csv.zst")
+	if err := os.WriteFile(
+		path,
+		[]byte("PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, matched, err := NewLichessAdapter(chessrules.Rules{}).Inspect(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matched {
+		t.Fatal("Inspect() matched plain CSV without zstd magic")
+	}
+}
+
+func TestLichessAdapterRejectsUnsupportedCompressedContent(t *testing.T) {
+	path := writeZstandardFixture(t, "Name,Value\nexample,one\n")
+
+	_, matched, err := NewLichessAdapter(chessrules.Rules{}).Inspect(context.Background(), path)
+	if err == nil || !strings.Contains(err.Error(), "unsupported Lichess content") {
+		t.Fatalf("Inspect() error = %v, want unsupported Lichess content", err)
+	}
+	if matched {
+		t.Fatal("Inspect() matched an unrelated compressed CSV header")
+	}
+}
+
 func TestLichessImporterNormalizesSetupMove(t *testing.T) {
 	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
 mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https://lichess.org/example,
@@ -96,8 +156,11 @@ bad,not-a-fen,a1a2,1500,60,10,2,short,,
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
 	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
+	var progress []Progress
 
-	report, err := importer.Import(context.Background(), "lichess", path, nil)
+	report, err := importer.Import(context.Background(), "lichess", path, func(snapshot Progress) {
+		progress = append(progress, snapshot)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +190,44 @@ bad,not-a-fen,a1a2,1500,60,10,2,short,,
 	if len(puzzle.Core.Fingerprint) != 64 {
 		t.Fatalf("Fingerprint=%q", puzzle.Core.Fingerprint)
 	}
-	if len(generation.checksum) != 64 {
-		t.Fatalf("checksum=%q", generation.checksum)
+	compressed, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantChecksum := sha256.Sum256(compressed)
+	if generation.checksum != hex.EncodeToString(wantChecksum[:]) {
+		t.Fatalf("checksum=%q, want raw compressed checksum %x", generation.checksum, wantChecksum)
+	}
+	wantPhases := []ImportPhase{ImportDetecting, ImportParsing, ImportSealing, ImportActivating}
+	var phases []ImportPhase
+	for _, snapshot := range progress {
+		if len(phases) == 0 || phases[len(phases)-1] != snapshot.Phase {
+			phases = append(phases, snapshot.Phase)
+		}
+	}
+	if !reflect.DeepEqual(phases, wantPhases) {
+		t.Fatalf("progress phases=%q, want %q; snapshots=%+v", phases, wantPhases, progress)
+	}
+	last := progress[len(progress)-1]
+	if last.BytesRead != int64(len(compressed)) || last.TotalBytes != int64(len(compressed)) {
+		t.Fatalf("final progress=%+v, want %d raw bytes", last, len(compressed))
+	}
+}
+
+func TestLichessImporterRejectsZeroValidPuzzles(t *testing.T) {
+	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
+bad,not-a-fen,a1a2,1500,60,10,2,short,,
+`)
+	generation := &captureGenerationImport{}
+	catalog := &captureCatalog{generation: generation}
+	importer := LichessImporter{Catalog: catalog, CatalogDirectory: filepath.Dir(path)}
+
+	_, err := importer.Import(context.Background(), "lichess", path, nil)
+	if !errors.Is(err, ErrNoValidPuzzles) {
+		t.Fatalf("Import() err=%v, want ErrNoValidPuzzles", err)
+	}
+	if generation.abandoned != 1 || generation.seals != 0 || generation.activations != 0 {
+		t.Fatalf("abandoned=%d seals=%d activations=%d", generation.abandoned, generation.seals, generation.activations)
 	}
 }
 
@@ -171,8 +270,14 @@ func TestLichessImporterRejectsMissingHeader(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "missing required Lichess column") {
 		t.Fatalf("Import() err=%v", err)
 	}
-	if generation.abandoned != 1 || generation.seals != 0 || generation.activations != 0 {
-		t.Fatalf("abandoned=%d seals=%d activations=%d", generation.abandoned, generation.seals, generation.activations)
+	if catalog.beginCalled != 0 || generation.abandoned != 0 || generation.seals != 0 || generation.activations != 0 {
+		t.Fatalf(
+			"begin=%d abandoned=%d seals=%d activations=%d",
+			catalog.beginCalled,
+			generation.abandoned,
+			generation.seals,
+			generation.activations,
+		)
 	}
 }
 
@@ -194,13 +299,20 @@ mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https
 	if _, err := importer.Import(context.Background(), "lichess", path, nil); err == nil {
 		t.Fatal("Import() unexpectedly succeeded")
 	}
-	if generation.abandoned != 1 || generation.seals != 0 || generation.activations != 0 {
-		t.Fatalf("abandoned=%d seals=%d activations=%d", generation.abandoned, generation.seals, generation.activations)
+	if catalog.beginCalled != 0 || generation.abandoned != 0 || generation.seals != 0 || generation.activations != 0 {
+		t.Fatalf(
+			"begin=%d abandoned=%d seals=%d activations=%d",
+			catalog.beginCalled,
+			generation.abandoned,
+			generation.seals,
+			generation.activations,
+		)
 	}
 }
 
 func TestLichessImporterChecksDiskBeforeStaging(t *testing.T) {
-	path := writeZstandardFixture(t, "unused")
+	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
+`)
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
 	importer := LichessImporter{

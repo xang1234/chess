@@ -204,7 +204,7 @@ func TestLichessProducesCoreAndOccurrence(t *testing.T) {
 		func(string) (uint64, error) { return math.MaxUint64, nil },
 	)
 
-	report, err := importer.Import(context.Background(), "lichess-main", path, nil)
+	report, err := importer.Import(context.Background(), "lichess", path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,9 +214,13 @@ func TestLichessProducesCoreAndOccurrence(t *testing.T) {
 	if catalog.beginCalls != 1 {
 		t.Fatalf("BeginImport calls = %d, want 1", catalog.beginCalls)
 	}
-	if catalog.beginSource.ID != "lichess-main" ||
+	normalizedPath, err := normalizeImportPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.beginSource.ID != "lichess" ||
 		catalog.beginSource.Kind != "lichess" ||
-		catalog.beginSource.Path != path ||
+		catalog.beginSource.Path != normalizedPath ||
 		catalog.beginSource.StartedAt.IsZero() {
 		t.Fatalf("generation source = %+v", catalog.beginSource)
 	}
@@ -236,7 +240,7 @@ func TestLichessProducesCoreAndOccurrence(t *testing.T) {
 	}
 	wantRating, wantPopularity, wantPlayCount := 1200, 95, 200
 	wantOccurrence := PuzzleOccurrence{
-		SourceID:    "lichess-main",
+		SourceID:    "lichess",
 		SourceKind:  "lichess",
 		ExternalID:  "mate1",
 		SourceFEN:   "8/5Q1k/6K1/8/8/8/8/8 b - - 0 1",
