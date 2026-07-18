@@ -341,7 +341,8 @@ export async function installTestBackend(
     let hintLevel = 0
     let importedPath = ''
     let holdImportOpen = false
-    const importPath = '/Users/family/Downloads/club-tactics.pgn'
+    const chooserImportPath = '/Users/family/Downloads/../Puzzles/club-tactics.pgn'
+    const importPath = '/Users/family/Puzzles/club-tactics.pgn'
     const importBytes = 4096
     let importResult: WireImportResult = {
       jobId: 'job-1',
@@ -461,9 +462,9 @@ export async function installTestBackend(
           total: 2, completed: 2, firstTry: 0, usedHint: 1, revealed: 1
         }]
       }),
-      ChoosePuzzleImportFile: async () => importPath,
+      ChoosePuzzleImportFile: async () => chooserImportPath,
       InspectPuzzleImport: async (path: string) => {
-        if (path !== importPath) throw new Error(`unexpected inspection path ${path}`)
+        if (path !== chooserImportPath) throw new Error(`unexpected inspection path ${path}`)
         return {
           path: importPath,
           filename: 'club-tactics.pgn',
@@ -474,6 +475,7 @@ export async function installTestBackend(
         }
       },
       StartPuzzleImport: async (path: string) => {
+        if (path !== importPath) throw new Error(`unexpected import path ${path}`)
         importedPath = path
         importResult = {
           jobId: 'job-1',

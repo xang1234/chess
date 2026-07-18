@@ -27,7 +27,7 @@ test('runs setup, import, guided training, practice, and parent progress', async
   await expect(selectedCollection.getByText('club-tactics', { exact: true })).toBeVisible()
   await expect(selectedCollection.getByText('Tactical PGN', { exact: true })).toBeVisible()
   await expect(selectedCollection.getByText('club-tactics.pgn', { exact: true })).toBeVisible()
-  await expect(selectedCollection.getByText('/Users/family/Downloads/club-tactics.pgn')).toBeVisible()
+  await expect(selectedCollection.getByText('/Users/family/Puzzles/club-tactics.pgn')).toBeVisible()
   await page.getByRole('button', { name: 'Import puzzles' }).click()
   await expect(page.getByText('9,800 accepted')).toBeVisible()
   await expect(page.getByText('150 duplicates')).toBeVisible()
@@ -91,7 +91,7 @@ test('keeps an active import observable across navigation and can cancel it', as
   await page.getByRole('button', { name: 'Choose puzzle collection' }).click()
   await page.getByRole('button', { name: 'Import puzzles' }).click()
   await expect.poll(() => selectedImportPath(page))
-    .toBe('/Users/family/Downloads/club-tactics.pgn')
+    .toBe('/Users/family/Puzzles/club-tactics.pgn')
 
   await page.getByRole('button', { name: 'Chess Trainer home' }).click()
   await reportImportProgress(page, 10_000, 2048)

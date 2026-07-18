@@ -84,8 +84,9 @@ play `2. Kf2`:
 
 The top level must be one JSON object with `schema` exactly
 `chess-trainer-puzzles/v1` and a `puzzles` array. `source` is optional. Unknown
-fields, duplicate object keys, and a different schema are rejected rather than
-silently ignored.
+or duplicate structural keys in the top-level, source, puzzle, and move objects,
+and a different schema are rejected rather than silently ignored. Keys inside
+the arbitrary `metadata` object are not structural schema keys.
 
 This is a complete valid object with source defaults, a branched solution, and
 an optional trainer rating:
