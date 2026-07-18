@@ -136,17 +136,20 @@ export type ParentSummary = {
 export type RecoveryState = { required: boolean; path?: string; detail?: string }
 export type ApplicationMode = 'normal' | 'recovery'
 export type BuildInfo = { name: string; commit: string; sourceUrl: string }
-export type ImportFormat =
-  | 'lichess'
-  | 'tactical-pgn'
-  | 'canonical-json'
-  | 'lucas-fns'
-  | 'linear-fen-uci'
+const importFormats = [
+  'lichess',
+  'tactical-pgn',
+  'canonical-json',
+  'lucas-fns',
+  'linear-fen-uci'
+] as const
+export type ImportFormat = typeof importFormats[number]
 export type ImportSourceIDOrigin = 'fixed' | 'embedded' | 'path'
 export type ImportInspection = {
   path: string
   filename: string
   format: ImportFormat
+  formatLabel: string
   sourceId: string
   sourceIdOrigin: ImportSourceIDOrigin
   sourceName?: string
@@ -447,9 +450,10 @@ export function decodeImportInspection(value: unknown): ImportInspection {
     filename: string(raw.filename, 'import inspection.filename'),
     format: enumeration(
       raw.format,
-      ['lichess', 'tactical-pgn', 'canonical-json', 'lucas-fns', 'linear-fen-uci'],
+      importFormats,
       'import inspection.format'
     ),
+    formatLabel: string(raw.formatLabel, 'import inspection.formatLabel'),
     sourceId: string(raw.sourceId, 'import inspection.sourceId'),
     sourceIdOrigin: enumeration(
       raw.sourceIdOrigin,

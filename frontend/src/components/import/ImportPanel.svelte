@@ -1,20 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { ImportInspection, ImportPhase } from '../../lib/api'
-  import { canSelectImportFile, canStartImport } from '../../lib/import-session'
+  import type { ImportPhase, ImportSourceIDOrigin } from '../../lib/api'
+  import {
+    canSelectImportFile,
+    canStartImport,
+    selectedImportInspection
+  } from '../../lib/import-session'
   import type { ImportSession } from '../../lib/import-session'
 
   export let session: ImportSession
 
   const formatted = (value: number) => new Intl.NumberFormat().format(value)
-  const formatLabels: Record<ImportInspection['format'], string> = {
-    lichess: 'Lichess',
-    'tactical-pgn': 'Tactical PGN',
-    'canonical-json': 'Canonical JSON',
-    'lucas-fns': 'Lucas FNS',
-    'linear-fen-uci': 'Linear FEN/UCI'
-  }
-  const originLabels: Record<ImportInspection['sourceIdOrigin'], string> = {
+  const originLabels: Record<ImportSourceIDOrigin, string> = {
     fixed: 'Fixed source ID',
     embedded: 'Embedded source ID',
     path: 'Fallback source ID (file path)'
@@ -25,6 +22,10 @@
     sealing: 'Finalizing collection',
     activating: 'Activating collection'
   }
+
+  $: inspection = selectedImportInspection($session)
+  $: runningState = $session.phase === 'running' ? $session : null
+  $: finishedState = $session.phase === 'finished' ? $session : null
 
   onMount(() => {
     void session.refresh()
@@ -45,22 +46,22 @@
       class="secondary"
       type="button"
       on:click={() => session.selectFile()}
-      disabled={!canSelectImportFile($session.phase)}
+      disabled={!canSelectImportFile($session)}
     >Choose puzzle collection</button>
-    {#if $session.inspection}
+    {#if inspection}
       <div
         class="selected-source"
         aria-label="Selected puzzle collection"
         aria-live="polite"
       >
-        <strong>{$session.inspection.sourceId}</strong>
-        <span class="format-label">{formatLabels[$session.inspection.format]}</span>
-        <span>{originLabels[$session.inspection.sourceIdOrigin]}</span>
-        <span class="filename">{$session.inspection.filename}</span>
-        <span class="path">{$session.inspection.path}</span>
-        {#if $session.inspection.replacesExisting}
+        <strong>{inspection.sourceId}</strong>
+        <span class="format-label">{inspection.formatLabel}</span>
+        <span>{originLabels[inspection.sourceIdOrigin]}</span>
+        <span class="filename">{inspection.filename}</span>
+        <span class="path">{inspection.path}</span>
+        {#if inspection.replacesExisting}
           <span class="replacement-warning">
-            This import will replace the active {$session.inspection.sourceId} collection
+            This import will replace the active {inspection.sourceId} collection
           </span>
         {/if}
       </div>
@@ -69,15 +70,15 @@
     {/if}
   </div>
 
-  {#if $session.phase === 'running'}
+  {#if runningState}
     <div class="progress-card" aria-live="polite">
-      <strong>{phaseLabels[$session.progress.phase]}</strong>
-      <span>{formatted($session.progress.rowsRead)} rows read</span>
+      <strong>{phaseLabels[runningState.progress.phase]}</strong>
+      <span>{formatted(runningState.progress.rowsRead)} rows read</span>
       <span>
-        {#if $session.progress.totalBytes > 0}
-          {formatted($session.progress.bytesRead)} of {formatted($session.progress.totalBytes)} bytes
+        {#if runningState.progress.totalBytes > 0}
+          {formatted(runningState.progress.bytesRead)} of {formatted(runningState.progress.totalBytes)} bytes
         {:else}
-          {formatted($session.progress.bytesRead)} bytes
+          {formatted(runningState.progress.bytesRead)} bytes
         {/if}
       </span>
     </div>
@@ -87,28 +88,28 @@
       class="primary"
       type="button"
       on:click={() => session.start()}
-      disabled={!$session.inspection || !canStartImport($session.phase)}
+      disabled={!canStartImport($session)}
     >Import puzzles</button>
   {/if}
 
-  {#if $session.result && $session.result.status === 'succeeded'}
+  {#if finishedState && finishedState.result.status === 'succeeded'}
     <div class="report-grid" aria-label="Import report">
-      <strong>{formatted($session.result.report.accepted)} accepted</strong>
-      <span>{formatted($session.result.report.duplicates)} duplicates</span>
-      <span>{formatted($session.result.report.rejected)} rejected</span>
+      <strong>{formatted(finishedState.result.report.accepted)} accepted</strong>
+      <span>{formatted(finishedState.result.report.duplicates)} duplicates</span>
+      <span>{formatted(finishedState.result.report.rejected)} rejected</span>
     </div>
-    {#if $session.result.report.examples.length > 0}
+    {#if finishedState.result.report.examples.length > 0}
       <div class="rejection-examples" aria-labelledby="rejection-examples-title">
         <h3 id="rejection-examples-title">Rejection examples</h3>
         <ul>
-          {#each $session.result.report.examples as example}
+          {#each finishedState.result.report.examples as example}
             <li>{example.ordinal}: {example.reason}</li>
           {/each}
         </ul>
       </div>
     {/if}
   {/if}
-  {#if $session.result && $session.result.status === 'cancelled'}
+  {#if finishedState && finishedState.result.status === 'cancelled'}
     <p role="status">Import cancelled.</p>
   {/if}
   {#if $session.error}<p class="error" role="alert">{$session.error}</p>{/if}

@@ -348,6 +348,7 @@ const previewNormalAPI: NormalAPI = {
     path: '/Users/preview/Downloads/lichess_db_puzzle.csv.zst',
     filename: 'lichess_db_puzzle.csv.zst',
     format: 'lichess',
+    formatLabel: 'Lichess',
     sourceId: 'lichess',
     sourceIdOrigin: 'fixed',
     replacesExisting: false

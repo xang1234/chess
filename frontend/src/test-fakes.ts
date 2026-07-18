@@ -94,6 +94,7 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
       path: '/tmp/puzzles.csv.zst',
       filename: 'puzzles.csv.zst',
       format: 'lichess',
+      formatLabel: 'Lichess',
       sourceId: 'lichess',
       sourceIdOrigin: 'fixed',
       replacesExisting: false

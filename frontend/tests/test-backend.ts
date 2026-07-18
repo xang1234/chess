@@ -153,10 +153,6 @@ export async function installTestBackend(
     }
     const emptyImportResult: WireImportResult = {
       jobId: 'unused',
-      inspection: {
-        path: '', filename: '', format: 'lichess', sourceId: 'lichess',
-        sourceIdOrigin: 'fixed', replacesExisting: false
-      },
       status: 'cancelled',
       progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
@@ -176,7 +172,7 @@ export async function installTestBackend(
       }),
       GetProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
       InspectPuzzleImport: async () => ({
-        path: '', filename: '', format: 'tactical-pgn', sourceId: '',
+        path: '', filename: '', format: 'tactical-pgn', formatLabel: 'Tactical PGN', sourceId: '',
         sourceIdOrigin: 'embedded', replacesExisting: false
       }),
       OpenDataFolder: async () => {},
@@ -350,13 +346,13 @@ export async function installTestBackend(
       path: importPath,
       filename: 'club-tactics.pgn',
       format: 'tactical-pgn',
+      formatLabel: 'Tactical PGN',
       sourceId: 'club-tactics',
       sourceIdOrigin: 'embedded',
       replacesExisting: false
     }
     let importResult: WireImportResult = {
       jobId: 'job-1',
-      inspection: importInspection,
       status: 'running',
       progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: importBytes },
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
@@ -484,7 +480,6 @@ export async function installTestBackend(
         importedPath = inspection.path
         importResult = {
           jobId: 'job-1',
-          inspection,
           status: 'running',
           progress: {
             phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: importBytes

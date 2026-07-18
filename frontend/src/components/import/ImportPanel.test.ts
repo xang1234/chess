@@ -9,6 +9,7 @@ const embeddedInspection: ImportInspection = {
   path: '/Users/family/Puzzles/club-tactics.pgn',
   filename: 'club-tactics.pgn',
   format: 'tactical-pgn',
+  formatLabel: 'Tactical PGN from backend',
   sourceId: 'club-tactics',
   sourceIdOrigin: 'embedded',
   replacesExisting: true
@@ -25,7 +26,7 @@ test('shows the source identity first with format, origin, file details, and rep
   const card = await screen.findByLabelText('Selected puzzle collection')
   const sourceId = screen.getByText('club-tactics')
   expect(sourceId.tagName).toBe('STRONG')
-  expect(card.textContent).toContain('Tactical PGN')
+  expect(card.textContent).toContain('Tactical PGN from backend')
   expect(card.textContent).toContain('Embedded source ID')
   expect(card.textContent).toContain('club-tactics.pgn')
   expect(card.textContent).toContain('/Users/family/Puzzles/club-tactics.pgn')
@@ -34,8 +35,8 @@ test('shows the source identity first with format, origin, file details, and rep
   )).toBeInTheDocument()
 
   const text = card.textContent ?? ''
-  expect(text.indexOf('club-tactics')).toBeLessThan(text.indexOf('Tactical PGN'))
-  expect(text.indexOf('Tactical PGN')).toBeLessThan(text.indexOf('club-tactics.pgn'))
+  expect(text.indexOf('club-tactics')).toBeLessThan(text.indexOf('Tactical PGN from backend'))
+  expect(text.indexOf('Tactical PGN from backend')).toBeLessThan(text.indexOf('club-tactics.pgn'))
 })
 
 test('labels a path-derived identity as the fallback source ID', async () => {
@@ -43,6 +44,7 @@ test('labels a path-derived identity as the fallback source ID', async () => {
     path: '/Users/family/Puzzles/pin-lines.txt',
     filename: 'pin-lines.txt',
     format: 'linear-fen-uci',
+    formatLabel: 'Linear FEN/UCI',
     sourceId: '/Users/family/Puzzles/pin-lines.txt',
     sourceIdOrigin: 'path',
     replacesExisting: false

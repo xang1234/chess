@@ -332,6 +332,7 @@ test('decodes an authoritative puzzle import inspection', () => {
     path: '/collections/club.pgn',
     filename: 'club.pgn',
     format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
     sourceId: 'club-tactics',
     sourceIdOrigin: 'embedded',
     sourceName: 'Club tactics',
@@ -342,6 +343,7 @@ test('decodes an authoritative puzzle import inspection', () => {
     path: '/collections/club.pgn',
     filename: 'club.pgn',
     format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
     sourceId: 'club-tactics',
     sourceIdOrigin: 'embedded',
     sourceName: 'Club tactics',
@@ -362,6 +364,7 @@ test.each([
     path: '/collections/puzzles',
     filename: 'puzzles',
     format,
+    formatLabel: 'Supported format',
     sourceId: 'source',
     sourceIdOrigin: 'fixed',
     replacesExisting: false
@@ -375,6 +378,7 @@ test.each(['fixed', 'embedded', 'path'] as const)(
       path: '/collections/puzzles',
       filename: 'puzzles',
       format: 'lichess',
+      formatLabel: 'Lichess',
       sourceId: 'source',
       sourceIdOrigin,
       replacesExisting: false
@@ -390,6 +394,7 @@ test.each([
     path: '/collections/club.pgn',
     filename: 'club.pgn',
     format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
     sourceId: 'club-tactics',
     sourceIdOrigin: 'embedded',
     replacesExisting: false,
@@ -403,6 +408,7 @@ test.each([
     path: '/collections/club.pgn',
     filename: 42,
     format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
     sourceId: 'club-tactics',
     sourceIdOrigin: 'embedded',
     replacesExisting: false
@@ -411,12 +417,24 @@ test.each([
     path: '/collections/club.pgn',
     filename: 'club.pgn',
     format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
     sourceId: 'club-tactics',
     sourceIdOrigin: 'embedded',
     replacesExisting: 'yes'
   }, 'replacesExisting']
 ])('rejects a malformed import inspection', (value, message) => {
   expect(() => decodeImportInspection(value)).toThrow(message)
+})
+
+test('requires the backend-provided import format label', () => {
+  expect(() => decodeImportInspection({
+    path: '/collections/club.pgn',
+    filename: 'club.pgn',
+    format: 'tactical-pgn',
+    sourceId: 'club-tactics',
+    sourceIdOrigin: 'embedded',
+    replacesExisting: false
+  })).toThrow('import inspection.formatLabel must be a string')
 })
 
 test('strictly decodes import phases, byte totals, and rejection examples', () => {
@@ -504,6 +522,7 @@ test('production API inspects and starts puzzle imports through generic generate
     path: '/normalized/club.pgn',
     filename: 'club.pgn',
     format: 'tactical-pgn',
+    formatLabel: 'Tactical PGN',
     sourceId: 'club-tactics',
     sourceIdOrigin: 'embedded',
     replacesExisting: false

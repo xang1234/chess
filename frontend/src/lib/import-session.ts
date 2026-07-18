@@ -1,30 +1,84 @@
 import { writable, type Readable } from 'svelte/store'
 import type { ImportInspection, ImportProgress, ImportResult, NormalAPI } from './api'
 
-export type ImportSessionState = {
-  phase: ImportSessionPhase
-  inspection: ImportInspection | null
-  jobId: string
-  progress: ImportProgress
-  result: ImportResult | null
+export type IdleImportState = {
+  phase: 'idle'
   error: string
 }
 
-export type ImportSessionPhase =
-  | 'idle'
-  | 'selecting'
-  | 'inspecting'
-  | 'ready'
-  | 'starting'
-  | 'running'
-  | 'finished'
-
-export function canSelectImportFile(phase: ImportSessionPhase): boolean {
-  return phase === 'idle' || phase === 'ready' || phase === 'finished'
+export type ReadyImportState = {
+  phase: 'ready'
+  inspection: ImportInspection
+  error: string
 }
 
-export function canStartImport(phase: ImportSessionPhase): boolean {
-  return phase === 'ready' || phase === 'finished'
+export type TerminalImportResult = Omit<ImportResult, 'status'> & {
+  status: 'succeeded' | 'failed' | 'cancelled'
+}
+
+export type FinishedImportState = {
+  phase: 'finished'
+  inspection: ImportInspection
+  jobId: string
+  progress: ImportProgress
+  result: TerminalImportResult
+  error: string
+}
+
+export type SelectableImportState =
+  | IdleImportState
+  | ReadyImportState
+  | FinishedImportState
+
+export type ImportSessionState =
+  | SelectableImportState
+  | {
+      phase: 'selecting'
+      previous: SelectableImportState
+      error: string
+    }
+  | {
+      phase: 'inspecting'
+      path: string
+      error: string
+    }
+  | {
+      phase: 'starting'
+      inspection: ImportInspection
+      error: string
+    }
+  | {
+      phase: 'running'
+      inspection: ImportInspection
+      jobId: string
+      progress: ImportProgress
+      error: string
+    }
+
+export function canSelectImportFile(
+  state: ImportSessionState
+): state is SelectableImportState {
+  return state.phase === 'idle' || state.phase === 'ready' || state.phase === 'finished'
+}
+
+export function canStartImport(
+  state: ImportSessionState
+): state is ReadyImportState | FinishedImportState {
+  return state.phase === 'ready' || state.phase === 'finished'
+}
+
+export function selectedImportInspection(state: ImportSessionState): ImportInspection | null {
+  switch (state.phase) {
+    case 'selecting':
+      return selectedImportInspection(state.previous)
+    case 'ready':
+    case 'starting':
+    case 'running':
+    case 'finished':
+      return state.inspection
+    default:
+      return null
+  }
 }
 
 export type ImportSession = Readable<ImportSessionState> & {
@@ -44,13 +98,15 @@ const phaseRank: Record<ImportProgress['phase'], number> = {
   activating: 3
 }
 
-const emptyProgress = (): ImportProgress => ({
-  jobId: '',
-  phase: 'detecting',
-  rowsRead: 0,
-  bytesRead: 0,
-  totalBytes: 0
-})
+function initialProgress(jobId: string): ImportProgress {
+  return {
+    jobId,
+    phase: 'detecting',
+    rowsRead: 0,
+    bytesRead: 0,
+    totalBytes: 0
+  }
+}
 
 function mergeProgress(
   currentProgress: ImportProgress,
@@ -69,41 +125,43 @@ function mergeProgress(
   }
 }
 
+function messageFrom(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause)
+}
+
 export function createImportSession(api: () => NormalAPI): ImportSession {
-  const state = writable<ImportSessionState>({
-    phase: 'idle',
-    inspection: null,
-    jobId: '',
-    progress: emptyProgress(),
-    result: null,
-    error: ''
-  })
-  let current: ImportSessionState
+  const initial: ImportSessionState = { phase: 'idle', error: '' }
+  const state = writable<ImportSessionState>(initial)
+  let current: ImportSessionState = initial
   state.subscribe((value) => { current = value })
 
   function applyResult(result: ImportResult): void {
-    if (result.jobId !== current.jobId) return
-    if (current.result && result.status === 'running') return
-    state.update((value) => ({
-      ...value,
-      phase: result.status === 'running' ? 'running' : 'finished',
-      progress: mergeProgress(value.progress, result.jobId, result.progress),
-      result: result.status === 'running' ? null : result,
+    if (current.phase !== 'running' || result.jobId !== current.jobId) return
+    const active = current
+    const progress = mergeProgress(active.progress, result.jobId, result.progress)
+    if (result.status === 'running') {
+      state.set({ ...active, progress })
+      return
+    }
+    const terminalResult: TerminalImportResult = { ...result, status: result.status }
+    state.set({
+      phase: 'finished',
+      inspection: active.inspection,
+      jobId: active.jobId,
+      progress,
+      result: terminalResult,
       error: result.status === 'failed' ? (result.error ?? 'Import failed') : ''
-    }))
+    })
   }
 
   async function refresh(): Promise<void> {
+    if (current.phase !== 'running') return
     const jobId = current.jobId
-    if (!jobId) return
     try {
       applyResult(await api().getImportResult(jobId))
     } catch (cause) {
-      if (jobId !== current.jobId) return
-      state.update((value) => ({
-        ...value,
-        error: cause instanceof Error ? cause.message : String(cause)
-      }))
+      if (current.phase !== 'running' || current.jobId !== jobId) return
+      state.set({ ...current, error: messageFrom(cause) })
     }
   }
 
@@ -111,11 +169,11 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
     subscribe: state.subscribe,
     connect() {
       const stopProgress = api().onImportProgress((progress) => {
-        if (progress.jobId !== current.jobId || current.phase !== 'running') return
-        state.update((value) => ({
-          ...value,
-          progress: mergeProgress(value.progress, progress.jobId, progress)
-        }))
+        if (current.phase !== 'running' || progress.jobId !== current.jobId) return
+        state.set({
+          ...current,
+          progress: mergeProgress(current.progress, progress.jobId, progress)
+        })
       })
       const stopFinished = api().onImportFinished(applyResult)
       return () => {
@@ -124,79 +182,58 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
       }
     },
     async selectFile() {
-      if (!canSelectImportFile(current.phase)) return
-      const returnPhase = current.phase
-      let inspecting = false
-      state.update((value) => ({ ...value, phase: 'selecting', error: '' }))
+      if (!canSelectImportFile(current)) return
+      const previous = current
+      state.set({ phase: 'selecting', previous, error: '' })
+
+      let path: string
       try {
-        const path = await api().choosePuzzleImportFile()
-        if (!path) {
-          state.update((value) => ({ ...value, phase: returnPhase }))
-          return
-        }
-        inspecting = true
-        state.update((value) => ({
-          ...value,
-          phase: 'inspecting',
-          inspection: null,
-          jobId: '',
-          progress: emptyProgress(),
-          result: null
-        }))
-        const inspection = await api().inspectPuzzleImport(path)
-        state.update((value) => ({
-          ...value,
-          phase: 'ready',
-          inspection,
-          result: null
-        }))
+        path = await api().choosePuzzleImportFile()
       } catch (cause) {
-        state.update((value) => ({
-          ...value,
-          phase: inspecting ? 'idle' : returnPhase,
-          inspection: inspecting ? null : value.inspection,
-          error: cause instanceof Error ? cause.message : String(cause)
-        }))
+        state.set({ ...previous, error: messageFrom(cause) })
+        return
+      }
+      if (!path) {
+        state.set(previous)
+        return
+      }
+
+      state.set({ phase: 'inspecting', path, error: '' })
+      try {
+        const inspection = await api().inspectPuzzleImport(path)
+        state.set({ phase: 'ready', inspection, error: '' })
+      } catch (cause) {
+        state.set({ phase: 'idle', error: messageFrom(cause) })
       }
     },
     async start() {
+      if (!canStartImport(current)) return
       const inspection = current.inspection
-      if (!inspection || !canStartImport(current.phase)) return
-      state.update((value) => ({
-        ...value,
-        phase: 'starting',
-        jobId: '',
-        error: '',
-        result: null,
-        progress: emptyProgress()
-      }))
+      state.set({ phase: 'starting', inspection, error: '' })
       try {
         const jobId = await api().startPuzzleImport(inspection)
-        state.update((value) => ({
-          ...value,
+        if (!jobId) throw new Error('Puzzle import returned an empty job ID')
+        state.set({
           phase: 'running',
+          inspection,
           jobId,
-          progress: { jobId, phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 }
-        }))
+          progress: initialProgress(jobId),
+          error: ''
+        })
         await refresh()
       } catch (cause) {
-        state.update((value) => ({
-          ...value,
-          phase: 'ready',
-          error: cause instanceof Error ? cause.message : String(cause)
-        }))
+        state.set({ phase: 'ready', inspection, error: messageFrom(cause) })
       }
     },
     async cancel() {
-      if (!current.jobId || current.phase !== 'running') return
+      if (current.phase !== 'running') return
+      const jobId = current.jobId
       try {
-        await api().cancelImport(current.jobId)
+        await api().cancelImport(jobId)
         await refresh()
       } catch (cause) {
-        state.update((value) => ({
-          ...value,
-          error: cause instanceof Error ? cause.message : String(cause)
-        }))
+        if (current.phase !== 'running' || current.jobId !== jobId) return
+        state.set({ ...current, error: messageFrom(cause) })
       }
     },
     refresh
