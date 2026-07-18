@@ -432,6 +432,51 @@ func TestCollectionImporterImportFormatAbandonsAfterLateFatalError(t *testing.T)
 	}
 }
 
+func TestCollectionImporterCanonicalJSONAbandonsLateSyntaxError(t *testing.T) {
+	valid := `{
+  "schema":"chess-trainer-puzzles/v1",
+  "source":` + canonicalJSONSource + `,
+  "puzzles":[` + canonicalJSONWhitePuzzle + `,` + canonicalJSONWhitePuzzle + `]
+}`
+	broken := `{
+  "schema":"chess-trainer-puzzles/v1",
+  "source":` + canonicalJSONSource + `,
+  "puzzles":[` + canonicalJSONWhitePuzzle + `,{"id":"broken","solver":]
+}`
+	path := filepath.Join(t.TempDir(), "late-broken.json")
+	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	generation := &collectionCaptureGeneration{report: ImportReport{Accepted: 2}}
+	catalog := &collectionCaptureCatalog{generation: generation}
+	mutated := false
+	importer := CollectionImporter{
+		Catalog:          catalog,
+		CatalogDirectory: t.TempDir(),
+		AvailableBytes: func(string) (uint64, error) {
+			mutated = true
+			return math.MaxUint64, os.WriteFile(path, []byte(broken), 0o600)
+		},
+		Adapters: []PuzzleAdapter{NewCanonicalJSONAdapter(chessrules.Rules{})},
+	}
+
+	_, err := importer.ImportFormat(
+		context.Background(), FormatCanonicalJSON, "club-json", path, nil,
+	)
+	if err == nil {
+		t.Fatal("ImportFormat() error = nil, want fatal JSON syntax error")
+	}
+	if !mutated || catalog.beginCalls != 1 {
+		t.Fatalf("mutation/begin calls = %v/%d, want true/1", mutated, catalog.beginCalls)
+	}
+	if len(generation.puzzles) != 1 {
+		t.Fatalf("staged puzzles = %d, want first record staged before fatal error", len(generation.puzzles))
+	}
+	if generation.abandonCalls != 1 || generation.sealCalls != 0 || generation.activateCalls != 0 {
+		t.Fatalf("lifecycle = abandon %d, seal %d, activate %d", generation.abandonCalls, generation.sealCalls, generation.activateCalls)
+	}
+}
+
 func TestCollectionImporterImportFormatCancellationUsesCleanupContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	importer, path, generation := newCollectionRunner(t, "cancelled", func() PuzzleDecoder {
