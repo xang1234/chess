@@ -222,25 +222,9 @@ export namespace domain {
 
 export namespace importjob {
 
-	export class ImportRequest {
-	    kind: string;
-	    sourceId: string;
-	    path: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ImportRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.kind = source["kind"];
-	        this.sourceId = source["sourceId"];
-	        this.path = source["path"];
-	    }
-	}
 	export class Result {
 	    jobId: string;
-	    request: ImportRequest;
+	    inspection: puzzles.ImportInspection;
 	    status: string;
 	    progress: puzzles.Progress;
 	    report: puzzles.ImportReport;
@@ -253,7 +237,7 @@ export namespace importjob {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.jobId = source["jobId"];
-	        this.request = this.convertValues(source["request"], ImportRequest);
+	        this.inspection = this.convertValues(source["inspection"], puzzles.ImportInspection);
 	        this.status = source["status"];
 	        this.progress = this.convertValues(source["progress"], puzzles.Progress);
 	        this.report = this.convertValues(source["report"], puzzles.ImportReport);

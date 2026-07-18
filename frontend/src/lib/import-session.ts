@@ -173,7 +173,7 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
         progress: emptyProgress()
       }))
       try {
-        const jobId = await api().startPuzzleImport(inspection.path)
+        const jobId = await api().startPuzzleImport(inspection)
         state.update((value) => ({
           ...value,
           phase: 'running',

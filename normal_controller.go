@@ -63,10 +63,6 @@ func (c *NormalController) Quit() {
 	c.actions.quit()
 }
 
-func (c *NormalController) StartLichessImport(path string) (string, error) {
-	return c.StartPuzzleImport(path)
-}
-
 func (c *NormalController) ChoosePuzzleImportFile() (string, error) {
 	return c.actions.dialogs.OpenFileDialog(c.actions.ctx, runtime.OpenDialogOptions{
 		Title: "Choose a puzzle collection",
@@ -86,17 +82,9 @@ func (c *NormalController) InspectPuzzleImport(path string) (puzzles.ImportInspe
 	})
 }
 
-func (c *NormalController) StartPuzzleImport(path string) (string, error) {
+func (c *NormalController) StartPuzzleImport(inspection puzzles.ImportInspection) (string, error) {
 	return runNormalOperation(c, func() (string, error) {
-		inspection, err := c.services.Importer.Inspect(c.actions.ctx, path)
-		if err != nil {
-			return "", err
-		}
-		return c.services.ImportJobs.Start(c.actions.ctx, importjob.ImportRequest{
-			Kind:     inspection.Format,
-			SourceID: inspection.SourceID,
-			Path:     inspection.Path,
-		})
+		return c.services.ImportJobs.Start(c.actions.ctx, inspection)
 	})
 }
 

@@ -18,8 +18,7 @@ import (
 )
 
 type bindingImportCall struct {
-	sourceID string
-	path     string
+	inspection puzzles.ImportInspection
 }
 
 type bindingImporter struct {
@@ -62,14 +61,12 @@ func (bindingImporter) Supports(format puzzles.ImportFormat) bool {
 	return format == puzzles.FormatCanonicalJSON
 }
 
-func (i bindingImporter) ImportFormat(
+func (i bindingImporter) Import(
 	_ context.Context,
-	_ puzzles.ImportFormat,
-	sourceID string,
-	path string,
+	inspection puzzles.ImportInspection,
 	_ puzzles.ProgressSink,
 ) (puzzles.ImportReport, error) {
-	i.called <- bindingImportCall{sourceID: sourceID, path: path}
+	i.called <- bindingImportCall{inspection: inspection}
 	return puzzles.ImportReport{}, nil
 }
 
@@ -113,11 +110,8 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 	if _, err := app.InspectPuzzleImport(""); err == nil {
 		t.Fatal("InspectPuzzleImport() unexpectedly accepted an empty path")
 	}
-	if _, err := app.StartPuzzleImport(""); err == nil {
+	if _, err := app.StartPuzzleImport(puzzles.ImportInspection{}); err == nil {
 		t.Fatal("StartPuzzleImport() unexpectedly accepted an empty path")
-	}
-	if _, err := app.StartLichessImport(""); err == nil {
-		t.Fatal("StartLichessImport() unexpectedly accepted an empty path")
 	}
 	if err := app.CancelImport("missing"); err == nil {
 		t.Fatal("CancelImport() unexpectedly accepted an unknown job")
@@ -188,56 +182,29 @@ func TestInspectPuzzleImportDelegatesToCollectionImporter(t *testing.T) {
 	}
 }
 
-func TestStartPuzzleImportUsesAuthoritativeInspection(t *testing.T) {
+func TestStartPuzzleImportPassesConfirmedInspection(t *testing.T) {
 	importer := bindingImporter{called: make(chan bindingImportCall, 2)}
 	emitter := bindingEmitter{finished: make(chan importjob.Result, 2)}
 	jobs := importjob.NewService(importer, nil, emitter)
 	defer jobs.Close()
-	collection := &puzzles.CollectionImporter{Adapters: []puzzles.PuzzleAdapter{
-		bindingInspectionAdapter{
-			format: puzzles.FormatCanonicalJSON, sourceID: "authoritative-source",
-		},
-	}}
-	app := NewNormalController(&appservices.Services{Importer: collection, ImportJobs: jobs})
+	app := NewNormalController(&appservices.Services{ImportJobs: jobs})
 	path := filepath.Join(t.TempDir(), "selected.json")
-
-	if _, err := app.StartPuzzleImport(path); err != nil {
-		t.Fatal(err)
-	}
-	call := receiveBindingCall(t, importer.called)
 	normalizedPath, err := filepath.Abs(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if call.sourceID != "authoritative-source" || call.path != normalizedPath {
-		t.Fatalf("generic call = %+v, want authoritative source/path", call)
+	inspection := puzzles.ImportInspection{
+		Path: normalizedPath, Filename: filepath.Base(normalizedPath),
+		Format: puzzles.FormatCanonicalJSON, SourceID: "authoritative-source",
+		SourceIDOrigin: puzzles.SourceIDEmbedded, SourceName: "Club",
 	}
-	receiveImportResult(t, emitter.finished)
-}
 
-func TestStartLichessImportDelegatesToGenericInspectionFlow(t *testing.T) {
-	importer := bindingImporter{called: make(chan bindingImportCall, 1)}
-	emitter := bindingEmitter{finished: make(chan importjob.Result, 1)}
-	jobs := importjob.NewService(importer, nil, emitter)
-	defer jobs.Close()
-	collection := &puzzles.CollectionImporter{Adapters: []puzzles.PuzzleAdapter{
-		bindingInspectionAdapter{
-			format: puzzles.FormatCanonicalJSON, sourceID: "legacy-authoritative-source",
-		},
-	}}
-	app := NewNormalController(&appservices.Services{Importer: collection, ImportJobs: jobs})
-	path := filepath.Join(t.TempDir(), "legacy-name.csv.zst")
-
-	if _, err := app.StartLichessImport(path); err != nil {
+	if _, err := app.StartPuzzleImport(inspection); err != nil {
 		t.Fatal(err)
 	}
 	call := receiveBindingCall(t, importer.called)
-	normalizedPath, err := filepath.Abs(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if call.sourceID != "legacy-authoritative-source" || call.path != normalizedPath {
-		t.Fatalf("legacy call = %+v", call)
+	if call.inspection != inspection {
+		t.Fatalf("generic call = %+v, want confirmed inspection %+v", call, inspection)
 	}
 	receiveImportResult(t, emitter.finished)
 }
@@ -251,7 +218,7 @@ func TestGenericImportBindingsRespectNormalOperationLifecycle(t *testing.T) {
 	if _, err := app.InspectPuzzleImport("/collection.json"); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
 		t.Fatalf("InspectPuzzleImport() error = %v, want runtime unavailable", err)
 	}
-	if _, err := app.StartPuzzleImport("/collection.json"); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
+	if _, err := app.StartPuzzleImport(puzzles.ImportInspection{Path: "/collection.json"}); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
 		t.Fatalf("StartPuzzleImport() error = %v, want runtime unavailable", err)
 	}
 }

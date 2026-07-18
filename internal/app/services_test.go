@@ -255,19 +255,16 @@ mate1,8/5Q1k/6K1/8/8/8/8/8 b - - 0 1,h7h8 f7f8,1200,60,95,200,mate mateIn1,https
 				t.Fatalf("inspection format = %q, want %q", inspection.Format, fixture.format)
 			}
 
-			request := importjob.ImportRequest{
-				Kind: inspection.Format, SourceID: inspection.SourceID, Path: inspection.Path,
-			}
-			jobID, err := services.ImportJobs.Start(context.Background(), request)
+			jobID, err := services.ImportJobs.Start(context.Background(), inspection)
 			if err != nil {
-				t.Fatalf("route %q is not configured: %v", request.Kind, err)
+				t.Fatalf("route %q is not configured: %v", inspection.Format, err)
 			}
 			result := waitForServiceImportResult(t, services.ImportJobs, jobID)
 			if result.Status != importjob.Succeeded {
-				t.Fatalf("route %q result = %+v", request.Kind, result)
+				t.Fatalf("route %q result = %+v", inspection.Format, result)
 			}
-			if result.Request != request {
-				t.Fatalf("route %q request = %+v, want %+v", request.Kind, result.Request, request)
+			if result.Inspection != inspection {
+				t.Fatalf("route %q inspection = %+v, want %+v", inspection.Format, result.Inspection, inspection)
 			}
 		})
 	}
@@ -335,11 +332,9 @@ func (closeBlockingImporter) Supports(format puzzles.ImportFormat) bool {
 	return format == puzzles.FormatLichess
 }
 
-func (i closeBlockingImporter) ImportFormat(
+func (i closeBlockingImporter) Import(
 	ctx context.Context,
-	_ puzzles.ImportFormat,
-	_ string,
-	_ string,
+	_ puzzles.ImportInspection,
 	_ puzzles.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	i.started <- ctx
@@ -365,8 +360,8 @@ func TestServicesCloseWaitsForImportJobsBeforeDatabases(t *testing.T) {
 	importer := closeBlockingImporter{started: make(chan context.Context, 1), release: release}
 	jobs := importjob.NewService(importer, nil, nil)
 	services := &Services{PuzzleStore: puzzleStore, ImportJobs: jobs}
-	_, err = jobs.Start(context.Background(), importjob.ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles",
+	_, err = jobs.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles",
 	})
 	if err != nil {
 		t.Fatal(err)

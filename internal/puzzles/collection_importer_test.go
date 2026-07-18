@@ -421,6 +421,42 @@ func TestCollectionImporterImportFormatSealsChecksumAndActivatesInOrder(t *testi
 	}
 }
 
+func TestCollectionImporterImportRevalidatesOnlyConfirmedAdapter(t *testing.T) {
+	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{ExternalID: "one"}}
+	importer, path, generation := newCollectionRunner(t, "selected-signature", func() PuzzleDecoder {
+		return &fakePuzzleDecoder{records: []DecodedRecord{{Puzzle: &puzzle}}}
+	})
+	var selectedPaths, unrelatedPaths []string
+	importer.Adapters = []PuzzleAdapter{
+		fakePuzzleAdapter{
+			format: FormatTacticalPGN, signature: "unrelated-signature", inspected: &unrelatedPaths,
+		},
+		fakePuzzleAdapter{
+			format: FormatLinearFENUCI, signature: "selected-signature", inspected: &selectedPaths,
+			decoder: func() PuzzleDecoder {
+				return &fakePuzzleDecoder{records: []DecodedRecord{{Puzzle: &puzzle}}}
+			},
+		},
+	}
+	expected := ImportInspection{
+		Path: path, Filename: filepath.Base(path), Format: FormatLinearFENUCI,
+		SourceID: path, SourceIDOrigin: SourceIDPath, ReplacesExisting: true,
+	}
+
+	if _, err := importer.Import(context.Background(), expected, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(selectedPaths, []string{path}) {
+		t.Fatalf("selected adapter inspections = %q, want [%q]", selectedPaths, path)
+	}
+	if len(unrelatedPaths) != 0 {
+		t.Fatalf("unrelated adapter inspections = %q, want none", unrelatedPaths)
+	}
+	if generation.activateCalls != 1 {
+		t.Fatalf("Activate calls = %d, want 1", generation.activateCalls)
+	}
+}
+
 func TestCollectionImporterImportFormatAbandonsWhenNoValidPuzzles(t *testing.T) {
 	rejection := Rejection{Ordinal: 1, Reason: "invalid"}
 	importer, path, generation := newCollectionRunner(t, "only rejected", func() PuzzleDecoder {

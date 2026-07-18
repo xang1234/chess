@@ -1,4 +1,5 @@
 import type {
+  ImportInspection,
   MoveResult,
   NormalAPI,
   RecoveryAPI,
@@ -333,6 +334,9 @@ test('decodes an authoritative puzzle import inspection', () => {
     format: 'tactical-pgn',
     sourceId: 'club-tactics',
     sourceIdOrigin: 'embedded',
+    sourceName: 'Club tactics',
+    url: 'https://example.test/club',
+    attribution: 'Club authors',
     replacesExisting: true
   })).toEqual({
     path: '/collections/club.pgn',
@@ -340,6 +344,9 @@ test('decodes an authoritative puzzle import inspection', () => {
     format: 'tactical-pgn',
     sourceId: 'club-tactics',
     sourceIdOrigin: 'embedded',
+    sourceName: 'Club tactics',
+    url: 'https://example.test/club',
+    attribution: 'Club authors',
     replacesExisting: true
   })
 })
@@ -483,7 +490,7 @@ test.each(['detecting', 'parsing', 'sealing', 'activating'] as const)(
 )
 
 test('production API inspects and starts puzzle imports through generic generated bindings', async () => {
-  const inspection = {
+  const inspection: ImportInspection = {
     path: '/normalized/club.pgn',
     filename: 'club.pgn',
     format: 'tactical-pgn',
@@ -499,8 +506,8 @@ test('production API inspects and starts puzzle imports through generic generate
   if (application.mode !== 'normal') throw new Error('expected normal production API')
 
   await expect(application.api.inspectPuzzleImport('/chosen/club.pgn')).resolves.toEqual(inspection)
-  await expect(application.api.startPuzzleImport('/normalized/club.pgn')).resolves.toBe('job-42')
+  await expect(application.api.startPuzzleImport(inspection)).resolves.toBe('job-42')
   expect(production.inspectPuzzleImport).toHaveBeenCalledWith('/chosen/club.pgn')
-  expect(production.startPuzzleImport).toHaveBeenCalledWith('/normalized/club.pgn')
+  expect(production.startPuzzleImport).toHaveBeenCalledWith(inspection)
   expect('startLichessImport' in application.api).toBe(false)
 })

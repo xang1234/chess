@@ -14,12 +14,6 @@ import (
 
 const cleanupBatchSize = 1_000
 
-type ImportRequest struct {
-	Kind     puzzles.ImportFormat `json:"kind"`
-	SourceID string               `json:"sourceId"`
-	Path     string               `json:"path"`
-}
-
 type BusyError struct {
 	ActiveJobID string `json:"activeJobId"`
 }
@@ -38,12 +32,12 @@ const (
 )
 
 type Result struct {
-	JobID    string               `json:"jobId"`
-	Request  ImportRequest        `json:"request"`
-	Status   Status               `json:"status"`
-	Progress puzzles.Progress     `json:"progress"`
-	Report   puzzles.ImportReport `json:"report"`
-	Error    string               `json:"error,omitempty"`
+	JobID      string                   `json:"jobId"`
+	Inspection puzzles.ImportInspection `json:"inspection"`
+	Status     Status                   `json:"status"`
+	Progress   puzzles.Progress         `json:"progress"`
+	Report     puzzles.ImportReport     `json:"report"`
+	Error      string                   `json:"error,omitempty"`
 }
 
 type Emitter interface {
@@ -53,11 +47,9 @@ type Emitter interface {
 
 type Importer interface {
 	Supports(puzzles.ImportFormat) bool
-	ImportFormat(
+	Import(
 		context.Context,
-		puzzles.ImportFormat,
-		string,
-		string,
+		puzzles.ImportInspection,
 		puzzles.ProgressSink,
 	) (puzzles.ImportReport, error)
 }
@@ -115,18 +107,21 @@ func (s *Service) SetEmitter(emitter Emitter) {
 	s.emitter = emitter
 }
 
-func (s *Service) Start(ctx context.Context, request ImportRequest) (string, error) {
-	if strings.TrimSpace(string(request.Kind)) == "" {
+func (s *Service) Start(
+	ctx context.Context,
+	inspection puzzles.ImportInspection,
+) (string, error) {
+	if strings.TrimSpace(string(inspection.Format)) == "" {
 		return "", errors.New("import kind is required")
 	}
-	if strings.TrimSpace(request.SourceID) == "" {
+	if strings.TrimSpace(inspection.SourceID) == "" {
 		return "", errors.New("import source ID is required")
 	}
-	if strings.TrimSpace(request.Path) == "" {
+	if strings.TrimSpace(inspection.Path) == "" {
 		return "", errors.New("import path is required")
 	}
-	if s.importer == nil || !s.importer.Supports(request.Kind) {
-		return "", fmt.Errorf("importer for kind %q is not configured", request.Kind)
+	if s.importer == nil || !s.importer.Supports(inspection.Format) {
+		return "", fmt.Errorf("importer for kind %q is not configured", inspection.Format)
 	}
 
 	jobID := uuid.NewString()
@@ -145,7 +140,7 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 	s.jobs[jobID] = &jobState{
 		cancel: cancel,
 		result: Result{
-			JobID: jobID, Request: request, Status: Running,
+			JobID: jobID, Inspection: inspection, Status: Running,
 			Progress: puzzles.Progress{Phase: puzzles.ImportDetecting},
 		},
 	}
@@ -156,7 +151,7 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 	go func() {
 		defer s.wg.Done()
 		defer cancel()
-		s.run(jobCtx, jobID, request)
+		s.run(jobCtx, jobID, inspection)
 	}()
 	return jobID, nil
 }
@@ -164,15 +159,13 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 func (s *Service) run(
 	ctx context.Context,
 	jobID string,
-	request ImportRequest,
+	inspection puzzles.ImportInspection,
 ) {
 	// Import and cleanup writes share this gate. Never wait for it while holding mu.
 	s.writer.Lock()
-	report, err := s.importer.ImportFormat(
+	report, err := s.importer.Import(
 		ctx,
-		request.Kind,
-		request.SourceID,
-		request.Path,
+		inspection,
 		func(progress puzzles.Progress) {
 			s.recordProgress(jobID, progress)
 		},

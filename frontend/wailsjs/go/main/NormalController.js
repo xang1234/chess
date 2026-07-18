@@ -70,10 +70,6 @@ export function StartGuided() {
   return window['go']['main']['NormalController']['StartGuided']();
 }
 
-export function StartLichessImport(arg1) {
-  return window['go']['main']['NormalController']['StartLichessImport'](arg1);
-}
-
 export function StartPuzzleImport(arg1) {
   return window['go']['main']['NormalController']['StartPuzzleImport'](arg1);
 }

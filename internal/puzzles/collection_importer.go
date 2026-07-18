@@ -212,6 +212,21 @@ func (i CollectionImporter) inspectRegistry(
 	return selected.adapter, inspection, nil
 }
 
+func (i CollectionImporter) Import(
+	ctx context.Context,
+	expected ImportInspection,
+	progress ProgressSink,
+) (ImportReport, error) {
+	emit := importProgressEmitter(progress)
+	emit(ImportDetecting, 0, 0, 0)
+
+	adapter, inspection, err := i.revalidateInspection(ctx, expected)
+	if err != nil {
+		return ImportReport{}, err
+	}
+	return i.importResolved(ctx, adapter, inspection, emit)
+}
+
 func (i CollectionImporter) ImportFormat(
 	ctx context.Context,
 	format ImportFormat,
@@ -219,13 +234,7 @@ func (i CollectionImporter) ImportFormat(
 	path string,
 	progress ProgressSink,
 ) (ImportReport, error) {
-	emit := func(phase ImportPhase, rowsRead, bytesRead, totalBytes int64) {
-		if progress != nil {
-			progress(Progress{
-				Phase: phase, RowsRead: rowsRead, BytesRead: bytesRead, TotalBytes: totalBytes,
-			})
-		}
-	}
+	emit := importProgressEmitter(progress)
 	emit(ImportDetecting, 0, 0, 0)
 
 	normalizedPath, err := normalizeImportPath(path)
@@ -257,6 +266,28 @@ func (i CollectionImporter) ImportFormat(
 			sourceID,
 		)
 	}
+	return i.importResolved(ctx, adapter, inspection, emit)
+}
+
+func importProgressEmitter(progress ProgressSink) func(ImportPhase, int64, int64, int64) {
+	return func(phase ImportPhase, rowsRead, bytesRead, totalBytes int64) {
+		if progress != nil {
+			progress(Progress{
+				Phase: phase, RowsRead: rowsRead, BytesRead: bytesRead, TotalBytes: totalBytes,
+			})
+		}
+	}
+}
+
+func (i CollectionImporter) importResolved(
+	ctx context.Context,
+	adapter PuzzleAdapter,
+	inspection ImportInspection,
+	emit func(ImportPhase, int64, int64, int64),
+) (ImportReport, error) {
+	normalizedPath := inspection.Path
+	format := inspection.Format
+	sourceID := inspection.SourceID
 
 	info, err := os.Stat(normalizedPath)
 	if err != nil {
@@ -402,6 +433,99 @@ func (i CollectionImporter) ImportFormat(
 	return report, nil
 }
 
+func (i CollectionImporter) revalidateInspection(
+	ctx context.Context,
+	expected ImportInspection,
+) (PuzzleAdapter, ImportInspection, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, ImportInspection{}, err
+	}
+	normalizedPath, err := normalizeImportPath(expected.Path)
+	if err != nil {
+		return nil, ImportInspection{}, err
+	}
+	if expected.Path != normalizedPath {
+		return nil, ImportInspection{}, inspectionChangedError("path", normalizedPath, expected.Path)
+	}
+	adapter, err := i.adapterForFormat(expected.Format)
+	if err != nil {
+		return nil, ImportInspection{}, err
+	}
+	current, matched, err := adapter.Inspect(ctx, normalizedPath)
+	if err != nil {
+		return nil, ImportInspection{}, fmt.Errorf(
+			"reinspect %s puzzle source: %w",
+			expected.Format,
+			err,
+		)
+	}
+	if !matched {
+		return nil, ImportInspection{}, fmt.Errorf(
+			"puzzle import no longer matches inspected format %q",
+			expected.Format,
+		)
+	}
+	current, err = normalizeAdapterInspection(normalizedPath, adapter, current)
+	if err != nil {
+		return nil, ImportInspection{}, err
+	}
+	if err := compareImportInspection(current, expected); err != nil {
+		return nil, ImportInspection{}, err
+	}
+	return adapter, current, nil
+}
+
+func (i CollectionImporter) adapterForFormat(format ImportFormat) (PuzzleAdapter, error) {
+	var selected PuzzleAdapter
+	for _, adapter := range i.Adapters {
+		if adapter == nil || adapter.Format() != format {
+			continue
+		}
+		if selected != nil {
+			return nil, fmt.Errorf("multiple puzzle adapters configured for format %q", format)
+		}
+		selected = adapter
+	}
+	if selected == nil {
+		return nil, fmt.Errorf("puzzle adapter for format %q is not configured", format)
+	}
+	return selected, nil
+}
+
+func compareImportInspection(current, expected ImportInspection) error {
+	fields := []struct {
+		name          string
+		current, want string
+	}{
+		{name: "path", current: current.Path, want: expected.Path},
+		{name: "filename", current: current.Filename, want: expected.Filename},
+		{name: "format", current: string(current.Format), want: string(expected.Format)},
+		{name: "source ID", current: current.SourceID, want: expected.SourceID},
+		{
+			name: "source ID origin", current: string(current.SourceIDOrigin),
+			want: string(expected.SourceIDOrigin),
+		},
+		{name: "source name", current: current.SourceName, want: expected.SourceName},
+		{name: "source URL", current: current.URL, want: expected.URL},
+		{name: "source attribution", current: current.Attribution, want: expected.Attribution},
+	}
+	for _, field := range fields {
+		if field.current != field.want {
+			return inspectionChangedError(field.name, field.current, field.want)
+		}
+	}
+	return nil
+}
+
+func inspectionChangedError(field, current, expected string) error {
+	return fmt.Errorf(
+		"puzzle import %s changed after inspection: got %q, want %q",
+		field,
+		current,
+		expected,
+	)
+}
+
 func (i CollectionImporter) completeInspection(
 	ctx context.Context,
 	normalizedPath string,
@@ -411,17 +535,9 @@ func (i CollectionImporter) completeInspection(
 	if err := ctx.Err(); err != nil {
 		return ImportInspection{}, err
 	}
-	inspection.Path = normalizedPath
-	inspection.Filename = filepath.Base(normalizedPath)
-	inspection.Format = adapter.Format()
-	if inspection.SourceIDOrigin == SourceIDPath {
-		inspection.SourceID = normalizedPath
-	}
-	if strings.TrimSpace(inspection.SourceID) == "" {
-		return ImportInspection{}, fmt.Errorf(
-			"%s puzzle inspection returned an empty source ID",
-			adapter.Format(),
-		)
+	inspection, err := normalizeAdapterInspection(normalizedPath, adapter, inspection)
+	if err != nil {
+		return ImportInspection{}, err
 	}
 	if i.Reader == nil {
 		if err := ctx.Err(); err != nil {
@@ -444,6 +560,26 @@ func (i CollectionImporter) completeInspection(
 	}
 	if err := ctx.Err(); err != nil {
 		return ImportInspection{}, err
+	}
+	return inspection, nil
+}
+
+func normalizeAdapterInspection(
+	normalizedPath string,
+	adapter PuzzleAdapter,
+	inspection ImportInspection,
+) (ImportInspection, error) {
+	inspection.Path = normalizedPath
+	inspection.Filename = filepath.Base(normalizedPath)
+	inspection.Format = adapter.Format()
+	if inspection.SourceIDOrigin == SourceIDPath {
+		inspection.SourceID = normalizedPath
+	}
+	if strings.TrimSpace(inspection.SourceID) == "" {
+		return ImportInspection{}, fmt.Errorf(
+			"%s puzzle inspection returned an empty source ID",
+			adapter.Format(),
+		)
 	}
 	return inspection, nil
 }

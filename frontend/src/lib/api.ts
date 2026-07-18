@@ -97,7 +97,7 @@ export interface NormalAPI extends BackupAPI {
   getPracticeFilters(): Promise<PracticeFilters>
   choosePuzzleImportFile(): Promise<string>
   inspectPuzzleImport(path: string): Promise<ImportInspection>
-  startPuzzleImport(path: string): Promise<string>
+  startPuzzleImport(inspection: ImportInspection): Promise<string>
   cancelImport(jobId: string): Promise<void>
   getImportResult(jobId: string): Promise<ImportResult>
   onImportProgress(listener: (progress: ImportProgress) => void): () => void

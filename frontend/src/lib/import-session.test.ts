@@ -9,6 +9,9 @@ const embeddedInspection: ImportInspection = {
   format: 'tactical-pgn',
   sourceId: 'club-tactics',
   sourceIdOrigin: 'embedded',
+  sourceName: 'Club tactics',
+  url: 'https://example.test/club',
+  attribution: 'Club authors',
   replacesExisting: false
 }
 
@@ -237,7 +240,7 @@ test('surfaces inspection errors without retaining a stale selection', async () 
   observed.stop()
 })
 
-test('starts only after inspection and passes its exact normalized path once', async () => {
+test('starts only after inspection and passes the confirmed inspection once', async () => {
   const startPuzzleImport = vi.fn(async () => 'job-1')
   const session = createImportSession(() => fakeAPI({
     inspectPuzzleImport: async () => embeddedInspection,
@@ -258,7 +261,7 @@ test('starts only after inspection and passes its exact normalized path once', a
   await session.start()
 
   expect(startPuzzleImport).toHaveBeenCalledOnce()
-  expect(startPuzzleImport).toHaveBeenCalledWith('/normalized/club.pgn')
+  expect(startPuzzleImport).toHaveBeenCalledWith(embeddedInspection)
   expect(observed.state()).toMatchObject({ phase: 'running', jobId: 'job-1' })
   observed.stop()
 })

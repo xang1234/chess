@@ -153,7 +153,10 @@ export async function installTestBackend(
     }
     const emptyImportResult: WireImportResult = {
       jobId: 'unused',
-      request: { kind: 'lichess', sourceId: 'lichess', path: '' },
+      inspection: {
+        path: '', filename: '', format: 'lichess', sourceId: 'lichess',
+        sourceIdOrigin: 'fixed', replacesExisting: false
+      },
       status: 'cancelled',
       progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
@@ -185,7 +188,6 @@ export async function installTestBackend(
       RevealSolution: async () => { throw new Error('test backend has no reveal response') },
       StartFreePractice: async () => { throw new Error('test backend has no practice session') },
       StartGuided: async () => { throw new Error('test backend has no guided session') },
-      StartLichessImport: async () => 'unused',
       StartPuzzleImport: async () => 'unused',
       UpdateProfile: async () => {},
       UseHint: async () => { throw new Error('test backend has no hint response') }
@@ -344,9 +346,17 @@ export async function installTestBackend(
     const chooserImportPath = '/Users/family/Downloads/../Puzzles/club-tactics.pgn'
     const importPath = '/Users/family/Puzzles/club-tactics.pgn'
     const importBytes = 4096
+    const importInspection = {
+      path: importPath,
+      filename: 'club-tactics.pgn',
+      format: 'tactical-pgn',
+      sourceId: 'club-tactics',
+      sourceIdOrigin: 'embedded',
+      replacesExisting: false
+    }
     let importResult: WireImportResult = {
       jobId: 'job-1',
-      request: { kind: 'tactical-pgn', sourceId: 'club-tactics', path: '' },
+      inspection: importInspection,
       status: 'running',
       progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: importBytes },
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
@@ -465,21 +475,16 @@ export async function installTestBackend(
       ChoosePuzzleImportFile: async () => chooserImportPath,
       InspectPuzzleImport: async (path: string) => {
         if (path !== chooserImportPath) throw new Error(`unexpected inspection path ${path}`)
-        return {
-          path: importPath,
-          filename: 'club-tactics.pgn',
-          format: 'tactical-pgn',
-          sourceId: 'club-tactics',
-          sourceIdOrigin: 'embedded',
-          replacesExisting: false
-        }
+        return importInspection
       },
-      StartPuzzleImport: async (path: string) => {
-        if (path !== importPath) throw new Error(`unexpected import path ${path}`)
-        importedPath = path
+      StartPuzzleImport: async (inspection) => {
+        if (inspection.path !== importPath || inspection.sourceId !== 'club-tactics') {
+          throw new Error(`unexpected import inspection ${JSON.stringify(inspection)}`)
+        }
+        importedPath = inspection.path
         importResult = {
           jobId: 'job-1',
-          request: { kind: 'tactical-pgn', sourceId: 'club-tactics', path },
+          inspection,
           status: 'running',
           progress: {
             phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: importBytes

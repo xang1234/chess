@@ -149,6 +149,9 @@ export type ImportInspection = {
   format: ImportFormat
   sourceId: string
   sourceIdOrigin: ImportSourceIDOrigin
+  sourceName?: string
+  url?: string
+  attribution?: string
   replacesExisting: boolean
 }
 export type ImportPhase = 'detecting' | 'parsing' | 'sealing' | 'activating'
@@ -453,6 +456,9 @@ export function decodeImportInspection(value: unknown): ImportInspection {
       ['fixed', 'embedded', 'path'],
       'import inspection.sourceIdOrigin'
     ),
+    sourceName: optionalString(raw.sourceName, 'import inspection.sourceName'),
+    url: optionalString(raw.url, 'import inspection.url'),
+    attribution: optionalString(raw.attribution, 'import inspection.attribution'),
     replacesExisting: boolean(raw.replacesExisting, 'import inspection.replacesExisting')
   }
 }

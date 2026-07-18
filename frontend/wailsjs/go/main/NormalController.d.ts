@@ -40,9 +40,7 @@ export function StartFreePractice(arg1:training.PracticeRequest):Promise<domain.
 
 export function StartGuided():Promise<domain.SessionView>;
 
-export function StartLichessImport(arg1:string):Promise<string>;
-
-export function StartPuzzleImport(arg1:string):Promise<string>;
+export function StartPuzzleImport(arg1:puzzles.ImportInspection):Promise<string>;
 
 export function UpdateProfile(arg1:training.Profile):Promise<void>;
 

@@ -21,12 +21,10 @@ type importOutcome struct {
 }
 
 type startedImport struct {
-	format   puzzles.ImportFormat
-	sourceID string
-	path     string
-	ctx      context.Context
-	progress puzzles.ProgressSink
-	finish   chan importOutcome
+	inspection puzzles.ImportInspection
+	ctx        context.Context
+	progress   puzzles.ProgressSink
+	finish     chan importOutcome
 }
 
 type blockingImporter struct {
@@ -55,20 +53,16 @@ func (*blockingImporter) Supports(format puzzles.ImportFormat) bool {
 	return supportsTestFormat(format)
 }
 
-func (i *blockingImporter) ImportFormat(
+func (i *blockingImporter) Import(
 	ctx context.Context,
-	format puzzles.ImportFormat,
-	sourceID string,
-	path string,
+	inspection puzzles.ImportInspection,
 	progress puzzles.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	call := startedImport{
-		format:   format,
-		sourceID: sourceID,
-		path:     path,
-		ctx:      ctx,
-		progress: progress,
-		finish:   make(chan importOutcome, 1),
+		inspection: inspection,
+		ctx:        ctx,
+		progress:   progress,
+		finish:     make(chan importOutcome, 1),
 	}
 	i.started <- call
 	select {
@@ -87,15 +81,30 @@ type scriptedImporter struct {
 	report   puzzles.ImportReport
 }
 
+type confirmedInspectionImporter struct {
+	received chan puzzles.ImportInspection
+}
+
+func (confirmedInspectionImporter) Supports(format puzzles.ImportFormat) bool {
+	return supportsTestFormat(format)
+}
+
+func (i confirmedInspectionImporter) Import(
+	_ context.Context,
+	inspection puzzles.ImportInspection,
+	_ puzzles.ProgressSink,
+) (puzzles.ImportReport, error) {
+	i.received <- inspection
+	return puzzles.ImportReport{}, nil
+}
+
 func (scriptedImporter) Supports(format puzzles.ImportFormat) bool {
 	return supportsTestFormat(format)
 }
 
-func (i scriptedImporter) ImportFormat(
+func (i scriptedImporter) Import(
 	_ context.Context,
-	_ puzzles.ImportFormat,
-	_ string,
-	_ string,
+	_ puzzles.ImportInspection,
 	progress puzzles.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	for _, snapshot := range i.progress {
@@ -113,11 +122,9 @@ func (activatedThenNilImporter) Supports(format puzzles.ImportFormat) bool {
 	return supportsTestFormat(format)
 }
 
-func (i activatedThenNilImporter) ImportFormat(
+func (i activatedThenNilImporter) Import(
 	context.Context,
-	puzzles.ImportFormat,
-	string,
-	string,
+	puzzles.ImportInspection,
 	puzzles.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	close(i.activated)
@@ -210,7 +217,7 @@ type staleCleanupOrderingEmitter struct {
 	terminalCount   int
 	service         *Service
 	importer        *blockingImporter
-	nextRequest     ImportRequest
+	nextInspection  puzzles.ImportInspection
 	nextJob         chan startedNextJob
 	nextImport      chan startedImport
 	terminalStarted chan Result
@@ -228,7 +235,7 @@ func (e *staleCleanupOrderingEmitter) Finished(result Result) {
 
 	switch terminalNumber {
 	case 1:
-		jobID, err := e.service.Start(context.Background(), e.nextRequest)
+		jobID, err := e.service.Start(context.Background(), e.nextInspection)
 		e.nextJob <- startedNextJob{jobID: jobID, err: err}
 		if err == nil {
 			e.nextImport <- <-e.importer.started
@@ -275,30 +282,39 @@ func TestStartPassesCanonicalFormatToImporter(t *testing.T) {
 	service := NewService(importer, nil, emitter)
 	t.Cleanup(service.Close)
 
-	request := ImportRequest{
-		Kind: puzzles.FormatCanonicalJSON, SourceID: "club", Path: "/club.json",
+	inspection := puzzles.ImportInspection{
+		Format: puzzles.FormatCanonicalJSON, SourceID: "club", Path: "/club.json",
 	}
-	jobID, err := service.Start(context.Background(), request)
+	jobID, err := service.Start(context.Background(), inspection)
 	if err != nil {
 		t.Fatal(err)
 	}
 	call := receive(t, importer.started)
-	if call.format != request.Kind || call.sourceID != request.SourceID || call.path != request.Path {
-		t.Fatalf(
-			"imported format/source/path = %q/%q/%q, want %q/%q/%q",
-			call.format,
-			call.sourceID,
-			call.path,
-			request.Kind,
-			request.SourceID,
-			request.Path,
-		)
+	if call.inspection != inspection {
+		t.Fatalf("imported inspection = %+v, want %+v", call.inspection, inspection)
 	}
 	call.finish <- importOutcome{report: puzzles.ImportReport{Accepted: 3}}
 
 	finished := receive(t, emitter.finished)
-	if finished.JobID != jobID || finished.Request != request || finished.Status != Succeeded {
+	if finished.JobID != jobID || finished.Inspection != inspection || finished.Status != Succeeded {
 		t.Fatalf("finished = %+v", finished)
+	}
+}
+
+func TestStartPassesConfirmedInspectionToImporter(t *testing.T) {
+	importer := confirmedInspectionImporter{received: make(chan puzzles.ImportInspection, 1)}
+	service := NewService(importer, nil, nil)
+	t.Cleanup(service.Close)
+	inspection := puzzles.ImportInspection{
+		Path: "/club.json", Filename: "club.json", Format: puzzles.FormatCanonicalJSON,
+		SourceID: "club", SourceIDOrigin: puzzles.SourceIDEmbedded, SourceName: "Club",
+	}
+
+	if _, err := service.Start(context.Background(), inspection); err != nil {
+		t.Fatal(err)
+	}
+	if got := receive(t, importer.received); got != inspection {
+		t.Fatalf("imported inspection = %+v, want %+v", got, inspection)
 	}
 }
 
@@ -307,8 +323,8 @@ func TestStartSeedsDetectingProgressBeforePublishingJob(t *testing.T) {
 	service := NewService(importer, nil, nil)
 	t.Cleanup(service.Close)
 
-	jobID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles.csv.zst",
+	jobID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles.csv.zst",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -327,23 +343,23 @@ func TestStartSeedsDetectingProgressBeforePublishingJob(t *testing.T) {
 	call.finish <- importOutcome{}
 }
 
-func TestStartValidatesRequest(t *testing.T) {
+func TestStartValidatesInspection(t *testing.T) {
 	service := NewService(newBlockingImporter(), nil, nil)
 	t.Cleanup(service.Close)
 
 	tests := []struct {
-		name    string
-		request ImportRequest
+		name       string
+		inspection puzzles.ImportInspection
 	}{
-		{name: "kind", request: ImportRequest{SourceID: "source", Path: "/puzzles"}},
-		{name: "configured kind", request: ImportRequest{Kind: "missing", SourceID: "source", Path: "/puzzles"}},
-		{name: "source", request: ImportRequest{Kind: puzzles.FormatLichess, Path: "/puzzles"}},
-		{name: "path", request: ImportRequest{Kind: puzzles.FormatLichess, SourceID: "source"}},
+		{name: "kind", inspection: puzzles.ImportInspection{SourceID: "source", Path: "/puzzles"}},
+		{name: "configured kind", inspection: puzzles.ImportInspection{Format: "missing", SourceID: "source", Path: "/puzzles"}},
+		{name: "source", inspection: puzzles.ImportInspection{Format: puzzles.FormatLichess, Path: "/puzzles"}},
+		{name: "path", inspection: puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "source"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := service.Start(context.Background(), test.request); err == nil {
-				t.Fatalf("Start(%+v) unexpectedly succeeded", test.request)
+			if _, err := service.Start(context.Background(), test.inspection); err == nil {
+				t.Fatalf("Start(%+v) unexpectedly succeeded", test.inspection)
 			}
 		})
 	}
@@ -353,15 +369,15 @@ func TestStartRejectsSecondActivePuzzleImport(t *testing.T) {
 	importer := newBlockingImporter()
 	service := NewService(importer, nil, nil)
 	t.Cleanup(service.Close)
-	request := ImportRequest{Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/first.csv.zst"}
+	inspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/first.csv.zst"}
 
-	activeJobID, err := service.Start(context.Background(), request)
+	activeJobID, err := service.Start(context.Background(), inspection)
 	if err != nil {
 		t.Fatal(err)
 	}
 	call := receive(t, importer.started)
-	_, err = service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/second.csv.zst",
+	_, err = service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/second.csv.zst",
 	})
 	var busy *BusyError
 	if !errors.As(err, &busy) {
@@ -385,9 +401,9 @@ func TestResultKeepsMonotonicProgress(t *testing.T) {
 		report: puzzles.ImportReport{Accepted: 9},
 	}, nil, emitter)
 	t.Cleanup(service.Close)
-	request := ImportRequest{Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles.csv.zst"}
+	inspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles.csv.zst"}
 
-	jobID, err := service.Start(context.Background(), request)
+	jobID, err := service.Start(context.Background(), inspection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,8 +440,8 @@ func TestImportProgressPhaseAndTotalsRemainMonotonic(t *testing.T) {
 	}, nil, emitter)
 	t.Cleanup(service.Close)
 
-	jobID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatCanonicalJSON, SourceID: "club", Path: "/club.json",
+	jobID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatCanonicalJSON, SourceID: "club", Path: "/club.json",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -480,8 +496,8 @@ func TestConcurrentProgressEmitsMonotonicSnapshots(t *testing.T) {
 	t.Cleanup(service.Close)
 	t.Cleanup(releaseEmitter)
 
-	jobID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/concurrent-progress",
+	jobID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/concurrent-progress",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -535,8 +551,8 @@ func TestTerminalEventPrecedesLaterJobProgress(t *testing.T) {
 	t.Cleanup(service.Close)
 	t.Cleanup(releaseEmitter)
 
-	firstID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "first", Path: "/first",
+	firstID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -548,8 +564,8 @@ func TestTerminalEventPrecedesLaterJobProgress(t *testing.T) {
 		t.Fatalf("blocked terminal job = %q, want %q", terminalStarted.JobID, firstID)
 	}
 
-	secondID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "second", Path: "/second",
+	secondID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -587,8 +603,8 @@ func TestStaleCleanupWaitsForLaterTerminalEvent(t *testing.T) {
 	maintenance := newBlockingMaintenance()
 	emitter := &staleCleanupOrderingEmitter{
 		importer: importer,
-		nextRequest: ImportRequest{
-			Kind: puzzles.FormatLichess, SourceID: "second", Path: "/second",
+		nextInspection: puzzles.ImportInspection{
+			Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 		},
 		nextJob:         make(chan startedNextJob, 1),
 		nextImport:      make(chan startedImport, 1),
@@ -601,8 +617,8 @@ func TestStaleCleanupWaitsForLaterTerminalEvent(t *testing.T) {
 	t.Cleanup(service.Close)
 	t.Cleanup(releaseEmitter)
 
-	firstID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "first", Path: "/first",
+	firstID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -648,8 +664,8 @@ func TestCompletedResultRemainsQueryableAfterLaterJob(t *testing.T) {
 	service := NewService(importer, nil, emitter)
 	t.Cleanup(service.Close)
 
-	firstRequest := ImportRequest{Kind: puzzles.FormatLichess, SourceID: "first", Path: "/first"}
-	firstID, err := service.Start(context.Background(), firstRequest)
+	firstInspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "first", Path: "/first"}
+	firstID, err := service.Start(context.Background(), firstInspection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -659,8 +675,8 @@ func TestCompletedResultRemainsQueryableAfterLaterJob(t *testing.T) {
 	_ = receive(t, emitter.progress)
 	_ = receive(t, emitter.finished)
 
-	secondRequest := ImportRequest{Kind: puzzles.FormatLichess, SourceID: "second", Path: "/second"}
-	secondID, err := service.Start(context.Background(), secondRequest)
+	secondInspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "second", Path: "/second"}
+	secondID, err := service.Start(context.Background(), secondInspection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +691,7 @@ func TestCompletedResultRemainsQueryableAfterLaterJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Request != firstRequest || result.Status != Succeeded ||
+	if result.Inspection != firstInspection || result.Status != Succeeded ||
 		result.Progress != (puzzles.Progress{
 			Phase: puzzles.ImportDetecting, RowsRead: 7, BytesRead: 11,
 		}) || result.Report.Accepted != 1 {
@@ -687,9 +703,9 @@ func TestJobReachesExactlyOneTerminalState(t *testing.T) {
 	importer := newBlockingImporter()
 	emitter := newRecordingEmitter()
 	service := NewService(importer, nil, emitter)
-	request := ImportRequest{Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/cancel"}
+	inspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/cancel"}
 
-	jobID, err := service.Start(context.Background(), request)
+	jobID, err := service.Start(context.Background(), inspection)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -723,8 +739,8 @@ func TestSuccessfulImportRemainsSucceededWhenContextCancelledAfterActivation(t *
 	t.Cleanup(service.Close)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	jobID, err := service.Start(ctx, ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "lichess", Path: "/activated",
+	jobID, err := service.Start(ctx, puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/activated",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -745,8 +761,8 @@ func TestTerminalJobAllowsNextImport(t *testing.T) {
 	service := NewService(importer, nil, emitter)
 	t.Cleanup(service.Close)
 
-	firstID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "first", Path: "/first",
+	firstID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -758,8 +774,8 @@ func TestTerminalJobAllowsNextImport(t *testing.T) {
 		t.Fatalf("first result = %+v", firstResult)
 	}
 
-	secondID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "second", Path: "/second",
+	secondID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
 		t.Fatalf("Start() after terminal job: %v", err)
@@ -778,8 +794,8 @@ func TestCleanupStartsAfterTerminalAndNeverOverlapsImport(t *testing.T) {
 	service := NewService(importer, maintenance, emitter)
 	t.Cleanup(service.Close)
 
-	firstID, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "first", Path: "/first",
+	firstID, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -800,8 +816,8 @@ func TestCleanupStartsAfterTerminalAndNeverOverlapsImport(t *testing.T) {
 		t.Fatalf("Result() when cleanup started = %+v, %v", stored, err)
 	}
 
-	_, err = service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "second", Path: "/second",
+	_, err = service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -822,8 +838,8 @@ func TestNewImportPreemptsFurtherCleanupBatches(t *testing.T) {
 	service := NewService(importer, maintenance, emitter)
 	t.Cleanup(service.Close)
 
-	_, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "first", Path: "/first",
+	_, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -833,8 +849,8 @@ func TestNewImportPreemptsFurtherCleanupBatches(t *testing.T) {
 	_ = receive(t, emitter.finished)
 	firstCleanup := receive(t, maintenance.started)
 
-	_, err = service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "second", Path: "/second",
+	_, err = service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -866,8 +882,8 @@ func TestCloseCancelsAndWaitsForImporterAndCleanup(t *testing.T) {
 	emitter := newRecordingEmitter()
 	service := NewService(importer, maintenance, emitter)
 
-	_, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "first", Path: "/first",
+	_, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -877,8 +893,8 @@ func TestCloseCancelsAndWaitsForImporterAndCleanup(t *testing.T) {
 	_ = receive(t, emitter.finished)
 	cleanup := receive(t, maintenance.started)
 
-	_, err = service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "second", Path: "/second",
+	_, err = service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -910,8 +926,8 @@ func TestCloseCancelsAndWaitsForImporterAndCleanup(t *testing.T) {
 	receive(t, closedFirst)
 	receive(t, closedSecond)
 
-	if _, err := service.Start(context.Background(), ImportRequest{
-		Kind: puzzles.FormatLichess, SourceID: "later", Path: "/later",
+	if _, err := service.Start(context.Background(), puzzles.ImportInspection{
+		Format: puzzles.FormatLichess, SourceID: "later", Path: "/later",
 	}); err == nil {
 		t.Fatal("Start() unexpectedly succeeded after Close()")
 	}
@@ -935,8 +951,8 @@ func TestConcurrentStartAndCloseWaitsForEveryRegisteredJob(t *testing.T) {
 
 		go func() {
 			<-begin
-			jobID, err := service.Start(context.Background(), ImportRequest{
-				Kind: puzzles.FormatLichess, SourceID: "race", Path: "/race",
+			jobID, err := service.Start(context.Background(), puzzles.ImportInspection{
+				Format: puzzles.FormatLichess, SourceID: "race", Path: "/race",
 			})
 			started <- startResult{jobID: jobID, err: err}
 		}()
