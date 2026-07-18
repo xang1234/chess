@@ -21,16 +21,17 @@ different collection.
 | --- | --- | --- |
 | Lichess zstd/CSV | Always `lichess` | Fixed source ID |
 | Canonical JSON | Trimmed, non-empty `source.id`; otherwise the normalized absolute path | Embedded source ID or fallback file path |
-| Tactical PGN | Trimmed, non-empty `SourceId` from the first game; otherwise the normalized absolute path | Embedded source ID or fallback file path |
+| Tactical PGN | Trimmed, non-empty `SourceId` from the first game carrying a non-empty `FEN` tag; otherwise the normalized absolute path | Embedded source ID or fallback file path |
 | Lucas `.fns` | Normalized absolute path | Fallback file path |
 | Linear FEN/UCI | Normalized absolute path | Fallback file path |
 
 Path normalization cleans the path, makes it absolute, and resolves symlinks
 when the operating system can resolve them. That exact normalized string is the
 source ID for path-based sources. Moving a path-based file therefore creates a
-different logical source. A later PGN game may omit `SourceId`, but every later
-explicit value must match the first game's resolved ID. Reusing an existing
-source ID with a different format is rejected because source kind is immutable.
+different logical source. Any PGN game may omit `SourceId`, but every explicit
+value anywhere in the file must match the identity resolved from the first game
+carrying a non-empty `FEN` tag. Reusing an existing source ID with a different
+format is rejected because source kind is immutable.
 
 ## Lichess zstd/CSV
 

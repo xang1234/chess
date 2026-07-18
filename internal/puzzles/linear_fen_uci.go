@@ -147,7 +147,7 @@ func looksLikeUCIMove(move string) bool {
 		move[2] < 'a' || move[2] > 'h' || move[3] < '1' || move[3] > '8' {
 		return false
 	}
-	return len(move) == 4 || strings.ContainsRune("qrbn", rune(move[4]))
+	return len(move) == 4 || strings.ContainsRune("qrbnQRBN", rune(move[4]))
 }
 
 func (a linearFENAdapter) NewDecoder(

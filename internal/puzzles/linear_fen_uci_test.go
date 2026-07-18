@@ -67,6 +67,20 @@ func TestLinearFENAdapterConvertsNormalizedMoveLinesAndDifficulty(t *testing.T) 
 	}
 }
 
+func TestLinearFENInspectionAcceptsUppercasePromotion(t *testing.T) {
+	const contents = "7k/P7/8/8/8/8/8/K7 w - - 0 1 a7a8Q\n"
+	adapter, path, inspection := inspectLinearFEN(t, "promotion.txt", contents)
+	if inspection.Format != FormatLinearFENUCI || inspection.SourceID != path {
+		t.Fatalf("inspection = %+v, want linear FEN/UCI path identity", inspection)
+	}
+
+	records := decodeLinearFENFile(t, adapter, path, inspection)
+	puzzle := requireLinearFENPuzzle(t, records[0])
+	if got := linearFENMoves(puzzle.Core.Solution); !slices.Equal(got, []string{"a7a8q"}) {
+		t.Fatalf("solution = %q, want normalized uppercase promotion", got)
+	}
+}
+
 func TestLinearFENDecoderRejectsMalformedRecordsAndRecovers(t *testing.T) {
 	const fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
 	contents := "\n" +
@@ -135,7 +149,11 @@ func TestLinearFENDecoderRejectsOverDepthBeforeMoveValidation(t *testing.T) {
 func TestLinearFENInspectionAllowsMalformedLeadingRecord(t *testing.T) {
 	const fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
 	path := filepath.Join(t.TempDir(), "misleading.txt")
-	contents := "\n# comment\n" + fen + " 1375\n" + fen + " e2e4\n"
+	malformed := fen + " e2e5"
+	if !looksLikeLinearFENRecord(malformed) {
+		t.Fatal("illegal UCI-shaped move should remain structurally recognizable")
+	}
+	contents := "\n# comment\n" + malformed + "\n" + fen + " e2e4\n"
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
