@@ -152,7 +152,10 @@ func (s *Service) Start(ctx context.Context, request ImportRequest) (string, err
 	s.activeJobID = jobID
 	s.jobs[jobID] = &jobState{
 		cancel: cancel,
-		result: Result{JobID: jobID, Request: request, Status: Running},
+		result: Result{
+			JobID: jobID, Request: request, Status: Running,
+			Progress: puzzles.Progress{Phase: puzzles.ImportDetecting},
+		},
 	}
 	// Add and the closing check share mu so Close cannot begin Wait concurrently.
 	s.wg.Add(1)

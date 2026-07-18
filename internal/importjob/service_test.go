@@ -273,6 +273,31 @@ func TestStartRoutesRequestByKind(t *testing.T) {
 	}
 }
 
+func TestStartSeedsDetectingProgressBeforePublishingJob(t *testing.T) {
+	importer := newBlockingImporter()
+	service := NewService(map[Kind]Importer{KindLichess: importer}, nil, nil)
+	t.Cleanup(service.Close)
+
+	jobID, err := service.Start(context.Background(), ImportRequest{
+		Kind: KindLichess, SourceID: "lichess", Path: "/puzzles.csv.zst",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.Result(jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := puzzles.Progress{Phase: puzzles.ImportDetecting}
+	if result.Status != Running || result.Progress != want {
+		t.Fatalf("immediate Result() = %+v, want running progress %+v", result, want)
+	}
+
+	call := receive(t, importer.started)
+	call.finish <- importOutcome{}
+}
+
 func TestStartValidatesRequest(t *testing.T) {
 	service := NewService(map[Kind]Importer{KindLichess: newBlockingImporter()}, nil, nil)
 	t.Cleanup(service.Close)
@@ -340,9 +365,9 @@ func TestResultKeepsMonotonicProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []puzzles.Progress{
-		{RowsRead: 10, BytesRead: 20},
-		{RowsRead: 10, BytesRead: 25},
-		{RowsRead: 12, BytesRead: 25},
+		{Phase: puzzles.ImportDetecting, RowsRead: 10, BytesRead: 20},
+		{Phase: puzzles.ImportDetecting, RowsRead: 10, BytesRead: 25},
+		{Phase: puzzles.ImportDetecting, RowsRead: 12, BytesRead: 25},
 	}
 	for index, expected := range want {
 		event := receive(t, emitter.progress)
@@ -459,8 +484,11 @@ func TestConcurrentProgressEmitsMonotonicSnapshots(t *testing.T) {
 
 	first := receive(t, emitter.progress)
 	second := receive(t, emitter.progress)
-	if first.snapshot != (puzzles.Progress{RowsRead: 10, BytesRead: 20}) ||
-		second.snapshot != (puzzles.Progress{RowsRead: 20, BytesRead: 30}) {
+	if first.snapshot != (puzzles.Progress{
+		Phase: puzzles.ImportDetecting, RowsRead: 10, BytesRead: 20,
+	}) || second.snapshot != (puzzles.Progress{
+		Phase: puzzles.ImportDetecting, RowsRead: 20, BytesRead: 30,
+	}) {
 		t.Fatalf("emitted progress = %+v then %+v", first.snapshot, second.snapshot)
 	}
 	call.finish <- importOutcome{}
@@ -623,7 +651,9 @@ func TestCompletedResultRemainsQueryableAfterLaterJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Request != firstRequest || result.Status != Succeeded ||
-		result.Progress != (puzzles.Progress{RowsRead: 7, BytesRead: 11}) || result.Report.Accepted != 1 {
+		result.Progress != (puzzles.Progress{
+			Phase: puzzles.ImportDetecting, RowsRead: 7, BytesRead: 11,
+		}) || result.Report.Accepted != 1 {
 		t.Fatalf("first result after later job = %+v", result)
 	}
 }
