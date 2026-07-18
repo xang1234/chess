@@ -194,8 +194,8 @@ func TestCanonicalJSONAdapterStreamsPuzzlesBeforeSourceAndAppliesDefaults(t *tes
 		t.Fatalf("records = %d, want 2", len(records))
 	}
 	first := requireCanonicalPuzzle(t, records[0])
-	if first.Occurrence.SourceID != "club-json" ||
-		first.Occurrence.SourceKind != string(FormatCanonicalJSON) ||
+	if first.Occurrence.SourceID != "" ||
+		first.Occurrence.SourceKind != "" ||
 		first.Occurrence.ExternalID != "json-1" ||
 		first.Occurrence.URL != inspection.URL ||
 		first.Occurrence.Attribution != inspection.Attribution ||

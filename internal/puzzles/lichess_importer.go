@@ -39,8 +39,11 @@ func NewLichessAdapter(rules chessrules.Rules) PuzzleAdapter {
 	return lichessAdapter{rules: rules}
 }
 
-func (lichessAdapter) Format() ImportFormat {
-	return FormatLichess
+func (lichessAdapter) Descriptor() ImportFormatDescriptor {
+	return ImportFormatDescriptor{
+		Format: FormatLichess, Label: "Lichess",
+		CanonicalExtension: ".zst", FileFilterDescription: "Zstandard archive",
+	}
 }
 
 func (lichessAdapter) Inspect(
@@ -91,7 +94,7 @@ func (lichessAdapter) Inspect(
 
 func (a lichessAdapter) NewDecoder(
 	reader io.Reader,
-	inspection ImportInspection,
+	_ ImportInspection,
 ) (PuzzleDecoder, error) {
 	decoder, err := newLichessZstandardReader(reader)
 	if err != nil {
@@ -109,11 +112,10 @@ func (a lichessAdapter) NewDecoder(
 		return nil, err
 	}
 	return &lichessDecoder{
-		rules:    a.rules,
-		sourceID: inspection.SourceID,
-		decoder:  decoder,
-		reader:   csvReader,
-		columns:  columns,
+		rules:   a.rules,
+		decoder: decoder,
+		reader:  csvReader,
+		columns: columns,
 	}, nil
 }
 
@@ -134,7 +136,6 @@ func newLichessCSVReader(reader io.Reader) *csv.Reader {
 
 type lichessDecoder struct {
 	rules    chessrules.Rules
-	sourceID string
 	decoder  *zstd.Decoder
 	reader   *csv.Reader
 	columns  map[string]int
@@ -278,8 +279,6 @@ func (d *lichessDecoder) normalizeRecord(
 	return TrainingPuzzle{
 		Core: core,
 		Occurrence: PuzzleOccurrence{
-			SourceID:    d.sourceID,
-			SourceKind:  "lichess",
 			ExternalID:  puzzleID,
 			SourceFEN:   sourceFEN,
 			PreludeUCI:  strings.ToLower(moves[0]),

@@ -28,8 +28,11 @@ func NewCanonicalJSONAdapter(rules chessrules.Rules) PuzzleAdapter {
 	return canonicalJSONAdapter{rules: rules}
 }
 
-func (canonicalJSONAdapter) Format() ImportFormat {
-	return FormatCanonicalJSON
+func (canonicalJSONAdapter) Descriptor() ImportFormatDescriptor {
+	return ImportFormatDescriptor{
+		Format: FormatCanonicalJSON, Label: "Canonical JSON",
+		CanonicalExtension: ".json", FileFilterDescription: "JSON collection",
+	}
 }
 
 func (a canonicalJSONAdapter) Inspect(
@@ -395,8 +398,6 @@ func (d *canonicalJSONDecoder) normalizePuzzle(raw json.RawMessage) (TrainingPuz
 	return TrainingPuzzle{
 		Core: core,
 		Occurrence: PuzzleOccurrence{
-			SourceID:    d.inspection.SourceID,
-			SourceKind:  string(FormatCanonicalJSON),
 			ExternalID:  externalID,
 			SourceFEN:   sourceFEN,
 			PreludeUCI:  preludeUCI,

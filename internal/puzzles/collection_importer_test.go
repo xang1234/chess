@@ -18,6 +18,7 @@ import (
 )
 
 type fakePuzzleAdapter struct {
+	descriptor ImportFormatDescriptor
 	format     ImportFormat
 	signature  string
 	inspection ImportInspection
@@ -27,7 +28,40 @@ type fakePuzzleAdapter struct {
 	inspectErr error
 }
 
-func (a fakePuzzleAdapter) Format() ImportFormat { return a.format }
+func (a fakePuzzleAdapter) Descriptor() ImportFormatDescriptor {
+	if a.descriptor != (ImportFormatDescriptor{}) {
+		return a.descriptor
+	}
+	switch a.format {
+	case FormatLichess:
+		return ImportFormatDescriptor{
+			Format: FormatLichess, Label: "Lichess",
+			CanonicalExtension: ".zst", FileFilterDescription: "Zstandard archive",
+		}
+	case FormatTacticalPGN:
+		return ImportFormatDescriptor{
+			Format: FormatTacticalPGN, Label: "Tactical PGN",
+			CanonicalExtension: ".pgn", FileFilterDescription: "PGN collection",
+		}
+	case FormatCanonicalJSON:
+		return ImportFormatDescriptor{
+			Format: FormatCanonicalJSON, Label: "Canonical JSON",
+			CanonicalExtension: ".json", FileFilterDescription: "JSON collection",
+		}
+	case FormatLucasFNS:
+		return ImportFormatDescriptor{
+			Format: FormatLucasFNS, Label: "Lucas FNS",
+			CanonicalExtension: ".fns", FileFilterDescription: "Lucas collection",
+		}
+	case FormatLinearFENUCI:
+		return ImportFormatDescriptor{
+			Format: FormatLinearFENUCI, Label: "Linear FEN/UCI",
+			CanonicalExtension: ".txt", FileFilterDescription: "FEN/UCI collection",
+		}
+	default:
+		return ImportFormatDescriptor{}
+	}
+}
 
 func (a fakePuzzleAdapter) Inspect(_ context.Context, path string) (ImportInspection, bool, error) {
 	if a.inspected != nil {
@@ -107,6 +141,78 @@ type fakeInspectionReader struct {
 
 func (r fakeInspectionReader) ActiveSourceSummaries(context.Context) ([]SourceSummary, error) {
 	return r.summaries, r.err
+}
+
+func TestCollectionImporterFormatDescriptorsPreserveRegistrationOrder(t *testing.T) {
+	want := []ImportFormatDescriptor{
+		{
+			Format: FormatCanonicalJSON, Label: "Canonical JSON",
+			CanonicalExtension: ".json", FileFilterDescription: "JSON collection",
+		},
+		{
+			Format: FormatTacticalPGN, Label: "Tactical PGN",
+			CanonicalExtension: ".pgn", FileFilterDescription: "PGN collection",
+		},
+	}
+	importer := CollectionImporter{Adapters: []PuzzleAdapter{
+		fakePuzzleAdapter{descriptor: want[0]},
+		fakePuzzleAdapter{descriptor: want[1]},
+	}}
+
+	got, err := importer.FormatDescriptors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FormatDescriptors() = %+v, want %+v", got, want)
+	}
+	got[0].Label = "mutated"
+	again, err := importer.FormatDescriptors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(again, want) {
+		t.Fatalf("FormatDescriptors() retained caller mutation: %+v", again)
+	}
+}
+
+func TestCollectionImporterFormatDescriptorsRejectInvalidConfiguration(t *testing.T) {
+	valid := ImportFormatDescriptor{
+		Format: FormatCanonicalJSON, Label: "Canonical JSON",
+		CanonicalExtension: ".json", FileFilterDescription: "JSON collection",
+	}
+	tests := []struct {
+		name       string
+		descriptor ImportFormatDescriptor
+		want       string
+	}{
+		{name: "format", descriptor: ImportFormatDescriptor{
+			Label: valid.Label, CanonicalExtension: valid.CanonicalExtension,
+			FileFilterDescription: valid.FileFilterDescription,
+		}, want: "format"},
+		{name: "label", descriptor: ImportFormatDescriptor{
+			Format: valid.Format, CanonicalExtension: valid.CanonicalExtension,
+			FileFilterDescription: valid.FileFilterDescription,
+		}, want: "label"},
+		{name: "extension", descriptor: ImportFormatDescriptor{
+			Format: valid.Format, Label: valid.Label,
+			CanonicalExtension: "*.json", FileFilterDescription: valid.FileFilterDescription,
+		}, want: "canonical extension"},
+		{name: "filter description", descriptor: ImportFormatDescriptor{
+			Format: valid.Format, Label: valid.Label, CanonicalExtension: valid.CanonicalExtension,
+		}, want: "file filter description"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			importer := CollectionImporter{Adapters: []PuzzleAdapter{
+				fakePuzzleAdapter{descriptor: test.descriptor},
+			}}
+			_, err := importer.FormatDescriptors()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("FormatDescriptors() error = %v, want %q", err, test.want)
+			}
+		})
+	}
 }
 
 func TestCollectionImporterInspectUsesContentAndPathFallback(t *testing.T) {
@@ -191,16 +297,28 @@ func TestCollectionImporterInspectUsesExtensionOnlyToNarrowContentMatches(t *tes
 		t.Fatal(err)
 	}
 	importer := CollectionImporter{Adapters: []PuzzleAdapter{
-		fakePuzzleAdapter{format: FormatLinearFENUCI, signature: "shared-signature"},
-		fakePuzzleAdapter{format: FormatTacticalPGN, signature: "shared-signature"},
+		fakePuzzleAdapter{
+			format: FormatLinearFENUCI, signature: "shared-signature",
+			descriptor: ImportFormatDescriptor{
+				Format: FormatLinearFENUCI, Label: "Linear FEN/UCI",
+				CanonicalExtension: ".txt", FileFilterDescription: "FEN/UCI collection",
+			},
+		},
+		fakePuzzleAdapter{
+			format: FormatTacticalPGN, signature: "shared-signature",
+			descriptor: ImportFormatDescriptor{
+				Format: FormatTacticalPGN, Label: "Tactical PGN",
+				CanonicalExtension: ".pgn", FileFilterDescription: "PGN collection",
+			},
+		},
 	}}
 
 	got, err := importer.Inspect(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Format != FormatTacticalPGN {
-		t.Fatalf("format = %q, want %q", got.Format, FormatTacticalPGN)
+	if got.Format != FormatTacticalPGN || got.FormatLabel != "Tactical PGN" {
+		t.Fatalf("inspection = %+v, want tactical descriptor", got)
 	}
 }
 
@@ -381,7 +499,9 @@ func mustInspectCollection(
 }
 
 func TestCollectionImporterImportSealsChecksumAndActivatesInOrder(t *testing.T) {
-	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{ExternalID: "one"}}
+	puzzle := TrainingPuzzle{Occurrence: PuzzleOccurrence{
+		SourceID: "decoder-source", SourceKind: "decoder-kind", ExternalID: "one",
+	}}
 	rejection := Rejection{Ordinal: 2, Reason: "bad row"}
 	var decoder *fakePuzzleDecoder
 	importer, path, generation := newCollectionRunner(t, "exact raw file bytes", func() PuzzleDecoder {
@@ -415,6 +535,12 @@ func TestCollectionImporterImportSealsChecksumAndActivatesInOrder(t *testing.T) 
 	}
 	if !reflect.DeepEqual(generation.rejections, []Rejection{rejection}) {
 		t.Fatalf("rejections = %+v, want %+v", generation.rejections, rejection)
+	}
+	if len(generation.puzzles) != 1 ||
+		generation.puzzles[0].Occurrence.SourceID != inspection.SourceID ||
+		generation.puzzles[0].Occurrence.SourceKind != string(inspection.Format) ||
+		generation.puzzles[0].Occurrence.ExternalID != "one" {
+		t.Fatalf("staged puzzles = %+v, want runner-owned provenance", generation.puzzles)
 	}
 	if decoder.closed != 1 {
 		t.Fatalf("decoder Close calls = %d, want 1", decoder.closed)

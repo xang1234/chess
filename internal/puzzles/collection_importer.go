@@ -37,6 +37,7 @@ type ImportInspection struct {
 	Path             string         `json:"path"`
 	Filename         string         `json:"filename"`
 	Format           ImportFormat   `json:"format"`
+	FormatLabel      string         `json:"formatLabel"`
 	SourceID         string         `json:"sourceId"`
 	SourceIDOrigin   SourceIDOrigin `json:"sourceIdOrigin"`
 	SourceName       string         `json:"sourceName,omitempty"`
@@ -55,8 +56,15 @@ type PuzzleDecoder interface {
 	Close() error
 }
 
+type ImportFormatDescriptor struct {
+	Format                ImportFormat
+	Label                 string
+	CanonicalExtension    string
+	FileFilterDescription string
+}
+
 type PuzzleAdapter interface {
-	Format() ImportFormat
+	Descriptor() ImportFormatDescriptor
 	Inspect(context.Context, string) (ImportInspection, bool, error)
 	NewDecoder(io.Reader, ImportInspection) (PuzzleDecoder, error)
 }
@@ -118,16 +126,57 @@ func (i *CollectionImporter) Supports(format ImportFormat) bool {
 	if i == nil {
 		return false
 	}
-	for _, adapter := range i.Adapters {
-		if adapter != nil && adapter.Format() == format {
+	descriptors, err := i.FormatDescriptors()
+	if err != nil {
+		return false
+	}
+	for _, descriptor := range descriptors {
+		if descriptor.Format == format {
 			return true
 		}
 	}
 	return false
 }
 
+func (i *CollectionImporter) FormatDescriptors() ([]ImportFormatDescriptor, error) {
+	if i == nil {
+		return nil, errors.New("puzzle collection importer is required")
+	}
+	descriptors := make([]ImportFormatDescriptor, 0, len(i.Adapters))
+	for index, adapter := range i.Adapters {
+		if adapter == nil {
+			return nil, fmt.Errorf("puzzle adapter %d is nil", index)
+		}
+		descriptor := adapter.Descriptor()
+		if err := validateImportFormatDescriptor(descriptor); err != nil {
+			return nil, fmt.Errorf("puzzle adapter %d descriptor: %w", index, err)
+		}
+		descriptors = append(descriptors, descriptor)
+	}
+	return descriptors, nil
+}
+
+func validateImportFormatDescriptor(descriptor ImportFormatDescriptor) error {
+	if strings.TrimSpace(string(descriptor.Format)) == "" {
+		return errors.New("format is required")
+	}
+	if strings.TrimSpace(descriptor.Label) == "" {
+		return errors.New("label is required")
+	}
+	extension := strings.TrimSpace(descriptor.CanonicalExtension)
+	if extension == "" || extension != descriptor.CanonicalExtension ||
+		!strings.HasPrefix(extension, ".") || strings.Contains(extension, "*") {
+		return errors.New("canonical extension must begin with '.' and contain no wildcard")
+	}
+	if strings.TrimSpace(descriptor.FileFilterDescription) == "" {
+		return errors.New("file filter description is required")
+	}
+	return nil
+}
+
 type adapterInspection struct {
 	adapter    PuzzleAdapter
+	descriptor ImportFormatDescriptor
 	inspection ImportInspection
 }
 
@@ -147,17 +196,18 @@ func (i CollectionImporter) inspectRegistry(
 	if err := ctx.Err(); err != nil {
 		return nil, ImportInspection{}, err
 	}
+	descriptors, err := (&i).FormatDescriptors()
+	if err != nil {
+		return nil, ImportInspection{}, err
+	}
 	matches := make([]adapterInspection, 0, len(i.Adapters))
 	var inspectionErrors []error
 	var contextErrors []error
-	for _, adapter := range i.Adapters {
-		if adapter == nil {
-			inspectionErrors = append(inspectionErrors, errors.New("puzzle adapter is nil"))
-			continue
-		}
+	for index, adapter := range i.Adapters {
+		descriptor := descriptors[index]
 		inspection, matched, inspectErr := adapter.Inspect(ctx, normalizedPath)
 		if inspectErr != nil {
-			wrapped := fmt.Errorf("inspect %s puzzle source: %w", adapter.Format(), inspectErr)
+			wrapped := fmt.Errorf("inspect %s puzzle source: %w", descriptor.Format, inspectErr)
 			if errors.Is(inspectErr, context.Canceled) || errors.Is(inspectErr, context.DeadlineExceeded) {
 				contextErrors = append(contextErrors, wrapped)
 			} else {
@@ -166,7 +216,9 @@ func (i CollectionImporter) inspectRegistry(
 			continue
 		}
 		if matched {
-			matches = append(matches, adapterInspection{adapter: adapter, inspection: inspection})
+			matches = append(matches, adapterInspection{
+				adapter: adapter, descriptor: descriptor, inspection: inspection,
+			})
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -186,14 +238,14 @@ func (i CollectionImporter) inspectRegistry(
 	if len(matches) > 1 {
 		extensionMatches := make([]adapterInspection, 0, len(matches))
 		for _, match := range matches {
-			if importFormatMatchesExtension(match.adapter.Format(), normalizedPath) {
+			if descriptorMatchesExtension(match.descriptor, normalizedPath) {
 				extensionMatches = append(extensionMatches, match)
 			}
 		}
 		if len(extensionMatches) != 1 {
 			formats := make([]string, 0, len(matches))
 			for _, match := range matches {
-				formats = append(formats, string(match.adapter.Format()))
+				formats = append(formats, string(match.descriptor.Format))
 			}
 			return nil, ImportInspection{}, fmt.Errorf(
 				"ambiguous puzzle import format: content matches %s",
@@ -350,7 +402,10 @@ func (i CollectionImporter) importResolved(
 			return abandon(errors.New("decoded record must contain exactly one puzzle or rejection"))
 		}
 		if record.Puzzle != nil {
-			if err := ordered.Add(ctx, *record.Puzzle); err != nil {
+			puzzle := *record.Puzzle
+			puzzle.Occurrence.SourceID = sourceID
+			puzzle.Occurrence.SourceKind = string(format)
+			if err := ordered.Add(ctx, puzzle); err != nil {
 				return abandon(err)
 			}
 			validPuzzles++
@@ -434,9 +489,13 @@ func (i CollectionImporter) revalidateInspection(
 }
 
 func (i CollectionImporter) adapterForFormat(format ImportFormat) (PuzzleAdapter, error) {
+	descriptors, err := (&i).FormatDescriptors()
+	if err != nil {
+		return nil, err
+	}
 	var selected PuzzleAdapter
-	for _, adapter := range i.Adapters {
-		if adapter == nil || adapter.Format() != format {
+	for index, adapter := range i.Adapters {
+		if descriptors[index].Format != format {
 			continue
 		}
 		if selected != nil {
@@ -527,16 +586,21 @@ func normalizeAdapterInspection(
 	adapter PuzzleAdapter,
 	inspection ImportInspection,
 ) (ImportInspection, error) {
+	descriptor := adapter.Descriptor()
+	if err := validateImportFormatDescriptor(descriptor); err != nil {
+		return ImportInspection{}, fmt.Errorf("puzzle adapter descriptor: %w", err)
+	}
 	inspection.Path = normalizedPath
 	inspection.Filename = filepath.Base(normalizedPath)
-	inspection.Format = adapter.Format()
+	inspection.Format = descriptor.Format
+	inspection.FormatLabel = descriptor.Label
 	if inspection.SourceIDOrigin == SourceIDPath {
 		inspection.SourceID = normalizedPath
 	}
 	if strings.TrimSpace(inspection.SourceID) == "" {
 		return ImportInspection{}, fmt.Errorf(
 			"%s puzzle inspection returned an empty source ID",
-			adapter.Format(),
+			descriptor.Format,
 		)
 	}
 	return inspection, nil
@@ -558,20 +622,6 @@ func normalizeImportPath(path string) (string, error) {
 	return normalized, nil
 }
 
-func importFormatMatchesExtension(format ImportFormat, path string) bool {
-	extension := strings.ToLower(filepath.Ext(path))
-	switch format {
-	case FormatLichess:
-		return extension == ".zst"
-	case FormatTacticalPGN:
-		return extension == ".pgn"
-	case FormatCanonicalJSON:
-		return extension == ".json"
-	case FormatLucasFNS:
-		return extension == ".fns"
-	case FormatLinearFENUCI:
-		return extension == ".txt"
-	default:
-		return false
-	}
+func descriptorMatchesExtension(descriptor ImportFormatDescriptor, path string) bool {
+	return strings.EqualFold(filepath.Ext(path), descriptor.CanonicalExtension)
 }

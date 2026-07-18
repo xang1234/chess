@@ -27,8 +27,11 @@ func NewLinearFENAdapter(rules chessrules.Rules) PuzzleAdapter {
 	return linearFENAdapter{rules: rules}
 }
 
-func (linearFENAdapter) Format() ImportFormat {
-	return FormatLinearFENUCI
+func (linearFENAdapter) Descriptor() ImportFormatDescriptor {
+	return ImportFormatDescriptor{
+		Format: FormatLinearFENUCI, Label: "Linear FEN/UCI",
+		CanonicalExtension: ".txt", FileFilterDescription: "FEN/UCI collection",
+	}
 }
 
 func (a linearFENAdapter) Inspect(
@@ -152,19 +155,14 @@ func looksLikeUCIMove(move string) bool {
 
 func (a linearFENAdapter) NewDecoder(
 	reader io.Reader,
-	inspection ImportInspection,
+	_ ImportInspection,
 ) (PuzzleDecoder, error) {
 	if reader == nil {
 		return nil, errors.New("linear FEN/UCI reader is required")
 	}
-	sourceID := strings.TrimSpace(inspection.SourceID)
-	if sourceID == "" {
-		return nil, errors.New("linear FEN/UCI source ID is required")
-	}
 	return &linearFENDecoder{
-		rules:    a.rules,
-		sourceID: sourceID,
-		scanner:  newLinearFENLineScanner(reader),
+		rules:   a.rules,
+		scanner: newLinearFENLineScanner(reader),
 	}, nil
 }
 
@@ -176,7 +174,6 @@ func newLinearFENLineScanner(reader io.Reader) *bufio.Scanner {
 
 type linearFENDecoder struct {
 	rules      chessrules.Rules
-	sourceID   string
 	scanner    *bufio.Scanner
 	lineNumber int64
 	closed     bool
@@ -223,8 +220,6 @@ func (d *linearFENDecoder) decodeLine(line string) (TrainingPuzzle, error) {
 	return TrainingPuzzle{
 		Core: core,
 		Occurrence: PuzzleOccurrence{
-			SourceID:   d.sourceID,
-			SourceKind: string(FormatLinearFENUCI),
 			ExternalID: strconv.FormatInt(d.lineNumber, 10),
 			SourceFEN:  core.DisplayedFEN,
 			Metadata:   metadata,

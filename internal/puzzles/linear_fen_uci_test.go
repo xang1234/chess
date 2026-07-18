@@ -42,8 +42,8 @@ func TestLinearFENAdapterConvertsNormalizedMoveLinesAndDifficulty(t *testing.T) 
 	if got := linearFENMoves(first.Core.Solution); !slices.Equal(got, []string{"e2e4", "e8f7"}) {
 		t.Fatalf("first solution = %q, want [e2e4 e8f7]", got)
 	}
-	if first.Occurrence.SourceID != path ||
-		first.Occurrence.SourceKind != string(FormatLinearFENUCI) ||
+	if first.Occurrence.SourceID != "" ||
+		first.Occurrence.SourceKind != "" ||
 		first.Occurrence.ExternalID != "2" ||
 		first.Occurrence.SourceFEN != first.Core.DisplayedFEN ||
 		first.Occurrence.PreludeUCI != "" || first.Occurrence.Rating != nil ||
@@ -60,7 +60,8 @@ func TestLinearFENAdapterConvertsNormalizedMoveLinesAndDifficulty(t *testing.T) 
 	if got := linearFENMoves(second.Core.Solution); !slices.Equal(got, []string{"a7a8q"}) {
 		t.Fatalf("second solution = %q, want [a7a8q]", got)
 	}
-	if second.Occurrence.SourceID != path || second.Occurrence.ExternalID != "3" ||
+	if second.Occurrence.SourceID != "" || second.Occurrence.SourceKind != "" ||
+		second.Occurrence.ExternalID != "3" ||
 		second.Occurrence.Rating != nil || second.Occurrence.Ordinal != 3 ||
 		len(second.Occurrence.Metadata) != 0 {
 		t.Fatalf("second occurrence = %+v", second.Occurrence)

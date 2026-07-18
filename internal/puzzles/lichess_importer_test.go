@@ -133,8 +133,8 @@ func TestLichessAdapterInspectsCompressedHeaderRegardlessOfFilename(t *testing.T
 	if !matched {
 		t.Fatal("Inspect() did not match a compressed Lichess header")
 	}
-	if adapter.Format() != FormatLichess {
-		t.Fatalf("Format() = %q, want %q", adapter.Format(), FormatLichess)
+	if adapter.Descriptor().Format != FormatLichess {
+		t.Fatalf("descriptor = %+v, want Lichess", adapter.Descriptor())
 	}
 	if inspection.SourceID != "lichess" || inspection.SourceIDOrigin != SourceIDFixed {
 		t.Fatalf("inspection source identity = %q/%q, want lichess/fixed", inspection.SourceID, inspection.SourceIDOrigin)

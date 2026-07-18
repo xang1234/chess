@@ -119,8 +119,8 @@ func TestTacticalPGNAdapterNormalizesDirectSolverAndOpponentPrelude(t *testing.T
 				t.Fatalf("decoded record = %+v, want puzzle", record)
 			}
 			puzzle := *record.Puzzle
-			if puzzle.Occurrence.SourceID != inspection.SourceID ||
-				puzzle.Occurrence.SourceKind != string(FormatTacticalPGN) ||
+			if puzzle.Occurrence.SourceID != "" ||
+				puzzle.Occurrence.SourceKind != "" ||
 				puzzle.Occurrence.ExternalID != test.wantExternalID ||
 				puzzle.Occurrence.SourceFEN != test.wantSourceFEN ||
 				puzzle.Occurrence.PreludeUCI != test.wantPrelude ||

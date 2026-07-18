@@ -52,8 +52,8 @@ func TestLucasFNSAdapterConvertsMainlineAndVariations(t *testing.T) {
 		puzzle.Core.SolutionPlies != 3 {
 		t.Fatalf("core = %+v", puzzle.Core)
 	}
-	if puzzle.Occurrence.SourceID != path ||
-		puzzle.Occurrence.SourceKind != string(FormatLucasFNS) ||
+	if puzzle.Occurrence.SourceID != "" ||
+		puzzle.Occurrence.SourceKind != "" ||
 		puzzle.Occurrence.ExternalID != "1" ||
 		puzzle.Occurrence.SourceFEN != puzzle.Core.DisplayedFEN ||
 		puzzle.Occurrence.PreludeUCI != "" ||

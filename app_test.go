@@ -30,9 +30,9 @@ type bindingEmitter struct {
 }
 
 type bindingInspectionAdapter struct {
-	format    puzzles.ImportFormat
-	sourceID  string
-	inspected chan string
+	descriptor puzzles.ImportFormatDescriptor
+	sourceID   string
+	inspected  chan string
 }
 
 type fakeNativeDialogs struct {
@@ -76,8 +76,14 @@ func (e bindingEmitter) Finished(result importjob.Result) {
 	e.finished <- result
 }
 
-func (a bindingInspectionAdapter) Format() puzzles.ImportFormat {
-	return a.format
+func (a bindingInspectionAdapter) Descriptor() puzzles.ImportFormatDescriptor {
+	if a.descriptor != (puzzles.ImportFormatDescriptor{}) {
+		return a.descriptor
+	}
+	return puzzles.ImportFormatDescriptor{
+		Format: puzzles.FormatCanonicalJSON, Label: "Canonical JSON",
+		CanonicalExtension: ".json", FileFilterDescription: "JSON collection",
+	}
 }
 
 func (a bindingInspectionAdapter) Inspect(
@@ -122,32 +128,69 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 }
 
 func TestChoosePuzzleImportFileUsesMacSafeZstandardFilter(t *testing.T) {
+	descriptors := []puzzles.ImportFormatDescriptor{
+		{
+			Format: puzzles.FormatLichess, Label: "Lichess",
+			CanonicalExtension: ".zst", FileFilterDescription: "Zstandard archive",
+		},
+		{
+			Format: puzzles.FormatCanonicalJSON, Label: "Canonical JSON",
+			CanonicalExtension: ".json", FileFilterDescription: "JSON collection",
+		},
+		{
+			Format: puzzles.FormatTacticalPGN, Label: "Tactical PGN",
+			CanonicalExtension: ".pgn", FileFilterDescription: "PGN collection",
+		},
+		{
+			Format: puzzles.FormatLucasFNS, Label: "Lucas FNS",
+			CanonicalExtension: ".fns", FileFilterDescription: "Lucas collection",
+		},
+		{
+			Format: puzzles.FormatLinearFENUCI, Label: "Linear FEN/UCI",
+			CanonicalExtension: ".txt", FileFilterDescription: "FEN/UCI collection",
+		},
+	}
+	adapters := make([]puzzles.PuzzleAdapter, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		adapters = append(adapters, bindingInspectionAdapter{
+			descriptor: descriptor,
+		})
+	}
+	services := &appservices.Services{Importer: &puzzles.CollectionImporter{Adapters: adapters}}
 	dialogs := fakeNativeDialogs{
 		openPath: "/tmp/lichess.csv.zst",
 		open: func(options runtime.OpenDialogOptions) {
 			if options.Title != "Choose a puzzle collection" {
 				t.Fatalf("Title = %q", options.Title)
 			}
-			wantPatterns := []string{"*.zst", "*.pgn", "*.json", "*.fns", "*.txt"}
-			if len(options.Filters) != len(wantPatterns) {
+			wantFilters := []runtime.FileFilter{
+				{DisplayName: "Zstandard archive (*.zst)", Pattern: "*.zst"},
+				{DisplayName: "JSON collection (*.json)", Pattern: "*.json"},
+				{DisplayName: "PGN collection (*.pgn)", Pattern: "*.pgn"},
+				{DisplayName: "Lucas collection (*.fns)", Pattern: "*.fns"},
+				{DisplayName: "FEN/UCI collection (*.txt)", Pattern: "*.txt"},
+			}
+			if len(options.Filters) != len(wantFilters) {
 				t.Fatalf("Filters = %+v", options.Filters)
 			}
-			for index, want := range wantPatterns {
-				if options.Filters[index].Pattern != want {
-					t.Fatalf("Filters[%d].Pattern = %q, want %q", index, options.Filters[index].Pattern, want)
+			for index, want := range wantFilters {
+				if options.Filters[index] != want {
+					t.Fatalf("Filters[%d] = %+v, want %+v", index, options.Filters[index], want)
 				}
 			}
 		},
 	}
-	path, err := (&NormalController{actions: &controllerActions{
-		ctx: context.Background(), dialogs: dialogs,
-	}}).ChoosePuzzleImportFile()
+	path, err := (&NormalController{
+		actions:  &controllerActions{ctx: context.Background(), dialogs: dialogs},
+		services: services,
+	}).ChoosePuzzleImportFile()
 	if err != nil || path != "/tmp/lichess.csv.zst" {
 		t.Fatalf("ChoosePuzzleImportFile() = %q, %v", path, err)
 	}
 
 	path, err = (&NormalController{
-		actions: &controllerActions{ctx: context.Background(), dialogs: fakeNativeDialogs{}},
+		actions:  &controllerActions{ctx: context.Background(), dialogs: fakeNativeDialogs{}},
+		services: services,
 	}).ChoosePuzzleImportFile()
 	if err != nil || path != "" {
 		t.Fatalf("cancelled ChoosePuzzleImportFile() = %q, %v", path, err)
@@ -158,7 +201,7 @@ func TestInspectPuzzleImportDelegatesToCollectionImporter(t *testing.T) {
 	inspected := make(chan string, 1)
 	collection := &puzzles.CollectionImporter{Adapters: []puzzles.PuzzleAdapter{
 		bindingInspectionAdapter{
-			format: puzzles.FormatCanonicalJSON, sourceID: "authoritative-source", inspected: inspected,
+			sourceID: "authoritative-source", inspected: inspected,
 		},
 	}}
 	app := NewNormalController(&appservices.Services{Importer: collection})

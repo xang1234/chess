@@ -46,8 +46,11 @@ func NewLucasFNSAdapter(rules chessrules.Rules) PuzzleAdapter {
 	return lucasFNSAdapter{rules: rules}
 }
 
-func (lucasFNSAdapter) Format() ImportFormat {
-	return FormatLucasFNS
+func (lucasFNSAdapter) Descriptor() ImportFormatDescriptor {
+	return ImportFormatDescriptor{
+		Format: FormatLucasFNS, Label: "Lucas FNS",
+		CanonicalExtension: ".fns", FileFilterDescription: "Lucas collection",
+	}
 }
 
 func (a lucasFNSAdapter) Inspect(
@@ -106,19 +109,14 @@ func (a lucasFNSAdapter) NewDecoder(
 	if reader == nil {
 		return nil, errors.New("Lucas FNS reader is required")
 	}
-	sourceID := strings.TrimSpace(inspection.SourceID)
-	if sourceID == "" {
-		return nil, errors.New("Lucas FNS source ID is required")
-	}
 	filename := strings.TrimSpace(inspection.Filename)
 	if filename == "" {
 		filename = filepath.Base(inspection.Path)
 	}
 	return &lucasFNSDecoder{
-		rules:    a.rules,
-		sourceID: sourceID,
-		theme:    lucasFNSFilenameTheme(filename),
-		scanner:  newLucasFNSLineScanner(reader),
+		rules:   a.rules,
+		theme:   lucasFNSFilenameTheme(filename),
+		scanner: newLucasFNSLineScanner(reader),
 	}, nil
 }
 
@@ -132,7 +130,6 @@ func newLucasFNSLineScanner(reader io.Reader) *bufio.Scanner {
 
 type lucasFNSDecoder struct {
 	rules      chessrules.Rules
-	sourceID   string
 	theme      string
 	scanner    *bufio.Scanner
 	lineNumber int64
@@ -235,8 +232,6 @@ func (d *lucasFNSDecoder) decodeLine(line string) (TrainingPuzzle, error) {
 	return TrainingPuzzle{
 		Core: core,
 		Occurrence: PuzzleOccurrence{
-			SourceID:   d.sourceID,
-			SourceKind: string(FormatLucasFNS),
 			ExternalID: strconv.FormatInt(d.lineNumber, 10),
 			SourceFEN:  normalizedFEN,
 			Metadata:   metadata,

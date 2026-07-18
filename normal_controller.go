@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	appservices "chess-trainer/internal/app"
 	"chess-trainer/internal/domain"
@@ -64,15 +65,23 @@ func (c *NormalController) Quit() {
 }
 
 func (c *NormalController) ChoosePuzzleImportFile() (string, error) {
+	descriptors, err := c.services.Importer.FormatDescriptors()
+	if err != nil {
+		return "", err
+	}
+	filters := make([]runtime.FileFilter, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		filters = append(filters, runtime.FileFilter{
+			DisplayName: fmt.Sprintf(
+				"%s (*%s)",
+				descriptor.FileFilterDescription,
+				descriptor.CanonicalExtension,
+			),
+			Pattern: "*" + descriptor.CanonicalExtension,
+		})
+	}
 	return c.actions.dialogs.OpenFileDialog(c.actions.ctx, runtime.OpenDialogOptions{
-		Title: "Choose a puzzle collection",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Zstandard archive (*.zst)", Pattern: "*.zst"},
-			{DisplayName: "PGN collection (*.pgn)", Pattern: "*.pgn"},
-			{DisplayName: "JSON collection (*.json)", Pattern: "*.json"},
-			{DisplayName: "Lucas collection (*.fns)", Pattern: "*.fns"},
-			{DisplayName: "FEN/UCI collection (*.txt)", Pattern: "*.txt"},
-		},
+		Title: "Choose a puzzle collection", Filters: filters,
 	})
 }
 

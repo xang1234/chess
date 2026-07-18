@@ -38,8 +38,11 @@ func NewTacticalPGNAdapter(rules chessrules.Rules) PuzzleAdapter {
 	return tacticalPGNAdapter{rules: rules}
 }
 
-func (tacticalPGNAdapter) Format() ImportFormat {
-	return FormatTacticalPGN
+func (tacticalPGNAdapter) Descriptor() ImportFormatDescriptor {
+	return ImportFormatDescriptor{
+		Format: FormatTacticalPGN, Label: "Tactical PGN",
+		CanonicalExtension: ".pgn", FileFilterDescription: "PGN collection",
+	}
 }
 
 func (a tacticalPGNAdapter) Inspect(
@@ -316,8 +319,6 @@ func (d *tacticalPGNDecoder) normalizeGame(
 	return TrainingPuzzle{
 		Core: core,
 		Occurrence: PuzzleOccurrence{
-			SourceID:   d.sourceID,
-			SourceKind: string(FormatTacticalPGN),
 			ExternalID: externalID,
 			SourceFEN:  normalizedSourceFEN,
 			PreludeUCI: preludeUCI,
