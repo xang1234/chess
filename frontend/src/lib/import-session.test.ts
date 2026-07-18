@@ -129,6 +129,84 @@ test('treats chooser cancellation as no error and preserves the current inspecti
   observed.stop()
 })
 
+test('guards an overlapping selection from racing or clearing the accepted selection busy state', async () => {
+  let resolveFirstInspection: (inspection: ImportInspection) => void = () => {}
+  const firstInspection = new Promise<ImportInspection>((resolve) => {
+    resolveFirstInspection = resolve
+  })
+  const choosePuzzleImportFile = vi.fn()
+    .mockResolvedValueOnce('/chosen/first.pgn')
+    .mockResolvedValueOnce('/chosen/second.json')
+  const inspectPuzzleImport = vi.fn(async (path: string) => path.endsWith('first.pgn')
+    ? firstInspection
+    : {
+        path: '/normalized/second.json',
+        filename: 'second.json',
+        format: 'canonical-json' as const,
+        sourceId: 'second-source',
+        sourceIdOrigin: 'embedded' as const,
+        replacesExisting: false
+      })
+  const session = createImportSession(() => fakeAPI({
+    choosePuzzleImportFile,
+    inspectPuzzleImport
+  }))
+  const observed = observe(session)
+
+  const selecting = session.selectFile()
+  await waitFor(() => expect(inspectPuzzleImport).toHaveBeenCalledWith('/chosen/first.pgn'))
+  await session.selectFile()
+  const busyWhileFirstInspectionWasPending = observed.state().busy
+
+  resolveFirstInspection(embeddedInspection)
+  await selecting
+
+  expect(choosePuzzleImportFile).toHaveBeenCalledOnce()
+  expect(inspectPuzzleImport).toHaveBeenCalledOnce()
+  expect(busyWhileFirstInspectionWasPending).toBe(true)
+  expect(observed.state()).toMatchObject({
+    path: embeddedInspection.path,
+    inspection: embeddedInspection,
+    busy: false,
+    error: ''
+  })
+  observed.stop()
+})
+
+test('does not start a stale inspection while another file selection is pending', async () => {
+  let resolveChooser: (path: string) => void = () => {}
+  const pendingChooser = new Promise<string>((resolve) => { resolveChooser = resolve })
+  const choosePuzzleImportFile = vi.fn()
+    .mockResolvedValueOnce('/chosen/club.pgn')
+    .mockImplementationOnce(async () => pendingChooser)
+  const startPuzzleImport = vi.fn(async () => 'job-1')
+  const session = createImportSession(() => fakeAPI({
+    choosePuzzleImportFile,
+    inspectPuzzleImport: async () => embeddedInspection,
+    startPuzzleImport
+  }))
+  const observed = observe(session)
+
+  await session.selectFile()
+  const selecting = session.selectFile()
+  await waitFor(() => expect(observed.state().busy).toBe(true))
+  await session.start()
+  const busyWhileChooserWasPending = observed.state().busy
+
+  resolveChooser('')
+  await selecting
+
+  expect(startPuzzleImport).not.toHaveBeenCalled()
+  expect(busyWhileChooserWasPending).toBe(true)
+  expect(observed.state()).toMatchObject({
+    inspection: embeddedInspection,
+    running: false,
+    busy: false,
+    error: ''
+  })
+  observed.stop()
+})
+
 test('surfaces inspection errors without retaining a stale selection', async () => {
   const chosen = ['/chosen/club.pgn', '/chosen/broken.txt']
   let inspections = 0
@@ -177,6 +255,45 @@ test('starts only after inspection and passes its exact normalized path once', a
   expect(startPuzzleImport).toHaveBeenCalledOnce()
   expect(startPuzzleImport).toHaveBeenCalledWith('/normalized/club.pgn')
   expect(observed.state()).toMatchObject({ jobId: 'job-1', running: true })
+  observed.stop()
+})
+
+test('guards concurrent starts so a losing call cannot clobber the accepted job', async () => {
+  let resolveAcceptedStart: (jobId: string) => void = () => {}
+  const acceptedStart = new Promise<string>((resolve) => { resolveAcceptedStart = resolve })
+  const startPuzzleImport = vi.fn(async () => {
+    if (startPuzzleImport.mock.calls.length === 1) return acceptedStart
+    throw new Error('puzzle import is already running')
+  })
+  const session = createImportSession(() => fakeAPI({
+    inspectPuzzleImport: async () => embeddedInspection,
+    startPuzzleImport,
+    getImportResult: async (jobId) => ({
+      jobId,
+      status: 'running',
+      progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 500 },
+      report: emptyReport()
+    })
+  }))
+  const observed = observe(session)
+
+  await session.selectFile()
+  const starting = session.start()
+  await waitFor(() => expect(startPuzzleImport).toHaveBeenCalledOnce())
+  await session.start()
+  const stateWhileAcceptedStartWasPending = observed.state()
+
+  resolveAcceptedStart('accepted-job')
+  await starting
+
+  expect(startPuzzleImport).toHaveBeenCalledOnce()
+  expect(stateWhileAcceptedStartWasPending).toMatchObject({ busy: true, error: '' })
+  expect(observed.state()).toMatchObject({
+    jobId: 'accepted-job',
+    running: true,
+    busy: false,
+    error: ''
+  })
   observed.stop()
 })
 

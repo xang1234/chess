@@ -66,6 +66,7 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
     error: ''
   })
   let current: ImportSessionState
+  let operationInFlight = false
   state.subscribe((value) => { current = value })
 
   function applyResult(result: ImportResult): void {
@@ -99,6 +100,8 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
       }
     },
     async selectFile() {
+      if (operationInFlight || current.running) return
+      operationInFlight = true
       state.update((value) => ({ ...value, busy: true, error: '' }))
       try {
         const path = await api().choosePuzzleImportFile()
@@ -125,12 +128,14 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
           error: cause instanceof Error ? cause.message : String(cause)
         }))
       } finally {
+        operationInFlight = false
         state.update((value) => ({ ...value, busy: false }))
       }
     },
     async start() {
       const inspection = current.inspection
-      if (!inspection || current.running) return
+      if (operationInFlight || !inspection || current.running) return
+      operationInFlight = true
       state.update((value) => ({
         ...value,
         jobId: '',
@@ -155,6 +160,7 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
           error: cause instanceof Error ? cause.message : String(cause)
         }))
       } finally {
+        operationInFlight = false
         state.update((value) => ({ ...value, busy: false }))
       }
     },
