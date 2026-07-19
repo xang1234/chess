@@ -1,0 +1,87 @@
+{
+  "schemaVersion":1,
+  "courseId":"synthetic-italian",
+  "contentVersion":"1.0.0",
+  "title":"Synthetic Italian for White",
+  "description":"An original miniature course used to verify the private course workflow.",
+  "perspective":"white",
+  "defaultDepth":"reference",
+  "rootPositionId":"initial",
+  "rootFen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+  "source":{
+    "title":"Original synthetic fixture",
+    "edition":"Synthetic",
+    "privateUseNotice":"Original test material; no book text is included."
+  },
+  "sourceCoverage":{
+    "printedPages":[1],
+    "expectedReferences":[
+      "p1-overview",
+      "p1-e4",
+      "p1-e5",
+      "p1-nf3",
+      "p1-nc6",
+      "p1-bc4",
+      "p1-bc5",
+      "p1-c3",
+      "p1-nf6",
+      "p1-d3",
+      "p1-b4"
+    ]
+  },
+  "positions":[
+    {"positionId":"initial","label":"Initial position","evaluation":{"code":"none"},"noteIds":[]},
+    {"positionId":"after-e4","label":"King pawn opening","evaluation":{"code":"equal"},"noteIds":[]},
+    {"positionId":"after-e5","label":"Open Game","evaluation":{"code":"equal"},"noteIds":[]},
+    {"positionId":"after-nf3","label":"Attack e5","evaluation":{"code":"equal"},"noteIds":[]},
+    {"positionId":"after-nc6","label":"Italian setup","evaluation":{"code":"equal"},"noteIds":[]},
+    {"positionId":"after-bc4","label":"Italian Game","evaluation":{"code":"equal"},"noteIds":["italian-overview"]},
+    {"positionId":"after-bc5","label":"Giuoco Piano","evaluation":{"code":"equal"},"noteIds":["italian-overview"]},
+    {"positionId":"after-c3","label":"Prepare d4","evaluation":{"code":"equal"},"noteIds":[]},
+    {"positionId":"after-nf6","label":"Two Knights","evaluation":{"code":"unclear"},"noteIds":[]},
+    {"positionId":"after-d3","label":"Quiet development","evaluation":{"code":"equal"},"noteIds":[]},
+    {"positionId":"after-b4","label":"Evans idea","evaluation":{"code":"unclear"},"noteIds":[]}
+  ],
+  "moves":[
+    {"moveId":"white-e4","fromPositionId":"initial","toPositionId":"after-e4","uci":"e2e4","minimumDepth":"quick","trainingRole":"repertoire","variationName":"Italian setup","evaluation":{"code":"equal"},"noteIds":[],"sourceRef":{"printedPage":1,"coverageId":"p1-e4"}},
+    {"moveId":"black-e5","fromPositionId":"after-e4","toPositionId":"after-e5","uci":"e7e5","minimumDepth":"quick","trainingRole":"opponent","variationName":"Open Game","evaluation":{"code":"equal"},"noteIds":[],"sourceRef":{"printedPage":1,"coverageId":"p1-e5"}},
+    {"moveId":"white-nf3","fromPositionId":"after-e5","toPositionId":"after-nf3","uci":"g1f3","minimumDepth":"quick","trainingRole":"repertoire","variationName":"Italian setup","evaluation":{"code":"equal"},"noteIds":[],"sourceRef":{"printedPage":1,"coverageId":"p1-nf3"}},
+    {"moveId":"black-nc6","fromPositionId":"after-nf3","toPositionId":"after-nc6","uci":"b8c6","minimumDepth":"quick","trainingRole":"opponent","variationName":"Italian setup","evaluation":{"code":"equal"},"noteIds":[],"sourceRef":{"printedPage":1,"coverageId":"p1-nc6"}},
+    {"moveId":"white-bc4","fromPositionId":"after-nc6","toPositionId":"after-bc4","uci":"f1c4","minimumDepth":"quick","trainingRole":"repertoire","variationName":"Italian Game","evaluation":{"code":"equal"},"noteIds":["italian-overview"],"sourceRef":{"printedPage":1,"coverageId":"p1-bc4"}},
+    {"moveId":"black-bc5","fromPositionId":"after-bc4","toPositionId":"after-bc5","uci":"f8c5","minimumDepth":"quick","trainingRole":"opponent","variationName":"Giuoco Piano","evaluation":{"code":"equal"},"noteIds":[],"sourceRef":{"printedPage":1,"coverageId":"p1-bc5"}},
+    {"moveId":"white-c3","fromPositionId":"after-bc5","toPositionId":"after-c3","uci":"c2c3","minimumDepth":"quick","trainingRole":"repertoire","variationName":"Giuoco Piano","evaluation":{"code":"equal"},"noteIds":["italian-overview"],"sourceRef":{"printedPage":1,"coverageId":"p1-c3"}},
+    {"moveId":"black-nf6","fromPositionId":"after-bc4","toPositionId":"after-nf6","uci":"g8f6","minimumDepth":"standard","trainingRole":"opponent","variationName":"Two Knights Defence","evaluation":{"code":"unclear"},"noteIds":[],"sourceRef":{"printedPage":1,"coverageId":"p1-nf6"}},
+    {"moveId":"white-d3","fromPositionId":"after-nf6","toPositionId":"after-d3","uci":"d2d3","minimumDepth":"standard","trainingRole":"repertoire","variationName":"Two Knights quiet line","evaluation":{"code":"equal"},"noteIds":[],"sourceRef":{"printedPage":1,"coverageId":"p1-d3"}},
+    {"moveId":"white-b4","fromPositionId":"after-bc5","toPositionId":"after-b4","uci":"b2b4","minimumDepth":"reference","trainingRole":"alternative","variationName":"Evans idea","evaluation":{"code":"unclear"},"noteIds":[],"sourceRef":{"printedPage":1,"coverageId":"p1-b4"}}
+  ],
+  "notes":[
+    {"noteId":"italian-overview","kind":"overview","text":"Develop quickly, prepare the center, and notice how Black arranges the kingside pieces.","sourceRef":{"printedPage":1,"noteLabel":"overview","coverageId":"p1-overview"}}
+  ],
+  "chapters":[
+    {"chapterId":"foundations","ordinal":1,"title":"Foundations","overview":"Build the shared Italian position.","minimumDepth":"quick"},
+    {"chapterId":"giuoco","ordinal":2,"title":"Giuoco Piano","overview":"Practice the central preparation move.","minimumDepth":"quick"},
+    {"chapterId":"alternatives","ordinal":3,"title":"Alternative branches","overview":"Compare deeper choices.","minimumDepth":"reference"}
+  ],
+  "lessons":[
+    {
+      "lessonId":"giuoco-c3",
+      "chapterId":"giuoco",
+      "ordinal":1,
+      "title":"Prepare d4 with c3",
+      "objectives":["Recognize the Giuoco Piano position","Recall c3"],
+      "minimumDepth":"quick",
+      "startPositionId":"initial",
+      "steps":[
+        {"stepId":"explain-plan","kind":"explain","positionId":"after-bc5","title":"The central plan","instruction":"White prepares d4 while keeping the position flexible.","noteIds":["italian-overview"],"moveIds":[]},
+        {"stepId":"watch-setup","kind":"watch","positionId":"initial","title":"Reach the Italian","instruction":"Watch both sides develop toward the Italian Game.","noteIds":[],"moveIds":["white-e4","black-e5","white-nf3","black-nc6","white-bc4","black-bc5"]},
+        {"stepId":"try-c3","kind":"try","positionId":"after-bc5","title":"Prepare the center","instruction":"Choose White's preparation move.","noteIds":[],"moveIds":[],"promptId":"recall-c3"},
+        {"stepId":"branch-two-knights","kind":"branch","positionId":"after-nf6","title":"Recognize the Two Knights branch","instruction":"Choose White's quiet setup against ...Nf6.","noteIds":[],"moveIds":[],"promptId":"recall-d3"},
+        {"stepId":"recall-c3-step","kind":"recall","positionId":"after-bc5","title":"Recall the Giuoco move","instruction":"Play the course move from memory.","noteIds":[],"moveIds":[],"promptId":"recall-c3"}
+      ]
+    }
+  ],
+  "prompts":[
+    {"promptId":"recall-c3","positionId":"after-bc5","primaryMoveId":"white-c3","acceptedAlternativeMoveIds":["white-b4"]},
+    {"promptId":"recall-d3","positionId":"after-nf6","primaryMoveId":"white-d3","acceptedAlternativeMoveIds":[]}
+  ]
+}
