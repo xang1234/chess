@@ -8,6 +8,7 @@ import (
 type Paths struct {
 	Root       string
 	PuzzlesDB  string
+	CoursesDB  string
 	LibraryDB  string
 	UserDB     string
 	BackupsDir string
@@ -17,6 +18,7 @@ func PathsAt(root string) Paths {
 	return Paths{
 		Root:       root,
 		PuzzlesDB:  filepath.Join(root, "puzzles.sqlite"),
+		CoursesDB:  filepath.Join(root, "courses.sqlite"),
 		LibraryDB:  filepath.Join(root, "library.sqlite"),
 		UserDB:     filepath.Join(root, "user.sqlite"),
 		BackupsDir: filepath.Join(root, "backups"),

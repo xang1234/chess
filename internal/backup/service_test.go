@@ -74,6 +74,9 @@ func TestServiceCreatesAndRestoresValidatedBackup(t *testing.T) {
 	if manifest.Version != 1 || manifest.Files["user.sqlite"] == "" || manifest.Files["library.sqlite"] == "" {
 		t.Fatalf("manifest=%+v", manifest)
 	}
+	if _, included := manifest.Files["courses.sqlite"]; included {
+		t.Fatalf("replaceable course content entered backup manifest: %+v", manifest)
+	}
 	for name, digest := range manifest.Files {
 		if len(digest) != 64 || strings.ToLower(digest) != digest {
 			t.Fatalf("%s digest=%q", name, digest)
@@ -281,6 +284,7 @@ func TestServiceCreateRejectsManagedDatabaseDestinations(t *testing.T) {
 		{name: "user", destination: func(paths storage.Paths) string { return paths.UserDB }},
 		{name: "library", destination: func(paths storage.Paths) string { return paths.LibraryDB }},
 		{name: "puzzles", destination: func(paths storage.Paths) string { return paths.PuzzlesDB }},
+		{name: "courses", destination: func(paths storage.Paths) string { return paths.CoursesDB }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -352,6 +356,9 @@ func managedDatabaseFixture(t *testing.T) storage.Paths {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(paths.PuzzlesDB, []byte("managed puzzles database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.CoursesDB, []byte("managed courses database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return paths

@@ -88,7 +88,7 @@ func Migrate(db *sql.DB, schema string) error {
 
 func migrationNames(schema string) ([]string, error) {
 	switch schema {
-	case "puzzles", "user", "library":
+	case "puzzles", "user", "library", "courses":
 	default:
 		return nil, fmt.Errorf("unknown database schema %q", schema)
 	}

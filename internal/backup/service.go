@@ -108,7 +108,12 @@ func (s *Service) validateDestination(destination string) error {
 	if destinationStatErr != nil && !errors.Is(destinationStatErr, os.ErrNotExist) {
 		return fmt.Errorf("inspect backup destination: %w", destinationStatErr)
 	}
-	for _, managed := range []string{s.paths.UserDB, s.paths.LibraryDB, s.paths.PuzzlesDB} {
+	for _, managed := range []string{
+		s.paths.UserDB,
+		s.paths.LibraryDB,
+		s.paths.PuzzlesDB,
+		s.paths.CoursesDB,
+	} {
 		canonicalManaged, err := canonicalPath(managed)
 		if err != nil {
 			return fmt.Errorf("resolve managed database path: %w", err)
