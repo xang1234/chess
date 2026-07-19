@@ -57,6 +57,18 @@ func Migrate(db *sql.DB, schema string) error {
 		if err != nil {
 			return fmt.Errorf("invalid migration filename %q: %w", name, err)
 		}
+		if schema == "puzzles" {
+			var superseded int
+			if err := tx.QueryRow(
+				`SELECT COUNT(*) FROM schema_migrations WHERE version > ?`,
+				version,
+			).Scan(&superseded); err != nil {
+				return err
+			}
+			if superseded != 0 {
+				continue
+			}
+		}
 		var applied int
 		if err := tx.QueryRow(
 			`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`,

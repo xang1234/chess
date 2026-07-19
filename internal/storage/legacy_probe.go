@@ -8,9 +8,10 @@ import (
 )
 
 type PuzzleFileState struct {
-	Exists bool
-	Legacy bool
-	Format int
+	Exists     bool
+	Legacy     bool
+	Upgradable bool
+	Format     int
 }
 
 type PuzzleSchemaVersionError struct {
@@ -75,7 +76,7 @@ func probePuzzleStoreOpen(path string) (PuzzleFileState, *sql.DB, error) {
 		}
 	}
 
-	wantSchema, legacy, ok := recognizedPuzzleSchema(versions)
+	wantSchema, legacy, upgradable, ok := recognizedPuzzleSchema(versions)
 	if !ok {
 		return state, db, fmt.Errorf("puzzle database %s has an unrecognized migration set %v", path, versions)
 	}
@@ -98,6 +99,7 @@ func probePuzzleStoreOpen(path string) (PuzzleFileState, *sql.DB, error) {
 	}
 
 	state.Legacy = legacy
+	state.Upgradable = upgradable
 	return state, db, nil
 }
 

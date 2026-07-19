@@ -129,7 +129,7 @@ func TestProbeRejectsLegacyVersionWithGeneratedColumn(t *testing.T) {
 func TestProbePreservesUnknownNewerDatabaseAndSidecars(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "puzzles.sqlite")
 	createCrashSQLiteFixture(t, path, currentPuzzleSchemaFixture(t)+`
-INSERT INTO schema_migrations(version) VALUES (4);
+INSERT INTO schema_migrations(version) VALUES (5);
 CREATE TABLE future_catalogue_state(value TEXT);
 INSERT INTO future_catalogue_state(value) VALUES ('keep me');
 `)
@@ -140,11 +140,11 @@ INSERT INTO future_catalogue_state(value) VALUES ('keep me');
 	if !errors.As(err, &versionErr) {
 		t.Fatalf("ProbePuzzleStore() err = %v, want PuzzleSchemaVersionError", err)
 	}
-	if versionErr.Path != path || versionErr.Found != 4 || versionErr.Supported != CurrentPuzzleSchemaVersion {
+	if versionErr.Path != path || versionErr.Found != 5 || versionErr.Supported != CurrentPuzzleSchemaVersion {
 		t.Fatalf("PuzzleSchemaVersionError = %+v", versionErr)
 	}
-	if !state.Exists || state.Legacy || state.Format != 4 {
-		t.Fatalf("ProbePuzzleStore() state = %+v, want rejected existing format 4", state)
+	if !state.Exists || state.Legacy || state.Format != 5 {
+		t.Fatalf("ProbePuzzleStore() state = %+v, want rejected existing format 5", state)
 	}
 	assertPuzzleFilesPreserved(t, path, want)
 
@@ -267,7 +267,7 @@ func TestRemoveRecognizedLegacyPreservesPathReplacement(t *testing.T) {
 	legacyHash := hashFile(t, legacyBackup)
 	replacement := filepath.Join(root, "replacement.sqlite")
 	createCrashSQLiteFixture(t, replacement, currentPuzzleSchemaFixture(t)+`
-INSERT INTO schema_migrations(version) VALUES (4);
+INSERT INTO schema_migrations(version) VALUES (5);
 CREATE TABLE future_catalogue_state(value TEXT);
 INSERT INTO future_catalogue_state(value) VALUES ('preserve replacement');
 `)
@@ -287,7 +287,7 @@ INSERT INTO future_catalogue_state(value) VALUES ('preserve replacement');
 	}
 	state, err := ProbePuzzleStore(path)
 	var versionErr *PuzzleSchemaVersionError
-	if !errors.As(err, &versionErr) || state.Format != 4 {
+	if !errors.As(err, &versionErr) || state.Format != 5 {
 		t.Fatalf("restored replacement probe = %+v, %v; want newer format 4", state, err)
 	}
 }

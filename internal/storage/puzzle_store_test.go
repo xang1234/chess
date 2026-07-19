@@ -54,7 +54,7 @@ func TestOpenGenerationPuzzleStoreCreatesExactSchema(t *testing.T) {
 		"generation_themes":  {"generation_id", "theme"},
 		"occurrence_ratings": {"generation_id", "rating_key", "fingerprint"},
 		"sources":            {"source_id", "kind"},
-		"source_generations": {"generation_id", "source_id", "status", "source_path", "checksum", "started_at", "sealed_at"},
+		"source_generations": {"generation_id", "source_id", "status", "source_path", "checksum", "started_at", "sealed_at", "maximum_solution_plies"},
 		"source_heads":       {"source_id", "generation_id"},
 		"puzzle_cores":       {"fingerprint", "displayed_fen", "solver", "solution_json", "solution_plies"},
 		"puzzle_occurrences": {"generation_id", "fingerprint", "external_id", "source_fen", "prelude_uci", "rating", "popularity", "play_count", "source_url", "attribution", "metadata_json", "themes_json", "ordinal"},
@@ -102,8 +102,8 @@ func TestOpenGenerationPuzzleStoreCreatesExactSchema(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(versions, []int{3}) {
-		t.Fatalf("schema versions = %v, want [3]", versions)
+	if !slices.Equal(versions, []int{4}) {
+		t.Fatalf("schema versions = %v, want [4]", versions)
 	}
 
 	var journalMode string
@@ -117,7 +117,7 @@ func TestOpenGenerationPuzzleStoreCreatesExactSchema(t *testing.T) {
 	assertGenerationSchemaConstraints(t, store.Writer)
 }
 
-func TestProbeRecognizesExactCurrentV3(t *testing.T) {
+func TestProbeRecognizesExactCurrentV4(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "puzzles.sqlite")
 	openTestGenerationPuzzleStore(t, path)
 
@@ -452,6 +452,9 @@ func assertGenerationSchemaConstraints(t *testing.T, db *sql.DB) {
 	expectPuzzleStoreExecError(t, db, `INSERT INTO source_generations(
 		generation_id, source_id, status, source_path, started_at, sealed_at
 	) VALUES ('bad-seal', 'one', 'sealed', '/tmp/input', 1, 0)`)
+	expectPuzzleStoreExecError(t, db, `INSERT INTO source_generations(
+		generation_id, source_id, status, source_path, started_at, maximum_solution_plies
+	) VALUES ('bad-maximum', 'one', 'building', '/tmp/input', 1, -1)`)
 	mustPuzzleStoreExec(t, db, `INSERT INTO source_generations(
 		generation_id, source_id, status, source_path, started_at
 	) VALUES ('generation', 'one', 'building', '/tmp/input', 1)`)

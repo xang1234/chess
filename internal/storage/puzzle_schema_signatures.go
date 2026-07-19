@@ -92,16 +92,18 @@ func equalPuzzleSchemas(got, want puzzleSchemaSignature) bool {
 	return true
 }
 
-func recognizedPuzzleSchema(versions []int) (puzzleSchemaSignature, bool, bool) {
+func recognizedPuzzleSchema(versions []int) (puzzleSchemaSignature, bool, bool, bool) {
 	switch {
 	case slices.Equal(versions, []int{1}):
-		return legacyPuzzleSchemaV1, true, true
+		return legacyPuzzleSchemaV1, true, false, true
 	case slices.Equal(versions, []int{1, 2}):
-		return legacyPuzzleSchemaV2, true, true
+		return legacyPuzzleSchemaV2, true, false, true
+	case slices.Equal(versions, []int{3}):
+		return puzzleSchemaV3, false, true, true
 	case slices.Equal(versions, []int{CurrentPuzzleSchemaVersion}):
-		return currentPuzzleSchema, false, true
+		return currentPuzzleSchema, false, false, true
 	default:
-		return nil, false, false
+		return nil, false, false, false
 	}
 }
 
@@ -198,7 +200,7 @@ func withImportStagingSignature(importStaging []puzzleColumnSignature) puzzleSch
 	return schema
 }
 
-var currentPuzzleSchema = puzzleSchemaSignature{
+var puzzleSchemaV3 = puzzleSchemaSignature{
 	"schema_migrations": {
 		puzzleColumn("version", "INTEGER", 0, 1),
 	},
@@ -255,4 +257,18 @@ var currentPuzzleSchema = puzzleSchemaSignature{
 		puzzleColumn("generation_id", "TEXT", 1, 1),
 		puzzleColumn("theme", "TEXT", 1, 2),
 	},
+}
+
+var currentPuzzleSchema = puzzleSchemaWithGenerationMaximum(puzzleSchemaV3)
+
+func puzzleSchemaWithGenerationMaximum(base puzzleSchemaSignature) puzzleSchemaSignature {
+	schema := make(puzzleSchemaSignature, len(base))
+	for table, columns := range base {
+		schema[table] = append([]puzzleColumnSignature(nil), columns...)
+	}
+	schema["source_generations"] = append(
+		schema["source_generations"],
+		puzzleColumnWithDefault("maximum_solution_plies", "INTEGER", 1, 0, "0"),
+	)
+	return schema
 }

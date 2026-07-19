@@ -11,7 +11,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const CurrentPuzzleSchemaVersion = 3
+const CurrentPuzzleSchemaVersion = 4
+
+const previousPuzzleSchemaVersion = 3
 
 type PuzzleStore struct {
 	Reader *sql.DB
@@ -37,19 +39,9 @@ func OpenPuzzleStore(path string) (*PuzzleStore, error) {
 		}
 	}
 
-	writerDSN, err := puzzleStoreDSN(path, false, !existed)
+	writer, err := openPuzzleWriter(path, !existed)
 	if err != nil {
 		return nil, err
-	}
-	writer, err := sql.Open("sqlite", writerDSN)
-	if err != nil {
-		return nil, fmt.Errorf("open generation puzzle writer: %w", err)
-	}
-	writer.SetMaxOpenConns(1)
-	writer.SetMaxIdleConns(1)
-	if err := writer.Ping(); err != nil {
-		writer.Close()
-		return nil, fmt.Errorf("connect generation puzzle writer: %w", err)
 	}
 
 	if err := Migrate(writer, "puzzles"); err != nil {
@@ -84,6 +76,56 @@ func OpenPuzzleStore(path string) (*PuzzleStore, error) {
 	}
 
 	return &PuzzleStore{Reader: reader, Writer: writer}, nil
+}
+
+func UpgradePuzzleStore(path string) (returnErr error) {
+	state, err := ProbePuzzleStore(path)
+	if err != nil {
+		return err
+	}
+	if !state.Exists || state.Legacy || !state.Upgradable || state.Format != previousPuzzleSchemaVersion {
+		return fmt.Errorf(
+			"refuse to upgrade puzzle database %s: expected exact schema version %d predecessor",
+			path,
+			previousPuzzleSchemaVersion,
+		)
+	}
+
+	writer, err := openPuzzleWriter(path, false)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, writer.Close())
+	}()
+	if err := validatePuzzleSchemaV3(writer); err != nil {
+		return err
+	}
+	if err := Migrate(writer, "puzzles"); err != nil {
+		return fmt.Errorf("upgrade puzzle database: %w", err)
+	}
+	if err := validatePuzzleSchema(writer); err != nil {
+		return err
+	}
+	return nil
+}
+
+func openPuzzleWriter(path string, create bool) (*sql.DB, error) {
+	writerDSN, err := puzzleStoreDSN(path, false, create)
+	if err != nil {
+		return nil, err
+	}
+	writer, err := sql.Open("sqlite", writerDSN)
+	if err != nil {
+		return nil, fmt.Errorf("open generation puzzle writer: %w", err)
+	}
+	writer.SetMaxOpenConns(1)
+	writer.SetMaxIdleConns(1)
+	if err := writer.Ping(); err != nil {
+		writer.Close()
+		return nil, fmt.Errorf("connect generation puzzle writer: %w", err)
+	}
+	return writer, nil
 }
 
 func (s *PuzzleStore) Close() error {
@@ -157,6 +199,32 @@ func validatePuzzleSchema(db *sql.DB) error {
 	}
 	if err := validateCurrentPuzzlePhysicalSchema(db); err != nil {
 		return fmt.Errorf("validate generation puzzle physical schema: %w", err)
+	}
+	return nil
+}
+
+func validatePuzzleSchemaV3(db *sql.DB) error {
+	versions, maximum, err := puzzleMigrationVersions(db)
+	if err != nil {
+		return fmt.Errorf("validate generation puzzle v3 migrations: %w", err)
+	}
+	wantSchema, legacy, upgradable, ok := recognizedPuzzleSchema(versions)
+	if !ok || legacy || !upgradable || maximum != previousPuzzleSchemaVersion {
+		return fmt.Errorf(
+			"validate generation puzzle v3 migrations: found %v, want only version %d",
+			versions,
+			previousPuzzleSchemaVersion,
+		)
+	}
+	actualSchema, err := readPuzzleSchema(db)
+	if err != nil {
+		return fmt.Errorf("validate generation puzzle v3 logical schema: %w", err)
+	}
+	if !equalPuzzleSchemas(actualSchema, wantSchema) {
+		return errors.New("validate generation puzzle v3 logical schema: schema is not exact")
+	}
+	if err := validateCurrentPuzzlePhysicalSchema(db); err != nil {
+		return fmt.Errorf("validate generation puzzle v3 physical schema: %w", err)
 	}
 	return nil
 }
