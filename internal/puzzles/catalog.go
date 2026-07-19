@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"chess-trainer/internal/importing"
 )
 
 var (
@@ -35,17 +37,8 @@ type Source struct {
 	StartedAt time.Time
 }
 
-type Rejection struct {
-	Ordinal int64  `json:"ordinal"`
-	Reason  string `json:"reason"`
-}
-
-type ImportReport struct {
-	Accepted   int64       `json:"accepted"`
-	Duplicates int64       `json:"duplicates"`
-	Rejected   int64       `json:"rejected"`
-	Examples   []Rejection `json:"examples"`
-}
+type Rejection = importing.Rejection
+type ImportReport = importing.Report
 
 type SQLiteCatalog struct {
 	readDB  *sql.DB

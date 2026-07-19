@@ -10,6 +10,26 @@
 
 **Design source:** `docs/superpowers/specs/2026-07-18-italian-opening-course-design.md`
 
+## Repository Reconciliation (2026-07-19)
+
+The implementation starts from commit `26dc685`, which added the multi-format
+puzzle inspection pipeline after this plan was approved. Preserve that newer
+behavior while executing the intent of Tasks 1, 6, and 7:
+
+- Task 1 moves the current shared `Format`, `Inspection`, `SourceIDOrigin`,
+  phased `Progress`, `Rejection`, and `Report` values into `internal/importing`;
+  puzzle names remain aliases, and `Report` gains the course `Counts` map.
+- Task 6 composes one format router behind the existing single import-job writer
+  gate. The puzzle collection importer keeps all five adapters, while the course
+  importer adds `coursepack` inspection and import support.
+- Task 7 parameterizes the current inspect-before-start import session for
+  puzzle and course configurations. It must retain format labels, replacement
+  warnings, phased progress, terminal precedence, cancellation, and strict
+  decoding introduced by the newer puzzle-import work.
+
+These are compatibility updates to implementation mechanics; the approved
+course-pack, learning, privacy, and UX requirements are unchanged.
+
 ## Global Constraints
 
 - At execution time, use `superpowers:using-git-worktrees` and create an isolated `codex/italian-opening-course` branch; do not implement directly on `main`.

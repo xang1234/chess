@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"chess-trainer/internal/puzzles"
+	"chess-trainer/internal/importing"
 
 	"github.com/google/uuid"
 )
@@ -19,7 +19,7 @@ type BusyError struct {
 }
 
 func (e BusyError) Error() string {
-	return fmt.Sprintf("puzzle import %q is already running", e.ActiveJobID)
+	return fmt.Sprintf("content import %q is already running", e.ActiveJobID)
 }
 
 type Status string
@@ -32,25 +32,25 @@ const (
 )
 
 type Result struct {
-	JobID    string               `json:"jobId"`
-	Status   Status               `json:"status"`
-	Progress puzzles.Progress     `json:"progress"`
-	Report   puzzles.ImportReport `json:"report"`
-	Error    string               `json:"error,omitempty"`
+	JobID    string             `json:"jobId"`
+	Status   Status             `json:"status"`
+	Progress importing.Progress `json:"progress"`
+	Report   importing.Report   `json:"report"`
+	Error    string             `json:"error,omitempty"`
 }
 
 type Emitter interface {
-	Progress(string, puzzles.Progress)
+	Progress(string, importing.Progress)
 	Finished(Result)
 }
 
 type Importer interface {
-	Supports(puzzles.ImportFormat) bool
+	Supports(importing.Format) bool
 	Import(
 		context.Context,
-		puzzles.ImportInspection,
-		puzzles.ProgressSink,
-	) (puzzles.ImportReport, error)
+		importing.Inspection,
+		importing.ProgressSink,
+	) (importing.Report, error)
 }
 
 type Maintenance interface {
@@ -108,7 +108,7 @@ func (s *Service) SetEmitter(emitter Emitter) {
 
 func (s *Service) Start(
 	ctx context.Context,
-	inspection puzzles.ImportInspection,
+	inspection importing.Inspection,
 ) (string, error) {
 	if strings.TrimSpace(string(inspection.Format)) == "" {
 		return "", errors.New("import kind is required")
@@ -140,7 +140,7 @@ func (s *Service) Start(
 		cancel: cancel,
 		result: Result{
 			JobID: jobID, Status: Running,
-			Progress: puzzles.Progress{Phase: puzzles.ImportDetecting},
+			Progress: importing.Progress{Phase: importing.PhaseDetecting},
 		},
 	}
 	// Add and the closing check share mu so Close cannot begin Wait concurrently.
@@ -158,14 +158,14 @@ func (s *Service) Start(
 func (s *Service) run(
 	ctx context.Context,
 	jobID string,
-	inspection puzzles.ImportInspection,
+	inspection importing.Inspection,
 ) {
 	// Import and cleanup writes share this gate. Never wait for it while holding mu.
 	s.writer.Lock()
 	report, err := s.importer.Import(
 		ctx,
 		inspection,
-		func(progress puzzles.Progress) {
+		func(progress importing.Progress) {
 			s.recordProgress(jobID, progress)
 		},
 	)
@@ -174,7 +174,7 @@ func (s *Service) run(
 	s.finish(jobID, report, err)
 }
 
-func (s *Service) recordProgress(jobID string, progress puzzles.Progress) {
+func (s *Service) recordProgress(jobID string, progress importing.Progress) {
 	// Sequence state mutation with delivery so concurrent callbacks cannot expose
 	// a newer snapshot before an older one or overtake a terminal event.
 	s.eventMu.Lock()
@@ -200,15 +200,15 @@ func (s *Service) recordProgress(jobID string, progress puzzles.Progress) {
 	}
 }
 
-func importPhaseRank(phase puzzles.ImportPhase) int {
+func importPhaseRank(phase importing.Phase) int {
 	switch phase {
-	case puzzles.ImportDetecting:
+	case importing.PhaseDetecting:
 		return 0
-	case puzzles.ImportParsing:
+	case importing.PhaseParsing:
 		return 1
-	case puzzles.ImportSealing:
+	case importing.PhaseSealing:
 		return 2
-	case puzzles.ImportActivating:
+	case importing.PhaseActivating:
 		return 3
 	default:
 		return -1
@@ -217,7 +217,7 @@ func importPhaseRank(phase puzzles.ImportPhase) int {
 
 func (s *Service) finish(
 	jobID string,
-	report puzzles.ImportReport,
+	report importing.Report,
 	err error,
 ) {
 	status := Succeeded
@@ -359,7 +359,13 @@ func cloneResult(result Result) Result {
 	return result
 }
 
-func cloneReport(report puzzles.ImportReport) puzzles.ImportReport {
-	report.Examples = append([]puzzles.Rejection(nil), report.Examples...)
+func cloneReport(report importing.Report) importing.Report {
+	report.Examples = append([]importing.Rejection(nil), report.Examples...)
+	if report.Counts != nil {
+		report.Counts = make(map[string]int64, len(report.Counts))
+		for key, value := range report.Counts {
+			report.Counts[key] = value
+		}
+	}
 	return report
 }

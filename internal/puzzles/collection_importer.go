@@ -12,10 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/storage"
 )
 
-type ImportFormat string
+type ImportFormat = importing.Format
 
 const (
 	FormatLichess       ImportFormat = "lichess"
@@ -25,26 +26,15 @@ const (
 	FormatLinearFENUCI  ImportFormat = "linear-fen-uci"
 )
 
-type SourceIDOrigin string
+type SourceIDOrigin = importing.SourceIDOrigin
 
 const (
-	SourceIDFixed    SourceIDOrigin = "fixed"
-	SourceIDEmbedded SourceIDOrigin = "embedded"
-	SourceIDPath     SourceIDOrigin = "path"
+	SourceIDFixed    = importing.SourceIDFixed
+	SourceIDEmbedded = importing.SourceIDEmbedded
+	SourceIDPath     = importing.SourceIDPath
 )
 
-type ImportInspection struct {
-	Path             string         `json:"path"`
-	Filename         string         `json:"filename"`
-	Format           ImportFormat   `json:"format"`
-	FormatLabel      string         `json:"formatLabel"`
-	SourceID         string         `json:"sourceId"`
-	SourceIDOrigin   SourceIDOrigin `json:"sourceIdOrigin"`
-	SourceName       string         `json:"sourceName,omitempty"`
-	URL              string         `json:"url,omitempty"`
-	Attribution      string         `json:"attribution,omitempty"`
-	ReplacesExisting bool           `json:"replacesExisting"`
-}
+type ImportInspection = importing.Inspection
 
 type DecodedRecord struct {
 	Puzzle    *TrainingPuzzle
@@ -69,23 +59,17 @@ type PuzzleAdapter interface {
 	NewDecoder(io.Reader, ImportInspection) (PuzzleDecoder, error)
 }
 
-type ImportPhase string
+type ImportPhase = importing.Phase
 
 const (
-	ImportDetecting  ImportPhase = "detecting"
-	ImportParsing    ImportPhase = "parsing"
-	ImportSealing    ImportPhase = "sealing"
-	ImportActivating ImportPhase = "activating"
+	ImportDetecting  = importing.PhaseDetecting
+	ImportParsing    = importing.PhaseParsing
+	ImportSealing    = importing.PhaseSealing
+	ImportActivating = importing.PhaseActivating
 )
 
-type Progress struct {
-	Phase      ImportPhase `json:"phase"`
-	RowsRead   int64       `json:"rowsRead"`
-	BytesRead  int64       `json:"bytesRead"`
-	TotalBytes int64       `json:"totalBytes"`
-}
-
-type ProgressSink func(Progress)
+type Progress = importing.Progress
+type ProgressSink = importing.ProgressSink
 
 var ErrNoValidPuzzles = errors.New("puzzle import contains no valid puzzles")
 
