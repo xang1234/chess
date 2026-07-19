@@ -1,13 +1,25 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
+  import type { OpeningHomeView } from '../../lib/api'
 
   export let activeSession = false
+  export let openingHome: OpeningHomeView = { courses: [] }
   const dispatch = createEventDispatcher<{
     training: void
     practice: void
+    openings: void
     games: void
     parent: void
   }>()
+
+  $: openingCourse = openingHome.courses[0]
+  $: openingCopy = !openingCourse
+    ? 'Import a private course'
+    : openingCourse.hasResumable
+      ? 'Continue your Italian lesson'
+      : openingCourse.dueReviews > 0
+        ? `${openingCourse.dueReviews} opening reviews due`
+        : 'Explore your repertoire'
 </script>
 
 <section class="home-hub" aria-labelledby="home-title">
@@ -32,6 +44,13 @@
       <span class="card-icon" aria-hidden="true">◎</span>
       <strong>Free Practice</strong>
       <span>Choose themes and difficulty</span>
+    </button>
+
+    <button class="hub-card opening-card" type="button" aria-label="Learn Openings" on:click={() => dispatch('openings')}>
+      <span class="card-icon" aria-hidden="true">♘</span>
+      <strong>Learn Openings</strong>
+      <span>{openingCopy}</span>
+      {#if openingHome.notice}<span class="card-notice">{openingHome.notice}</span>{/if}
     </button>
 
     <button class="hub-card" type="button" aria-label="Game Library" on:click={() => dispatch('games')}>

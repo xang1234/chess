@@ -12,6 +12,8 @@ import type {
 import {
   fakeAPI,
   fakeBuildInfo,
+  fakeOpeningHome,
+  fakeOpeningSession,
   fakeRecoveryAPI,
   normalApplication,
   recoveryApplication
@@ -133,6 +135,44 @@ test('shows Continue on the home hub when a session is active', async () => {
   await waitFor(() => {
     expect(screen.getByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
   })
+})
+
+test('keeps opening startup failures local to the opening card', async () => {
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    getOpeningHome: async () => { throw new Error('Reimport the private course pack.') },
+    resumeOpeningSession: async () => { throw new Error('Opening course is unavailable.') }
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+
+  const openings = await screen.findByRole('button', { name: 'Learn Openings' })
+  expect(openings).toHaveTextContent('Reimport the private course pack.')
+  expect(screen.getByRole('button', { name: "Start today's training" })).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('opens the course hub and starts a visible opening lesson', async () => {
+  const setOpeningDepth = vi.fn(async () => {})
+  const getOpeningHome = vi.fn(async () => fakeOpeningHome)
+  const startOpeningLesson = vi.fn(async () => fakeOpeningSession)
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    getOpeningHome,
+    setOpeningDepth,
+    startOpeningLesson
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
+  expect(await screen.findByRole('heading', { name: 'Italian Game for White' })).toBeInTheDocument()
+  await fireEvent.change(screen.getByLabelText('Course depth'), { target: { value: 'quick' } })
+  await waitFor(() => expect(setOpeningDepth).toHaveBeenCalledWith('synthetic-italian', 'quick'))
+  expect(getOpeningHome).toHaveBeenCalledTimes(2)
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Start Giuoco Piano' }))
+  expect(startOpeningLesson).toHaveBeenCalledWith('synthetic-italian', 'giuoco-c3')
+  expect(await screen.findByRole('heading', { name: 'Opening lesson' })).toBeInTheDocument()
+  expect(screen.getByText('The central plan')).toBeInTheDocument()
 })
 
 test('uses catalogued learner bounds on the parent settings screen', async () => {
