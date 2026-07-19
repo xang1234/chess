@@ -110,6 +110,18 @@ type PromptCompletion struct {
 	CompletedStepIDs    []string
 }
 
+type CourseRevision struct {
+	CourseID           string
+	PromptFingerprints map[string]string
+	SessionRebase      *SessionRebase
+	Now                time.Time
+}
+
+type SessionRebase struct {
+	PreviousGenerationID string
+	Session              StoredSession
+}
+
 type UserStore struct {
 	db *sql.DB
 }

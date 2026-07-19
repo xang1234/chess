@@ -72,9 +72,6 @@ func (s *Service) courseSummary(
 	depth Depth,
 	resumable *StoredSession,
 ) (OpeningCourseSummary, error) {
-	if err := s.store.ReconcileReviews(ctx, course.Pack.CourseID, coursePromptFingerprints(course)); err != nil {
-		return OpeningCourseSummary{}, fmt.Errorf("reconcile opening reviews: %w", err)
-	}
 	view := OpeningCourseSummary{
 		CourseID: course.Pack.CourseID, Title: course.Pack.Title,
 		Perspective: course.Pack.Perspective, Depth: depth,
@@ -274,6 +271,9 @@ func (s *Service) StartReview(ctx context.Context, courseID string) (OpeningSess
 	}
 	depth, err := s.store.Depth(ctx, courseID, course.Pack.DefaultDepth)
 	if err != nil {
+		return OpeningSessionView{}, err
+	}
+	if err := s.applyCourseRevision(ctx, course, nil); err != nil {
 		return OpeningSessionView{}, err
 	}
 	due, err := s.store.DueReviews(ctx, courseID, s.now().UTC(), 10000)

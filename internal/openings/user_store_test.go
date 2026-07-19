@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,15 +126,82 @@ func TestUserStoreRebasesSessionGenerationAndCheckpointExactly(t *testing.T) {
 	session.Status = OpeningStatusRestartRequired
 	session.StepIndex = 2
 	session.State.RestartStepIndex = &checkpoint
-	if err := store.RebaseSession(ctx, previousGenerationID, session, now.Add(time.Minute)); err != nil {
+	if err := store.ApplyCourseRevision(ctx, CourseRevision{
+		CourseID: session.CourseID, PromptFingerprints: map[string]string{},
+		SessionRebase: &SessionRebase{
+			PreviousGenerationID: previousGenerationID, Session: session,
+		},
+		Now: now.Add(time.Minute),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := store.LoadSession(ctx, session.ID)
 	if err != nil || !reflect.DeepEqual(loaded, session) {
 		t.Fatalf("rebased session = %#v, want %#v, err=%v", loaded, session, err)
 	}
-	if err := store.RebaseSession(ctx, previousGenerationID, session, now.Add(2*time.Minute)); err == nil {
+	if err := store.ApplyCourseRevision(ctx, CourseRevision{
+		CourseID: session.CourseID, PromptFingerprints: map[string]string{},
+		SessionRebase: &SessionRebase{
+			PreviousGenerationID: previousGenerationID, Session: session,
+		},
+		Now: now.Add(2 * time.Minute),
+	}); err == nil {
 		t.Fatal("rebase accepted a stale previous generation")
+	}
+}
+
+func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
+	db := openOpeningUserTestDB(t)
+	store := NewUserStore(db)
+	session, err := store.CreateSession(ctx, openingSessionSeed(now), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO opening_review_state(
+		 course_id, prompt_id, semantic_fingerprint, due_at, interval_index,
+		 successful_reviews, last_outcome, status
+		) VALUES (?, 'retired', 'old', ?, 2, 3, 'clean', 'active')`,
+		session.CourseID,
+		now.UnixMilli(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER fail_opening_review_archive
+		BEFORE UPDATE OF status ON opening_review_state
+		WHEN NEW.status = 'archived'
+		BEGIN
+		  SELECT RAISE(ABORT, 'forced review archive failure');
+		END`); err != nil {
+		t.Fatal(err)
+	}
+
+	previousGenerationID := session.GenerationID
+	session.GenerationID = "generation-2"
+	err = store.ApplyCourseRevision(ctx, CourseRevision{
+		CourseID:           session.CourseID,
+		PromptFingerprints: map[string]string{},
+		SessionRebase: &SessionRebase{
+			PreviousGenerationID: previousGenerationID,
+			Session:              session,
+		},
+		Now: now.Add(time.Minute),
+	})
+	if err == nil || !strings.Contains(err.Error(), "forced review archive failure") {
+		t.Fatalf("ApplyCourseRevision() error = %v", err)
+	}
+	loaded, err := store.LoadSession(ctx, session.ID)
+	if err != nil || loaded.GenerationID != previousGenerationID {
+		t.Fatalf("session after rollback = %+v, err=%v", loaded, err)
+	}
+	var status string
+	if err := db.QueryRow(
+		`SELECT status FROM opening_review_state WHERE course_id = ? AND prompt_id = 'retired'`,
+		session.CourseID,
+	).Scan(&status); err != nil || status != "active" {
+		t.Fatalf("review status after rollback = %q, err=%v", status, err)
 	}
 }
 
@@ -155,8 +223,11 @@ func TestUserStoreReconcileReviewsArchivesOnlyRemovedOrChangedPrompts(t *testing
 			t.Fatal(err)
 		}
 	}
-	if err := store.ReconcileReviews(ctx, "italian-white", map[string]string{
-		"unchanged": "same", "changed": "new",
+	if err := store.ApplyCourseRevision(ctx, CourseRevision{
+		CourseID: "italian-white", Now: now.Add(time.Minute),
+		PromptFingerprints: map[string]string{
+			"unchanged": "same", "changed": "new",
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}

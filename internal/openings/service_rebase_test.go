@@ -246,7 +246,7 @@ func TestOpeningReviewRebaseCompletesWhenNoQueuedPromptSurvives(t *testing.T) {
 	}
 }
 
-func TestOpeningHomeArchivesChangedPromptReviewWithoutMovingMastery(t *testing.T) {
+func TestOpeningReviewWorkflowArchivesChangedPromptWithoutMovingMastery(t *testing.T) {
 	ctx := context.Background()
 	fixture := newOpeningServiceFixture(t)
 	oldPrompt := fixture.compiled.Prompts["recall-c3"]
@@ -267,15 +267,28 @@ func TestOpeningHomeArchivesChangedPromptReviewWithoutMovingMastery(t *testing.T
 	if _, err := fixture.service.Home(ctx); err != nil {
 		t.Fatal(err)
 	}
-	var fingerprint, status string
-	var successes int
-	if err := fixture.userDB.QueryRow(
-		`SELECT semantic_fingerprint, successful_reviews, status
-		 FROM opening_review_state WHERE course_id = ? AND prompt_id = 'recall-c3'`,
-		fixture.compiled.Pack.CourseID,
-	).Scan(&fingerprint, &successes, &status); err != nil {
-		t.Fatal(err)
+	readMastery := func() (string, int, string) {
+		t.Helper()
+		var fingerprint, status string
+		var successes int
+		if err := fixture.userDB.QueryRow(
+			`SELECT semantic_fingerprint, successful_reviews, status
+			 FROM opening_review_state WHERE course_id = ? AND prompt_id = 'recall-c3'`,
+			fixture.compiled.Pack.CourseID,
+		).Scan(&fingerprint, &successes, &status); err != nil {
+			t.Fatal(err)
+		}
+		return fingerprint, successes, status
 	}
+	fingerprint, successes, status := readMastery()
+	if fingerprint != oldPrompt.SemanticFingerprint || successes != 4 || status != "active" {
+		t.Fatalf("home mutated mastery = fingerprint %q successes %d status %q", fingerprint, successes, status)
+	}
+	if _, err := fixture.service.StartReview(ctx, fixture.compiled.Pack.CourseID); err == nil ||
+		!strings.Contains(err.Error(), "no opening reviews are due") {
+		t.Fatalf("StartReview() error = %v", err)
+	}
+	fingerprint, successes, status = readMastery()
 	if fingerprint != oldPrompt.SemanticFingerprint || successes != 4 || status != "archived" {
 		t.Fatalf("archived mastery = fingerprint %q successes %d status %q", fingerprint, successes, status)
 	}

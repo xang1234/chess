@@ -19,6 +19,19 @@ type SessionAwareMaintenance struct {
 	Store   *UserStore
 }
 
+func (s *Service) applyCourseRevision(
+	ctx context.Context,
+	course CompiledCourse,
+	rebase *SessionRebase,
+) error {
+	return s.store.ApplyCourseRevision(ctx, CourseRevision{
+		CourseID:           course.Pack.CourseID,
+		PromptFingerprints: coursePromptFingerprints(course),
+		SessionRebase:      rebase,
+		Now:                s.now().UTC(),
+	})
+}
+
 func (m SessionAwareMaintenance) CleanupBatch(ctx context.Context, limit int) (bool, error) {
 	if m.Catalog == nil || m.Store == nil {
 		return false, errors.New("session-aware course maintenance is unavailable")
@@ -80,18 +93,23 @@ func (s *Service) resumeCurrentGeneration(
 		}
 		return nil, err
 	}
-	if err := s.store.ReconcileReviews(ctx, session.CourseID, coursePromptFingerprints(course)); err != nil {
-		return nil, err
-	}
 	if session.Status == OpeningStatusRestartRequired {
+		if err := s.applyCourseRevision(ctx, course, nil); err != nil {
+			return nil, err
+		}
 		view := restartRequiredView(session, updatedCourseNotice)
 		return &view, nil
 	}
 	if session.Status == OpeningStatusPaused {
 		session.Status = OpeningStatusActive
-		if err := s.store.SaveSession(ctx, session, s.now().UTC()); err != nil {
+		if err := s.applyCourseRevision(ctx, course, &SessionRebase{
+			PreviousGenerationID: session.GenerationID,
+			Session:              session,
+		}); err != nil {
 			return nil, err
 		}
+	} else if err := s.applyCourseRevision(ctx, course, nil); err != nil {
+		return nil, err
 	}
 	view, err := s.sessionView(course, session)
 	return &view, err
@@ -120,10 +138,10 @@ func (s *Service) rebaseLesson(
 			session.State.PositionID = newStep.PositionID
 			session.State.CurrentFEN = newCourse.Positions[newStep.PositionID].FEN
 			session.State.RestartStepIndex = nil
-			if err := s.store.RebaseSession(ctx, previousGenerationID, session, s.now().UTC()); err != nil {
-				return nil, err
-			}
-			if err := s.store.ReconcileReviews(ctx, session.CourseID, coursePromptFingerprints(newCourse)); err != nil {
+			if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
+				PreviousGenerationID: previousGenerationID,
+				Session:              session,
+			}); err != nil {
 				return nil, err
 			}
 			view, err := s.sessionView(newCourse, session)
@@ -135,7 +153,10 @@ func (s *Service) rebaseLesson(
 	session.State.RestartStepIndex = compatibleCheckpoint(
 		oldCourse, oldLesson, newCourse, newLesson, session.StepIndex,
 	)
-	if err := s.store.SaveSession(ctx, session, s.now().UTC()); err != nil {
+	if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
+		PreviousGenerationID: session.GenerationID,
+		Session:              session,
+	}); err != nil {
 		return nil, err
 	}
 	notice := updatedCourseNotice
@@ -178,7 +199,10 @@ func (s *Service) rebaseReview(
 	if len(pending) == 0 {
 		session.Status = OpeningStatusCompleted
 		session.State = resetAttemptState(session.State)
-		if err := s.persistReviewRebase(ctx, previousGenerationID, session, newCourse); err != nil {
+		if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
+			PreviousGenerationID: previousGenerationID,
+			Session:              session,
+		}); err != nil {
 			return nil, err
 		}
 		view, err := s.sessionView(newCourse, session)
@@ -198,23 +222,14 @@ func (s *Service) rebaseReview(
 		}
 	}
 	session.Status = OpeningStatusActive
-	if err := s.persistReviewRebase(ctx, previousGenerationID, session, newCourse); err != nil {
+	if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
+		PreviousGenerationID: previousGenerationID,
+		Session:              session,
+	}); err != nil {
 		return nil, err
 	}
 	view, err := s.sessionView(newCourse, session)
 	return &view, err
-}
-
-func (s *Service) persistReviewRebase(
-	ctx context.Context,
-	previousGenerationID string,
-	session StoredSession,
-	course CompiledCourse,
-) error {
-	if err := s.store.RebaseSession(ctx, previousGenerationID, session, s.now().UTC()); err != nil {
-		return err
-	}
-	return s.store.ReconcileReviews(ctx, session.CourseID, coursePromptFingerprints(course))
 }
 
 func (s *Service) Restart(ctx context.Context, sessionID string) (OpeningSessionView, error) {
@@ -259,10 +274,10 @@ func (s *Service) Restart(ctx context.Context, sessionID string) (OpeningSession
 	session.Status = OpeningStatusActive
 	session.StepIndex = stepIndex
 	session.State = state
-	if err := s.store.RebaseSession(ctx, previousGenerationID, session, s.now().UTC()); err != nil {
-		return OpeningSessionView{}, err
-	}
-	if err := s.store.ReconcileReviews(ctx, session.CourseID, coursePromptFingerprints(course)); err != nil {
+	if err := s.applyCourseRevision(ctx, course, &SessionRebase{
+		PreviousGenerationID: previousGenerationID,
+		Session:              session,
+	}); err != nil {
 		return OpeningSessionView{}, err
 	}
 	return s.sessionView(course, session)
@@ -275,9 +290,6 @@ func (s *Service) restartReview(
 	activeGenerationID string,
 	course CompiledCourse,
 ) (OpeningSessionView, error) {
-	if err := s.store.ReconcileReviews(ctx, session.CourseID, coursePromptFingerprints(course)); err != nil {
-		return OpeningSessionView{}, err
-	}
 	due, err := s.store.DueReviews(ctx, session.CourseID, s.now().UTC(), 10000)
 	if err != nil {
 		return OpeningSessionView{}, err
@@ -303,7 +315,10 @@ func (s *Service) restartReview(
 	session.Status = OpeningStatusActive
 	session.StepIndex = 0
 	session.State = state
-	if err := s.store.RebaseSession(ctx, previousGenerationID, session, s.now().UTC()); err != nil {
+	if err := s.applyCourseRevision(ctx, course, &SessionRebase{
+		PreviousGenerationID: previousGenerationID,
+		Session:              session,
+	}); err != nil {
 		return OpeningSessionView{}, err
 	}
 	return s.sessionView(course, session)

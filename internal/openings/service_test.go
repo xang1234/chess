@@ -79,6 +79,37 @@ func TestOpeningServiceHomeFiltersCourseAtSelectedDepth(t *testing.T) {
 	}
 }
 
+func TestOpeningServiceHomeIsReadOnlyForStaleReviews(t *testing.T) {
+	ctx := context.Background()
+	fixture := newOpeningServiceFixture(t)
+	if _, err := fixture.userDB.Exec(
+		`INSERT INTO opening_review_state(
+		 course_id, prompt_id, semantic_fingerprint, due_at, interval_index,
+		 successful_reviews, last_outcome, status
+		) VALUES (?, 'retired', 'old', ?, 2, 3, 'clean', 'active')`,
+		fixture.compiled.Pack.CourseID,
+		fixture.now.Add(-time.Hour).UnixMilli(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.userDB.Exec(`CREATE TRIGGER fail_opening_review_archive
+		BEFORE UPDATE OF status ON opening_review_state
+		WHEN NEW.status = 'archived'
+		BEGIN
+		  SELECT RAISE(ABORT, 'home attempted a review write');
+		END`); err != nil {
+		t.Fatal(err)
+	}
+
+	home, err := fixture.service.Home(ctx)
+	if err != nil {
+		t.Fatalf("Home() performed a write: %v", err)
+	}
+	if len(home.Courses) != 1 || home.Courses[0].DueReviews != 0 {
+		t.Fatalf("home stale review projection = %+v", home)
+	}
+}
+
 func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 	ctx := context.Background()
 	fixture := newOpeningServiceFixture(t)
