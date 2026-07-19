@@ -7,6 +7,7 @@ import (
 	appservices "chess-trainer/internal/app"
 	"chess-trainer/internal/domain"
 	"chess-trainer/internal/importjob"
+	"chess-trainer/internal/openings"
 	"chess-trainer/internal/profile"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/training"
@@ -180,6 +181,139 @@ func (c *NormalController) PauseSession(sessionID string) error {
 	return runNormalAction(c, func() error {
 		return c.services.Training.Pause(c.actions.ctx, sessionID)
 	})
+}
+
+func (c *NormalController) GetOpeningHome() (openings.OpeningHomeView, error) {
+	return runNormalOperation(c, func() (openings.OpeningHomeView, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.OpeningHomeView{}, err
+		}
+		return service.Home(c.actions.ctx)
+	})
+}
+
+func (c *NormalController) SetOpeningDepth(courseID string, depth openings.Depth) error {
+	return runNormalAction(c, func() error {
+		service, err := c.openingService()
+		if err != nil {
+			return err
+		}
+		return service.SetDepth(c.actions.ctx, courseID, depth)
+	})
+}
+
+func (c *NormalController) StartOpeningLesson(
+	courseID string,
+	lessonID string,
+) (openings.OpeningSessionView, error) {
+	return runNormalOperation(c, func() (openings.OpeningSessionView, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.OpeningSessionView{}, err
+		}
+		return service.StartLesson(c.actions.ctx, courseID, lessonID)
+	})
+}
+
+func (c *NormalController) ResumeOpeningSession() (*openings.OpeningSessionView, error) {
+	return runNormalOperation(c, func() (*openings.OpeningSessionView, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return nil, err
+		}
+		return service.Resume(c.actions.ctx)
+	})
+}
+
+func (c *NormalController) RestartOpeningSession(
+	sessionID string,
+) (openings.OpeningSessionView, error) {
+	return runNormalOperation(c, func() (openings.OpeningSessionView, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.OpeningSessionView{}, err
+		}
+		return service.Restart(c.actions.ctx, sessionID)
+	})
+}
+
+func (c *NormalController) AdvanceOpeningStep(
+	sessionID string,
+) (openings.OpeningStepResult, error) {
+	return runNormalOperation(c, func() (openings.OpeningStepResult, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.OpeningStepResult{}, err
+		}
+		return service.Advance(c.actions.ctx, sessionID)
+	})
+}
+
+func (c *NormalController) PlayOpeningMove(
+	sessionID string,
+	uci string,
+) (openings.OpeningStepResult, error) {
+	return runNormalOperation(c, func() (openings.OpeningStepResult, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.OpeningStepResult{}, err
+		}
+		return service.PlayMove(c.actions.ctx, sessionID, uci)
+	})
+}
+
+func (c *NormalController) UseOpeningHint(
+	sessionID string,
+) (openings.OpeningHintResult, error) {
+	return runNormalOperation(c, func() (openings.OpeningHintResult, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.OpeningHintResult{}, err
+		}
+		return service.UseHint(c.actions.ctx, sessionID)
+	})
+}
+
+func (c *NormalController) RevealOpeningMove(
+	sessionID string,
+) (openings.OpeningStepResult, error) {
+	return runNormalOperation(c, func() (openings.OpeningStepResult, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.OpeningStepResult{}, err
+		}
+		return service.Reveal(c.actions.ctx, sessionID)
+	})
+}
+
+func (c *NormalController) PauseOpeningSession(sessionID string) error {
+	return runNormalAction(c, func() error {
+		service, err := c.openingService()
+		if err != nil {
+			return err
+		}
+		return service.Pause(c.actions.ctx, sessionID)
+	})
+}
+
+func (c *NormalController) StartOpeningReview(
+	courseID string,
+) (openings.OpeningSessionView, error) {
+	return runNormalOperation(c, func() (openings.OpeningSessionView, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.OpeningSessionView{}, err
+		}
+		return service.StartReview(c.actions.ctx, courseID)
+	})
+}
+
+func (c *NormalController) openingService() (*openings.Service, error) {
+	if c.services.Openings == nil {
+		return nil, fmt.Errorf("Opening courses are unavailable. Reimport the private course pack.")
+	}
+	return c.services.Openings, nil
 }
 
 func (c *NormalController) GetProfile() (*training.Profile, error) {

@@ -3,14 +3,20 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	appservices "chess-trainer/internal/app"
 	"chess-trainer/internal/buildinfo"
+	"chess-trainer/internal/chessrules"
+	"chess-trainer/internal/openings"
 	"chess-trainer/internal/storage"
 )
 
@@ -114,8 +120,121 @@ func TestNormalControllerRejectsOperationsAfterServicesClose(t *testing.T) {
 	if _, err := controller.StartGuided(); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
 		t.Fatalf("StartGuided() after close = %v, want runtime unavailable", err)
 	}
+	if _, err := controller.GetOpeningHome(); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
+		t.Fatalf("GetOpeningHome() after close = %v, want runtime unavailable", err)
+	}
 	if err := controller.RestoreBackup("/missing.zip"); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
 		t.Fatalf("RestoreBackup() after close = %v, want runtime unavailable", err)
+	}
+}
+
+func TestNormalControllerOpeningBindingsDelegateThroughOpeningService(t *testing.T) {
+	ctx := context.Background()
+	services, err := appservices.Open(storage.PathsAt(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+	contents, err := os.ReadFile("internal/openings/testdata/mini.ctcourse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack, err := openings.DecodeCoursePack(bytes.NewReader(contents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := openings.Compile(pack, chessrules.Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := services.OpeningCatalog.Replace(
+		ctx, compiled, "/private/mini.ctcourse", "sha-mini",
+	); err != nil {
+		t.Fatal(err)
+	}
+	controller := NewNormalController(services)
+	controller.actions.ctx = ctx
+
+	home, err := controller.GetOpeningHome()
+	if err != nil || len(home.Courses) != 1 {
+		t.Fatalf("GetOpeningHome() = %+v err=%v", home, err)
+	}
+	if err := controller.SetOpeningDepth(pack.CourseID, openings.DepthReference); err != nil {
+		t.Fatal(err)
+	}
+	session, err := controller.StartOpeningLesson(pack.CourseID, "giuoco-c3")
+	if err != nil || session.Current == nil || session.Current.Kind != openings.StepExplain {
+		t.Fatalf("StartOpeningLesson() = %+v err=%v", session, err)
+	}
+	if err := services.OpeningStore.SetSessionStatus(
+		ctx, session.SessionID, openings.OpeningStatusRestartRequired, time.Now().UTC(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	session, err = controller.RestartOpeningSession(session.SessionID)
+	if err != nil || session.Status != openings.OpeningStatusActive {
+		t.Fatalf("RestartOpeningSession() = %+v err=%v", session, err)
+	}
+	if _, err := controller.AdvanceOpeningStep(session.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := controller.AdvanceOpeningStep(session.SessionID)
+	if err != nil || advanced.Session.Current == nil || advanced.Session.Current.Kind != openings.StepTry {
+		t.Fatalf("AdvanceOpeningStep() = %+v err=%v", advanced, err)
+	}
+	hint, err := controller.UseOpeningHint(session.SessionID)
+	if err != nil || hint.Level != 1 {
+		t.Fatalf("UseOpeningHint() = %+v err=%v", hint, err)
+	}
+	if _, err := controller.PlayOpeningMove(session.SessionID, "c2c3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.PlayOpeningMove(session.SessionID, "c2c3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.PauseOpeningSession(session.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := controller.ResumeOpeningSession()
+	if err != nil || resumed == nil || resumed.Status != openings.OpeningStatusActive {
+		t.Fatalf("ResumeOpeningSession() = %+v err=%v", resumed, err)
+	}
+	for level := 1; level <= 4; level++ {
+		if _, err := controller.UseOpeningHint(session.SessionID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	revealed, err := controller.RevealOpeningMove(session.SessionID)
+	if err != nil || revealed.Session.Status != openings.OpeningStatusCompleted {
+		t.Fatalf("RevealOpeningMove() = %+v err=%v", revealed, err)
+	}
+	if _, err := services.UserDB.Exec(
+		`UPDATE opening_review_state SET due_at = 0 WHERE course_id = ?`, pack.CourseID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	review, err := controller.StartOpeningReview(pack.CourseID)
+	if err != nil || review.Mode != openings.OpeningModeReview {
+		t.Fatalf("StartOpeningReview() = %+v err=%v", review, err)
+	}
+}
+
+func TestNormalControllerOpeningBindingsReturnStableUnavailableError(t *testing.T) {
+	services, err := appservices.Open(storage.PathsAt(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+	services.Openings = nil
+	controller := NewNormalController(services)
+	controller.actions.ctx = context.Background()
+
+	_, err = controller.GetOpeningHome()
+	if err == nil || err.Error() != "Opening courses are unavailable. Reimport the private course pack." {
+		t.Fatalf("GetOpeningHome() error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "Reimport") {
+		t.Fatalf("unavailable error = %v", err)
 	}
 }
 

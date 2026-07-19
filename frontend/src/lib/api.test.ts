@@ -8,7 +8,11 @@ import type {
 import {
   decodeImportInspection,
   decodeImportProgress,
-  decodeImportResult
+  decodeImportResult,
+  decodeOpeningHintResult,
+  decodeOpeningHome,
+  decodeOpeningSession,
+  decodeOpeningStepResult
 } from './api-contract'
 
 type HasKey<Value, Key extends PropertyKey> = Key extends keyof Value ? true : false
@@ -27,6 +31,17 @@ const production = vi.hoisted(() => ({
   resumeSession: vi.fn(),
   playMove: vi.fn(),
   pauseSession: vi.fn(),
+  getOpeningHome: vi.fn(),
+  setOpeningDepth: vi.fn(),
+  startOpeningLesson: vi.fn(),
+  resumeOpeningSession: vi.fn(),
+  restartOpeningSession: vi.fn(),
+  advanceOpeningStep: vi.fn(),
+  playOpeningMove: vi.fn(),
+  useOpeningHint: vi.fn(),
+  revealOpeningMove: vi.fn(),
+  pauseOpeningSession: vi.fn(),
+  startOpeningReview: vi.fn(),
   createBackup: vi.fn(),
   restoreBackup: vi.fn(),
   openDataFolder: vi.fn(),
@@ -49,6 +64,17 @@ vi.mock('../../wailsjs/go/main/NormalController', () => ({
   ResumeSession: production.resumeSession,
   PlayMove: production.playMove,
   PauseSession: production.pauseSession,
+  GetOpeningHome: production.getOpeningHome,
+  SetOpeningDepth: production.setOpeningDepth,
+  StartOpeningLesson: production.startOpeningLesson,
+  ResumeOpeningSession: production.resumeOpeningSession,
+  RestartOpeningSession: production.restartOpeningSession,
+  AdvanceOpeningStep: production.advanceOpeningStep,
+  PlayOpeningMove: production.playOpeningMove,
+  UseOpeningHint: production.useOpeningHint,
+  RevealOpeningMove: production.revealOpeningMove,
+  PauseOpeningSession: production.pauseOpeningSession,
+  StartOpeningReview: production.startOpeningReview,
   CreateBackup: production.createBackup,
   RestoreBackup: production.restoreBackup,
   OpenDataFolder: production.openDataFolder,
@@ -79,6 +105,171 @@ beforeEach(() => {
 
 afterEach(() => {
   delete (window as BrowserWindow).go
+})
+
+const openingStepPayload = {
+  stepId: 'try-c3',
+  kind: 'try',
+  title: 'Prepare the centre',
+  instruction: 'Choose the course move.',
+  variationName: 'Giuoco Piano',
+  positionId: 'after-bc5',
+  currentFen: 'opening-fen',
+  orientation: 'white',
+  legalMoves: ['c2c3', 'd2d3'],
+  noteTexts: ['Prepare d4.'],
+  stepNumber: 3,
+  stepTotal: 5,
+  hintLevel: 0,
+  canReveal: false
+}
+
+const activeOpeningPayload = {
+  sessionId: 'opening-session',
+  mode: 'lesson',
+  status: 'active',
+  courseId: 'italian-white',
+  generationId: 'generation-1',
+  lessonId: 'giuoco-c3',
+  depth: 'reference',
+  current: openingStepPayload
+}
+
+test('strictly decodes the opening home hierarchy', () => {
+  expect(decodeOpeningHome({
+    notice: 'Private course notice',
+    courses: [{
+      courseId: 'italian-white',
+      title: 'Italian Game for White',
+      perspective: 'white',
+      depth: 'reference',
+      rootPositionId: 'initial',
+      completedLessons: 1,
+      totalLessons: 3,
+      dueReviews: 2,
+      nextLessonId: 'giuoco-c3',
+      nextLessonTitle: 'Prepare d4 with c3',
+      hasResumable: true,
+      chapters: [{
+        chapterId: 'giuoco',
+        title: 'Giuoco Piano',
+        lessons: [{
+          lessonId: 'giuoco-c3',
+          title: 'Prepare d4 with c3',
+          completedSteps: 2,
+          totalSteps: 5,
+          completed: false
+        }]
+      }]
+    }]
+  })).toMatchObject({
+    notice: 'Private course notice',
+    courses: [{ depth: 'reference', dueReviews: 2, chapters: [{ lessons: [{ totalSteps: 5 }] }] }]
+  })
+})
+
+test.each([
+  [{ ...activeOpeningPayload, current: undefined }, 'current step'],
+  [{ ...activeOpeningPayload, summary: { totalPrompts: 1 } }, 'must not include a summary'],
+  [{ ...activeOpeningPayload, status: 'completed', current: undefined }, 'summary'],
+  [{
+    ...activeOpeningPayload,
+    status: 'completed',
+    summary: {
+      totalPrompts: 1, positionsRecalled: 1, branchesRecognized: 0,
+      retried: 0, usedHint: 0, revealed: 0
+    }
+  }, 'must not include a current step'],
+  [{ ...activeOpeningPayload, status: 'restart_required', current: undefined }, 'notice'],
+  [{ ...activeOpeningPayload, status: 'restart_required', notice: 'Updated' }, 'must not include a current step']
+])('opening session decoder rejects an invalid discriminated shape', (value, message) => {
+  expect(() => decodeOpeningSession(value)).toThrow(message)
+})
+
+test.each([
+  ['depth', { ...activeOpeningPayload, depth: 'encyclopedic' }],
+  ['mode', { ...activeOpeningPayload, mode: 'puzzle' }],
+  ['status', { ...activeOpeningPayload, status: 'paused' }],
+  ['kind', { ...activeOpeningPayload, current: { ...openingStepPayload, kind: 'quiz' } }],
+  ['orientation', { ...activeOpeningPayload, current: { ...openingStepPayload, orientation: 'sideways' } }]
+])('opening session decoder rejects unknown %s values', (field, value) => {
+  expect(() => decodeOpeningSession(value)).toThrow(field)
+})
+
+test.each([
+  [{ ...openingStepPayload, stepNumber: 0 }, 'stepNumber'],
+  [{ ...openingStepPayload, stepTotal: 1.5 }, 'stepTotal'],
+  [{ ...openingStepPayload, legalMoves: ['c2c3', 42] }, 'legalMoves[1]'],
+  [{ ...openingStepPayload, noteTexts: undefined }, 'noteTexts']
+])('opening step decoder rejects malformed exact fields', (current, message) => {
+  expect(() => decodeOpeningSession({ ...activeOpeningPayload, current })).toThrow(message)
+})
+
+test('opening result decoder requires authoritative frames for an expected prompt completion', () => {
+  expect(() => decodeOpeningStepResult({
+    session: activeOpeningPayload,
+    stepCompleted: true,
+    feedback: 'expected'
+  })).toThrow('authoritative move frames')
+  expect(() => decodeOpeningStepResult({
+    session: activeOpeningPayload,
+    stepCompleted: true,
+    feedback: 'expected',
+    appliedMoves: [{ uci: 'c2c3', resultingFen: 'after-c3' }]
+  })).toThrow('final FEN')
+  expect(decodeOpeningStepResult({
+    session: activeOpeningPayload,
+    stepCompleted: true,
+    feedback: 'expected',
+    appliedMoves: [{ uci: 'c2c3', resultingFen: 'after-c3' }],
+    finalFen: 'after-c3'
+  })).toMatchObject({ feedback: 'expected', finalFen: 'after-c3' })
+})
+
+test.each(['alternative', 'off_course'] as const)(
+  'opening result decoder keeps %s feedback non-mutating',
+  (feedback) => {
+    const base = {
+      session: activeOpeningPayload,
+      stepCompleted: false,
+      feedback,
+      message: 'Try the course move.'
+    }
+    expect(decodeOpeningStepResult(base)).toMatchObject({ feedback, stepCompleted: false })
+    expect(() => decodeOpeningStepResult({
+      ...base,
+      appliedMoves: [{ uci: 'd2d3', resultingFen: 'wrong-fen' }],
+      finalFen: 'wrong-fen'
+    })).toThrow('must not include')
+  }
+)
+
+test('opening result decoder rejects unknown feedback and permits omitted passive frames only', () => {
+  expect(() => decodeOpeningStepResult({
+    session: activeOpeningPayload,
+    stepCompleted: false,
+    feedback: 'almost'
+  })).toThrow('feedback')
+  expect(decodeOpeningStepResult({
+    session: activeOpeningPayload,
+    stepCompleted: true
+  }).appliedMoves).toBeUndefined()
+})
+
+test('opening hint decoder requires an active session and exact hint fields', () => {
+  expect(decodeOpeningHintResult({
+    session: activeOpeningPayload,
+    level: 2,
+    text: 'The course move starts on c2.',
+    sourceSquare: 'c2',
+    canReveal: false
+  })).toMatchObject({ level: 2, sourceSquare: 'c2' })
+  expect(() => decodeOpeningHintResult({
+    session: { ...activeOpeningPayload, status: 'restart_required', current: undefined, notice: 'Updated' },
+    level: 1,
+    text: 'Plan',
+    canReveal: false
+  })).toThrow('active session')
 })
 
 test('API module exposes only the mode-discriminated bootstrap', async () => {
@@ -144,6 +335,55 @@ test('preview API runs a deterministic two-puzzle session', async () => {
     revealed: 0,
     unavailable: 0
   })
+})
+
+test('preview API exposes an original guided opening lesson', async () => {
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal preview')
+
+  const home = await application.api.getOpeningHome()
+  expect(home.courses[0]).toMatchObject({
+    title: 'Synthetic Italian for White',
+    depth: 'reference',
+    nextLessonId: 'giuoco-c3'
+  })
+  const started = await application.api.startOpeningLesson('synthetic-italian', 'giuoco-c3')
+  expect(started.current?.kind).toBe('explain')
+  const watch = await application.api.advanceOpeningStep(started.sessionId)
+  expect(watch.session.current?.kind).toBe('watch')
+  const prompt = await application.api.advanceOpeningStep(started.sessionId)
+  expect(prompt.appliedMoves).toHaveLength(1)
+  expect(prompt.session.current?.kind).toBe('try')
+  const alternative = await application.api.playOpeningMove(started.sessionId, 'b2b4')
+  expect(alternative).toMatchObject({ feedback: 'alternative', stepCompleted: false })
+  const expected = await application.api.playOpeningMove(started.sessionId, 'c2c3')
+  expect(expected).toMatchObject({ feedback: 'expected', stepCompleted: true })
+  expect(expected.finalFen).toBe(expected.appliedMoves?.[0].resultingFen)
+})
+
+test('production opening adapters decode every returned boundary', async () => {
+  enableProduction()
+  production.getOpeningHome.mockResolvedValue({ courses: [] })
+  production.startOpeningLesson.mockResolvedValue(activeOpeningPayload)
+  production.resumeOpeningSession.mockResolvedValue(activeOpeningPayload)
+  production.playOpeningMove.mockResolvedValue({
+    session: activeOpeningPayload,
+    stepCompleted: true,
+    feedback: 'expected',
+    appliedMoves: [{ uci: 'c2c3', resultingFen: 'after-c3' }],
+    finalFen: 'after-c3'
+  })
+
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal production API')
+  await expect(application.api.getOpeningHome()).resolves.toEqual({ courses: [] })
+  await expect(application.api.startOpeningLesson('italian-white', 'giuoco-c3')).resolves
+    .toMatchObject({ status: 'active', current: { kind: 'try' } })
+  await expect(application.api.resumeOpeningSession()).resolves
+    .toMatchObject({ sessionId: 'opening-session' })
+  await expect(application.api.playOpeningMove('opening-session', 'c2c3')).resolves
+    .toMatchObject({ feedback: 'expected', finalFen: 'after-c3' })
+  expect(production.playOpeningMove).toHaveBeenCalledWith('opening-session', 'c2c3')
 })
 
 test('production adaptation preserves authoritative board fields exactly', async () => {

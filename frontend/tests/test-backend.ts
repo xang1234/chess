@@ -78,11 +78,16 @@ type BindingMock<Bindings> = {
 
 type ModeControllerMock = BindingMock<typeof import('../wailsjs/go/main/ModeController')>
 type NormalBindings = typeof import('../wailsjs/go/main/NormalController')
-type NormalControllerMock = Omit<BindingMock<NormalBindings>, 'GetProfile' | 'ResumeSession'> & {
+type NormalControllerMock = Omit<
+  BindingMock<NormalBindings>,
+  'GetProfile' | 'ResumeSession' | 'ResumeOpeningSession'
+> & {
   GetProfile: (...args: Parameters<NormalBindings['GetProfile']>) =>
     Promise<WireValue<Awaited<ReturnType<NormalBindings['GetProfile']>>> | null>
   ResumeSession: (...args: Parameters<NormalBindings['ResumeSession']>) =>
     Promise<WireValue<Awaited<ReturnType<NormalBindings['ResumeSession']>>> | null>
+  ResumeOpeningSession: (...args: Parameters<NormalBindings['ResumeOpeningSession']>) =>
+    Promise<WireValue<Awaited<ReturnType<NormalBindings['ResumeOpeningSession']>>> | null>
 }
 type RecoveryControllerMock = BindingMock<typeof import('../wailsjs/go/main/RecoveryController')>
 type RuntimeBindings = typeof import('../wailsjs/runtime/runtime')
@@ -158,11 +163,13 @@ export async function installTestBackend(
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
     }
     const normalController: NormalControllerMock = {
+      AdvanceOpeningStep: async () => { throw new Error('test backend has no opening step') },
       CancelImport: async () => {},
       ChooseOpeningCourseFile: async () => '',
       ChoosePuzzleImportFile: async () => '',
       CreateBackup: async () => '',
       GetImportResult: async () => emptyImportResult,
+      GetOpeningHome: async () => ({ courses: [] }),
       GetParentSummary: async () => ({
         learnerRating: 1200, ratingTrend: [], firstAttemptAccuracy: 0, hintRate: 0,
         dueReviews: 0, themePerformance: [], recentSessions: []
@@ -181,17 +188,26 @@ export async function installTestBackend(
         sourceIdOrigin: 'embedded', replacesExisting: false
       }),
       OpenDataFolder: async () => {},
+      PauseOpeningSession: async () => {},
       PauseSession: async () => {},
+      PlayOpeningMove: async () => { throw new Error('test backend has no opening move') },
       PlayMove: async () => { throw new Error('test backend has no move response') },
       Quit: async () => {},
       RestoreBackup: async () => {},
+      RestartOpeningSession: async () => { throw new Error('test backend has no opening restart') },
+      ResumeOpeningSession: async () => null,
       ResumeSession: async () => null,
+      RevealOpeningMove: async () => { throw new Error('test backend has no opening reveal') },
       RevealSolution: async () => { throw new Error('test backend has no reveal response') },
+      SetOpeningDepth: async () => {},
       StartFreePractice: async () => { throw new Error('test backend has no practice session') },
       StartGuided: async () => { throw new Error('test backend has no guided session') },
       StartOpeningCourseImport: async () => 'unused',
+      StartOpeningLesson: async () => { throw new Error('test backend has no opening lesson') },
+      StartOpeningReview: async () => { throw new Error('test backend has no opening review') },
       StartPuzzleImport: async () => 'unused',
       UpdateProfile: async () => {},
+      UseOpeningHint: async () => { throw new Error('test backend has no opening hint') },
       UseHint: async () => { throw new Error('test backend has no hint response') }
     }
     const modeController: ModeControllerMock = {

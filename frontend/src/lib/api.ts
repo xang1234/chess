@@ -10,6 +10,10 @@ import {
   decodeImportProgress,
   decodeImportResult,
   decodeMoveResult,
+  decodeOpeningHintResult,
+  decodeOpeningHome,
+  decodeOpeningSession,
+  decodeOpeningStepResult,
   decodeParentSummary,
   decodePracticeFilters,
   decodeProfile,
@@ -25,6 +29,13 @@ import {
   type ImportProgress,
   type ImportResult,
   type MoveResult,
+  type ActiveOpeningSessionView,
+  type OpeningDepth,
+  type OpeningHintResult,
+  type OpeningHomeView,
+  type OpeningSessionView,
+  type OpeningStepResult,
+  type OpeningStepView,
   type ParentSummary,
   type PracticeFilters,
   type Profile,
@@ -35,6 +46,7 @@ import {
 
 export type {
   ActiveSessionView,
+  ActiveOpeningSessionView,
   AppliedMove,
   AppliedMoveFrames,
   ApplicationMode,
@@ -54,6 +66,26 @@ export type {
   ImportSourceIDOrigin,
   IncorrectMoveResult,
   MoveResult,
+  CompletedOpeningSessionView,
+  ExpectedOpeningStepResult,
+  OpeningAdvanceResult,
+  OpeningChapterSummary,
+  OpeningCourseSummary,
+  OpeningDepth,
+  OpeningFeedbackResult,
+  OpeningHintResult,
+  OpeningHomeView,
+  OpeningLessonSummary,
+  OpeningMoveFeedback,
+  OpeningPerspective,
+  OpeningSessionMode,
+  OpeningSessionStatus,
+  OpeningSessionView,
+  OpeningStepKind,
+  OpeningStepResult,
+  OpeningStepView,
+  OpeningSummary,
+  RestartRequiredOpeningSessionView,
   ParentSummary,
   PracticeFilters,
   PracticeSource,
@@ -94,6 +126,17 @@ export interface NormalAPI extends BackupAPI {
   useHint(sessionId: string): Promise<HintResult>
   revealSolution(sessionId: string): Promise<MoveResult>
   pauseSession(sessionId: string): Promise<void>
+  getOpeningHome(): Promise<OpeningHomeView>
+  setOpeningDepth(courseId: string, depth: OpeningDepth): Promise<void>
+  startOpeningLesson(courseId: string, lessonId: string): Promise<OpeningSessionView>
+  resumeOpeningSession(): Promise<OpeningSessionView | null>
+  restartOpeningSession(sessionId: string): Promise<OpeningSessionView>
+  advanceOpeningStep(sessionId: string): Promise<OpeningStepResult>
+  playOpeningMove(sessionId: string, uci: string): Promise<OpeningStepResult>
+  useOpeningHint(sessionId: string): Promise<OpeningHintResult>
+  revealOpeningMove(sessionId: string): Promise<OpeningStepResult>
+  pauseOpeningSession(sessionId: string): Promise<void>
+  startOpeningReview(courseId: string): Promise<OpeningSessionView>
   getParentSummary(): Promise<ParentSummary>
   getPracticeFilters(): Promise<PracticeFilters>
   choosePuzzleImportFile(): Promise<string>
@@ -139,6 +182,34 @@ const productionNormalAPI: NormalAPI = {
   useHint: async (sessionId) => decodeHintResult(await Normal.UseHint(sessionId)),
   revealSolution: async (sessionId) => decodeMoveResult(await Normal.RevealSolution(sessionId)),
   pauseSession: Normal.PauseSession,
+  getOpeningHome: async () => decodeOpeningHome(await Normal.GetOpeningHome()),
+  setOpeningDepth: Normal.SetOpeningDepth,
+  startOpeningLesson: async (courseId, lessonId) => decodeOpeningSession(
+    await Normal.StartOpeningLesson(courseId, lessonId)
+  ),
+  resumeOpeningSession: async () => {
+    const session = await Normal.ResumeOpeningSession()
+    return session == null ? null : decodeOpeningSession(session)
+  },
+  restartOpeningSession: async (sessionId) => decodeOpeningSession(
+    await Normal.RestartOpeningSession(sessionId)
+  ),
+  advanceOpeningStep: async (sessionId) => decodeOpeningStepResult(
+    await Normal.AdvanceOpeningStep(sessionId)
+  ),
+  playOpeningMove: async (sessionId, uci) => decodeOpeningStepResult(
+    await Normal.PlayOpeningMove(sessionId, uci)
+  ),
+  useOpeningHint: async (sessionId) => decodeOpeningHintResult(
+    await Normal.UseOpeningHint(sessionId)
+  ),
+  revealOpeningMove: async (sessionId) => decodeOpeningStepResult(
+    await Normal.RevealOpeningMove(sessionId)
+  ),
+  pauseOpeningSession: Normal.PauseOpeningSession,
+  startOpeningReview: async (courseId) => decodeOpeningSession(
+    await Normal.StartOpeningReview(courseId)
+  ),
   getParentSummary: async () => decodeParentSummary(await Normal.GetParentSummary()),
   getPracticeFilters: async () => decodePracticeFilters(await Normal.GetPracticeFilters()),
   createBackup: Normal.CreateBackup,
@@ -259,8 +330,8 @@ function previewCompletedSession(session: ActiveSessionView): CompletedSessionVi
   }
 }
 
-function clonePreviewSession<Session extends SessionView>(session: Session): Session {
-  return structuredClone(session)
+function clonePreviewSession<Value>(value: Value): Value {
+  return structuredClone(value)
 }
 
 function completePreviewPuzzle(): MoveResult {
@@ -283,6 +354,135 @@ function completePreviewPuzzle(): MoveResult {
     puzzleCompleted: true,
     appliedMoves,
     finalFen: puzzle.finalFen
+  }
+}
+
+const previewOpeningFens = {
+  initial: previewStartingFen,
+  prompt: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4',
+  afterC3: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+}
+
+let previewOpeningDepth: OpeningDepth = 'reference'
+let previewOpeningSession: OpeningSessionView | null = null
+let previewOpeningStepIndex = 0
+let previewOpeningHintLevel = 0
+
+function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningStepView {
+  if (mode === 'review') {
+    return {
+      stepId: 'review-recall-c3', kind: 'recall', title: 'Review the Giuoco Piano',
+      instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
+      positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
+      orientation: 'white', legalMoves: ['b2b4', 'c2c3', 'd2d3'], noteTexts: [],
+      stepNumber: 1, stepTotal: 1, hintLevel: previewOpeningHintLevel,
+      canReveal: previewOpeningHintLevel >= 4
+    }
+  }
+  const common = {
+    orientation: 'white' as const,
+    noteTexts: ['Develop quickly and prepare the centre.'],
+    stepTotal: 5,
+    hintLevel: previewOpeningHintLevel,
+    canReveal: previewOpeningHintLevel >= 4
+  }
+  const steps: OpeningStepView[] = [
+    {
+      ...common, stepId: 'explain-plan', kind: 'explain', title: 'The central plan',
+      instruction: 'White prepares d4 while keeping the position flexible.',
+      positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
+      legalMoves: [], stepNumber: 1
+    },
+    {
+      ...common, stepId: 'watch-setup', kind: 'watch', title: 'Reach the Italian',
+      instruction: 'Watch both sides develop toward the Italian Game.',
+      variationName: 'Giuoco Piano', positionId: 'initial', currentFen: previewOpeningFens.initial,
+      legalMoves: [], stepNumber: 2
+    },
+    {
+      ...common, stepId: 'try-c3', kind: 'try', title: 'Prepare the centre',
+      instruction: 'Choose White\'s preparation move.', variationName: 'Giuoco Piano',
+      positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
+      legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 3
+    },
+    {
+      ...common, stepId: 'branch-giuoco', kind: 'branch', title: 'Recognise the branch',
+      instruction: 'Choose White\'s setup after Black develops the bishop.',
+      variationName: 'Giuoco Piano', positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
+      legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 4
+    },
+    {
+      ...common, stepId: 'recall-c3', kind: 'recall', title: 'Recall the Giuoco move',
+      instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
+      positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
+      legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 5
+    }
+  ]
+  return steps[index]
+}
+
+function previewActiveOpening(
+  index: number,
+  mode: 'lesson' | 'review' = 'lesson'
+): ActiveOpeningSessionView {
+  return {
+    sessionId: 'preview-opening-session', mode, status: 'active',
+    courseId: 'synthetic-italian', generationId: 'preview-generation',
+    lessonId: mode === 'review' ? 'review' : 'giuoco-c3', depth: previewOpeningDepth,
+    current: previewOpeningStep(index, mode)
+  }
+}
+
+function previewCompletedOpening(mode: 'lesson' | 'review'): OpeningSessionView {
+  return {
+    sessionId: 'preview-opening-session', mode, status: 'completed',
+    courseId: 'synthetic-italian', generationId: 'preview-generation',
+    lessonId: mode === 'review' ? 'review' : 'giuoco-c3', depth: previewOpeningDepth,
+    summary: {
+      totalPrompts: mode === 'review' ? 1 : 3,
+      positionsRecalled: mode === 'review' ? 1 : 2,
+      branchesRecognized: mode === 'review' ? 0 : 1,
+      retried: 0, usedHint: previewOpeningHintLevel > 0 ? 1 : 0, revealed: 0
+    }
+  }
+}
+
+function previewOpeningHome(): OpeningHomeView {
+  const completed = previewOpeningSession?.status === 'completed'
+  return {
+    courses: [{
+      courseId: 'synthetic-italian', title: 'Synthetic Italian for White',
+      perspective: 'white', depth: previewOpeningDepth, rootPositionId: 'initial',
+      completedLessons: completed ? 1 : 0, totalLessons: 1, dueReviews: 0,
+      nextLessonId: 'giuoco-c3', nextLessonTitle: 'Prepare d4 with c3',
+      hasResumable: previewOpeningSession?.status === 'active',
+      chapters: [{
+        chapterId: 'giuoco', title: 'Giuoco Piano',
+        lessons: [{
+          lessonId: 'giuoco-c3', title: 'Prepare d4 with c3',
+          completedSteps: completed ? 5 : 0, totalSteps: 5, completed
+        }]
+      }]
+    }]
+  }
+}
+
+function completePreviewOpeningMove(): OpeningStepResult {
+  if (!previewOpeningSession || previewOpeningSession.status !== 'active') {
+    throw new Error('preview opening session is not active')
+  }
+  const current = previewOpeningSession
+  const nextIndex = previewOpeningStepIndex + 1
+  previewOpeningSession = current.mode === 'review' || nextIndex >= 5
+    ? previewCompletedOpening(current.mode)
+    : previewActiveOpening(nextIndex, current.mode)
+  previewOpeningStepIndex = nextIndex
+  return {
+    session: clonePreviewSession(previewOpeningSession),
+    stepCompleted: true,
+    feedback: 'expected',
+    appliedMoves: [{ uci: 'c2c3', resultingFen: previewOpeningFens.afterC3 }],
+    finalFen: previewOpeningFens.afterC3
   }
 }
 
@@ -330,6 +530,91 @@ const previewNormalAPI: NormalAPI = {
   }),
   revealSolution: async () => completePreviewPuzzle(),
   pauseSession: async () => {},
+  getOpeningHome: async () => structuredClone(previewOpeningHome()),
+  setOpeningDepth: async (_courseId, depth) => { previewOpeningDepth = depth },
+  startOpeningLesson: async () => {
+    previewOpeningStepIndex = 0
+    previewOpeningHintLevel = 0
+    previewOpeningSession = previewActiveOpening(0)
+    return clonePreviewSession(previewOpeningSession)
+  },
+  resumeOpeningSession: async () => previewOpeningSession
+    ? clonePreviewSession(previewOpeningSession)
+    : null,
+  restartOpeningSession: async () => {
+    previewOpeningStepIndex = 0
+    previewOpeningHintLevel = 0
+    previewOpeningSession = previewActiveOpening(0)
+    return clonePreviewSession(previewOpeningSession)
+  },
+  advanceOpeningStep: async () => {
+    if (!previewOpeningSession || previewOpeningSession.status !== 'active' ||
+      (previewOpeningSession.current.kind !== 'explain' &&
+        previewOpeningSession.current.kind !== 'watch')) {
+      throw new Error('preview opening step requires a move')
+    }
+    const wasWatch = previewOpeningSession.current.kind === 'watch'
+    previewOpeningStepIndex++
+    previewOpeningSession = previewActiveOpening(previewOpeningStepIndex)
+    return {
+      session: clonePreviewSession(previewOpeningSession),
+      stepCompleted: true,
+      ...(wasWatch
+        ? {
+            appliedMoves: [{ uci: 'f8c5', resultingFen: previewOpeningFens.prompt }] as AppliedMoveFrames,
+            finalFen: previewOpeningFens.prompt
+          }
+        : {})
+    }
+  },
+  playOpeningMove: async (_sessionId, uci) => {
+    if (!previewOpeningSession || previewOpeningSession.status !== 'active') {
+      throw new Error('preview opening session is not active')
+    }
+    if (uci === 'c2c3') return completePreviewOpeningMove()
+    if (uci === 'b2b4') {
+      return {
+        session: clonePreviewSession(previewOpeningSession),
+        stepCompleted: false,
+        feedback: 'alternative',
+        message: 'That is a playable course alternative. Return to the lesson position.'
+      }
+    }
+    return {
+      session: clonePreviewSession(previewOpeningSession),
+      stepCompleted: false,
+      feedback: 'off_course',
+      message: 'That move is playable, but this lesson is practising c3.'
+    }
+  },
+  useOpeningHint: async () => {
+    if (!previewOpeningSession || previewOpeningSession.status !== 'active') {
+      throw new Error('preview opening session is not active')
+    }
+    previewOpeningHintLevel = Math.min(4, previewOpeningHintLevel + 1)
+    previewOpeningSession = previewActiveOpening(
+      previewOpeningStepIndex,
+      previewOpeningSession.mode
+    )
+    return {
+      session: clonePreviewSession(previewOpeningSession),
+      level: previewOpeningHintLevel,
+      text: previewOpeningHintLevel === 4
+        ? 'Show the course move.'
+        : 'Develop quickly and prepare the centre.',
+      sourceSquare: previewOpeningHintLevel >= 2 ? 'c2' : undefined,
+      targetSquare: previewOpeningHintLevel >= 3 ? 'c3' : undefined,
+      canReveal: previewOpeningHintLevel >= 4
+    }
+  },
+  revealOpeningMove: async () => completePreviewOpeningMove(),
+  pauseOpeningSession: async () => {},
+  startOpeningReview: async () => {
+    previewOpeningStepIndex = 0
+    previewOpeningHintLevel = 0
+    previewOpeningSession = previewActiveOpening(0, 'review')
+    return clonePreviewSession(previewOpeningSession)
+  },
   getParentSummary: async () => ({
     learnerRating: previewProfile?.learnerRating ?? 1200,
     ratingTrend: [{ rating: 1150, recordedAt: 1 }, { rating: previewProfile?.learnerRating ?? 1200, recordedAt: 2 }],

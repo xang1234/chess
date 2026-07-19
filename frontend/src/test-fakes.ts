@@ -4,6 +4,8 @@ import type {
   BuildInfo,
   ImportResult,
   NormalAPI,
+  OpeningHomeView,
+  ActiveOpeningSessionView,
   Profile,
   RecoveryAPI
 } from './lib/api'
@@ -45,6 +47,58 @@ const emptySession: ActiveSessionView = {
   }
 }
 
+export const fakeOpeningHome: OpeningHomeView = {
+  courses: [{
+    courseId: 'synthetic-italian',
+    title: 'Italian Game for White',
+    perspective: 'white',
+    depth: 'reference',
+    rootPositionId: 'initial',
+    completedLessons: 1,
+    totalLessons: 3,
+    dueReviews: 3,
+    nextLessonId: 'giuoco-c3',
+    nextLessonTitle: 'Giuoco Piano',
+    hasResumable: false,
+    chapters: [{
+      chapterId: 'giuoco',
+      title: 'Giuoco Piano',
+      lessons: [{
+        lessonId: 'giuoco-c3',
+        title: 'Giuoco Piano',
+        completedSteps: 0,
+        totalSteps: 5,
+        completed: false
+      }]
+    }]
+  }]
+}
+
+export const fakeOpeningSession: ActiveOpeningSessionView = {
+  sessionId: 'opening-session-1',
+  mode: 'lesson',
+  status: 'active',
+  courseId: 'synthetic-italian',
+  generationId: 'generation-1',
+  lessonId: 'giuoco-c3',
+  depth: 'reference',
+  current: {
+    stepId: 'explain-plan',
+    kind: 'explain',
+    title: 'The central plan',
+    instruction: 'White prepares d4 while keeping the position flexible.',
+    positionId: 'after-bc5',
+    currentFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4',
+    orientation: 'white',
+    legalMoves: [],
+    noteTexts: ['Develop quickly and prepare the centre.'],
+    stepNumber: 1,
+    stepTotal: 5,
+    hintLevel: 0,
+    canReveal: false
+  }
+}
+
 export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
   return {
     getProfile: async () => null,
@@ -70,6 +124,39 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
       finalFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
     }),
     pauseSession: async () => {},
+    getOpeningHome: async () => fakeOpeningHome,
+    setOpeningDepth: async () => {},
+    startOpeningLesson: async () => fakeOpeningSession,
+    resumeOpeningSession: async () => null,
+    restartOpeningSession: async () => fakeOpeningSession,
+    advanceOpeningStep: async () => ({
+      session: fakeOpeningSession,
+      stepCompleted: true
+    }),
+    playOpeningMove: async () => ({
+      session: fakeOpeningSession,
+      stepCompleted: false,
+      feedback: 'off_course',
+      message: 'Try the course move.'
+    }),
+    useOpeningHint: async () => ({
+      session: fakeOpeningSession,
+      level: 1,
+      text: 'Develop quickly and prepare the centre.',
+      canReveal: false
+    }),
+    revealOpeningMove: async () => ({
+      session: fakeOpeningSession,
+      stepCompleted: true,
+      feedback: 'expected',
+      appliedMoves: [{
+        uci: 'c2c3',
+        resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+      }],
+      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+    }),
+    pauseOpeningSession: async () => {},
+    startOpeningReview: async () => ({ ...fakeOpeningSession, mode: 'review', lessonId: 'review' }),
     getParentSummary: async () => ({
       learnerRating: 1200,
       ratingTrend: [],
