@@ -94,6 +94,41 @@ func TestSecondServicesOpenCannotAbandonFirstInstanceImport(t *testing.T) {
 	}
 }
 
+func TestOpenUpgradesExactV3PuzzleCatalogueInPlace(t *testing.T) {
+	paths := storage.PathsAt(t.TempDir())
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	v3 := createTask5SQLiteFixture(t, paths.PuzzlesDB, loadTask5PuzzleV3Fixture(t))
+	seedTask5ActiveGeneration(t, v3)
+	if _, err := v3.Exec(`UPDATE puzzle_cores SET solution_plies = 7
+		WHERE fingerprint = 'active-core'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := v3.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	services, err := Open(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+
+	var maximum, occurrences int
+	if err := services.PuzzleStore.Reader.QueryRow(`SELECT maximum_solution_plies
+		FROM source_generations WHERE generation_id = 'active-generation'`).Scan(&maximum); err != nil {
+		t.Fatal(err)
+	}
+	if err := services.PuzzleStore.Reader.QueryRow(`SELECT COUNT(*)
+		FROM puzzle_occurrences WHERE generation_id = 'active-generation'`).Scan(&occurrences); err != nil {
+		t.Fatal(err)
+	}
+	if maximum != 7 || occurrences != 1 {
+		t.Fatalf("upgraded generation maximum=%d occurrences=%d, want 7 and 1", maximum, occurrences)
+	}
+}
+
 func TestOpenMigratesUserBeforeLegacyPuzzleRemoval(t *testing.T) {
 	paths := storage.PathsAt(t.TempDir())
 	if err := paths.Ensure(); err != nil {
@@ -255,7 +290,7 @@ func TestOpenPreservesUnknownNewerModifiedAndCorruptPuzzleFiles(t *testing.T) {
 			setup: func(t *testing.T, path string) {
 				createTask5CrashSQLiteFixture(t, path, `
 					CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY);
-					INSERT INTO schema_migrations(version) VALUES (4);
+					INSERT INTO schema_migrations(version) VALUES (5);
 					CREATE TABLE future_catalogue_state(value TEXT);
 					INSERT INTO future_catalogue_state(value) VALUES ('preserve me');
 				`)
@@ -617,6 +652,29 @@ func loadTask5LegacyFixture(t *testing.T, version int) string {
 		t.Fatal(err)
 	}
 	return string(contents)
+}
+
+func loadTask5PuzzleV3Fixture(t *testing.T) string {
+	t.Helper()
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate startup test source")
+	}
+	path := filepath.Join(
+		filepath.Dir(currentFile),
+		"..",
+		"storage",
+		"migrations",
+		"puzzles",
+		"003.sql",
+	)
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY);
+INSERT INTO schema_migrations(version) VALUES (3);
+` + string(contents)
 }
 
 func createTask5SQLiteFixture(t *testing.T, path, fixture string) *sql.DB {

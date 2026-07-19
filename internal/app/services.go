@@ -221,7 +221,13 @@ func preparePuzzleStore(ctx context.Context, path string, userDB *sql.DB) error 
 	if err != nil {
 		return err
 	}
-	if !state.Exists || !state.Legacy {
+	if !state.Exists {
+		return nil
+	}
+	if state.Upgradable {
+		return storage.UpgradePuzzleStore(path)
+	}
+	if !state.Legacy {
 		return nil
 	}
 	legacy, err := storage.OpenLegacyPuzzleRecreation(path)
