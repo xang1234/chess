@@ -13,6 +13,7 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/storage"
 )
 
@@ -265,7 +266,7 @@ func TestMultiFormatImportFailuresPreserveThePriorPGNHead(t *testing.T) {
 	cancelContext, cancel := context.WithCancel(ctx)
 	_, err = importer.Import(
 		cancelContext, cancelInspection,
-		func(progress puzzleProgress) {
+		func(progress importing.Progress) {
 			if progress.Phase == ImportParsing {
 				cancel()
 			}
@@ -336,7 +337,7 @@ func importMultiFormatFixture(
 	t *testing.T,
 	importer CollectionImporter,
 	path string,
-) puzzleInspection {
+) importing.Inspection {
 	t.Helper()
 	inspection, err := importer.Inspect(context.Background(), path)
 	if err != nil {

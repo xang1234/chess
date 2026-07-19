@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"chess-trainer/internal/chessrules"
+	"chess-trainer/internal/importing"
 )
 
 const maxLinearFENLineBytes = 1 << 20
@@ -33,13 +34,13 @@ func (linearFENAdapter) Descriptor() ImportFormatDescriptor {
 func (a linearFENAdapter) Inspect(
 	ctx context.Context,
 	path string,
-) (puzzleInspection, bool, error) {
+) (importing.Inspection, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return puzzleInspection{}, false, err
+		return importing.Inspection{}, false, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return puzzleInspection{}, false, err
+		return importing.Inspection{}, false, err
 	}
 	defer file.Close()
 
@@ -48,7 +49,7 @@ func (a linearFENAdapter) Inspect(
 	for scanner.Scan() {
 		lineNumber++
 		if err := ctx.Err(); err != nil {
-			return puzzleInspection{}, false, err
+			return importing.Inspection{}, false, err
 		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -57,19 +58,19 @@ func (a linearFENAdapter) Inspect(
 		if !looksLikeLinearFENRecord(line) {
 			continue
 		}
-		return puzzleInspection{
+		return importing.Inspection{
 			SourceID:       path,
 			SourceIDOrigin: SourceIDPath,
 		}, true, nil
 	}
 	if err := scanner.Err(); err != nil {
-		return puzzleInspection{}, false, fmt.Errorf(
+		return importing.Inspection{}, false, fmt.Errorf(
 			"inspect linear FEN/UCI line %d: %w",
 			lineNumber+1,
 			err,
 		)
 	}
-	return puzzleInspection{}, false, nil
+	return importing.Inspection{}, false, nil
 }
 
 func looksLikeLinearFENRecord(line string) bool {
@@ -151,7 +152,7 @@ func looksLikeUCIMove(move string) bool {
 
 func (a linearFENAdapter) NewDecoder(
 	reader io.Reader,
-	_ puzzleInspection,
+	_ importing.Inspection,
 ) (PuzzleDecoder, error) {
 	if reader == nil {
 		return nil, errors.New("linear FEN/UCI reader is required")

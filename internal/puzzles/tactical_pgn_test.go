@@ -14,6 +14,7 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/importing"
 
 	"github.com/corentings/chess/v2"
 )
@@ -524,7 +525,7 @@ func TestTacticalPGNAdapterDoesNotMatchPGNWithoutTacticalFEN(t *testing.T) {
 	}
 }
 
-func inspectTacticalPGN(t *testing.T, contents string) (PuzzleAdapter, string, puzzleInspection) {
+func inspectTacticalPGN(t *testing.T, contents string) (PuzzleAdapter, string, importing.Inspection) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "collection.pgn")
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -550,7 +551,7 @@ func newTacticalPGNTestDecoder(t *testing.T, contents, sourceID string) PuzzleDe
 	}
 	decoder, err := NewTacticalPGNAdapter(chessrules.Rules{}).NewDecoder(
 		strings.NewReader(contents),
-		puzzleInspection{SourceID: sourceID, SourceIDOrigin: origin},
+		importing.Inspection{SourceID: sourceID, SourceIDOrigin: origin},
 	)
 	if err != nil {
 		t.Fatal(err)

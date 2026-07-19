@@ -12,6 +12,7 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/importing"
 
 	"github.com/corentings/chess/v2"
 )
@@ -48,13 +49,13 @@ func (tacticalPGNAdapter) Descriptor() ImportFormatDescriptor {
 func (a tacticalPGNAdapter) Inspect(
 	ctx context.Context,
 	path string,
-) (puzzleInspection, bool, error) {
+) (importing.Inspection, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return puzzleInspection{}, false, err
+		return importing.Inspection{}, false, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return puzzleInspection{}, false, err
+		return importing.Inspection{}, false, err
 	}
 	defer file.Close()
 
@@ -62,10 +63,10 @@ func (a tacticalPGNAdapter) Inspect(
 	for {
 		scanned, err := scanner.ScanGame()
 		if errors.Is(err, io.EOF) {
-			return puzzleInspection{}, false, nil
+			return importing.Inspection{}, false, nil
 		}
 		if err != nil {
-			return puzzleInspection{}, false, fmt.Errorf("inspect tactical PGN: scan game: %w", err)
+			return importing.Inspection{}, false, fmt.Errorf("inspect tactical PGN: scan game: %w", err)
 		}
 		if len(scanned.Raw) > maxTacticalPGNGameBytes {
 			continue
@@ -81,7 +82,7 @@ func (a tacticalPGNAdapter) Inspect(
 			sourceID = path
 			origin = SourceIDPath
 		}
-		return puzzleInspection{
+		return importing.Inspection{
 			SourceID:       sourceID,
 			SourceIDOrigin: origin,
 		}, true, nil
@@ -107,7 +108,7 @@ func firstTacticalPGNTag(tags map[string][]string, name string) string {
 
 func (a tacticalPGNAdapter) NewDecoder(
 	reader io.Reader,
-	inspection puzzleInspection,
+	inspection importing.Inspection,
 ) (PuzzleDecoder, error) {
 	sourceID := strings.TrimSpace(inspection.SourceID)
 	if sourceID == "" {

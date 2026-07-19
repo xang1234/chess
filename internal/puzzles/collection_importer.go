@@ -34,8 +34,6 @@ const (
 	SourceIDPath     = importing.SourceIDPath
 )
 
-type puzzleInspection = importing.Inspection
-
 type DecodedRecord struct {
 	Puzzle    *TrainingPuzzle
 	Rejection *Rejection
@@ -55,8 +53,8 @@ type ImportFormatDescriptor struct {
 
 type PuzzleAdapter interface {
 	Descriptor() ImportFormatDescriptor
-	Inspect(context.Context, string) (puzzleInspection, bool, error)
-	NewDecoder(io.Reader, puzzleInspection) (PuzzleDecoder, error)
+	Inspect(context.Context, string) (importing.Inspection, bool, error)
+	NewDecoder(io.Reader, importing.Inspection) (PuzzleDecoder, error)
 }
 
 type ImportPhase = importing.Phase
@@ -67,9 +65,6 @@ const (
 	ImportSealing    = importing.PhaseSealing
 	ImportActivating = importing.PhaseActivating
 )
-
-type puzzleProgress = importing.Progress
-type puzzleProgressSink = importing.ProgressSink
 
 var ErrNoValidPuzzles = errors.New("puzzle import contains no valid puzzles")
 
@@ -161,13 +156,13 @@ func validateImportFormatDescriptor(descriptor ImportFormatDescriptor) error {
 type adapterInspection struct {
 	adapter    PuzzleAdapter
 	descriptor ImportFormatDescriptor
-	inspection puzzleInspection
+	inspection importing.Inspection
 }
 
-func (i CollectionImporter) Inspect(ctx context.Context, path string) (puzzleInspection, error) {
+func (i CollectionImporter) Inspect(ctx context.Context, path string) (importing.Inspection, error) {
 	normalizedPath, err := importing.NormalizePath(path, "puzzle import")
 	if err != nil {
-		return puzzleInspection{}, err
+		return importing.Inspection{}, err
 	}
 	_, inspection, err := i.inspectRegistry(ctx, normalizedPath)
 	return inspection, err
@@ -176,13 +171,13 @@ func (i CollectionImporter) Inspect(ctx context.Context, path string) (puzzleIns
 func (i CollectionImporter) inspectRegistry(
 	ctx context.Context,
 	normalizedPath string,
-) (PuzzleAdapter, puzzleInspection, error) {
+) (PuzzleAdapter, importing.Inspection, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	descriptors, err := (&i).FormatDescriptors()
 	if err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	matches := make([]adapterInspection, 0, len(i.Adapters))
 	var inspectionErrors []error
@@ -209,13 +204,13 @@ func (i CollectionImporter) inspectRegistry(
 		contextErrors = append(contextErrors, err)
 	}
 	if err := errors.Join(contextErrors...); err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	if len(matches) == 0 {
 		if err := errors.Join(inspectionErrors...); err != nil {
-			return nil, puzzleInspection{}, err
+			return nil, importing.Inspection{}, err
 		}
-		return nil, puzzleInspection{}, errors.New("unsupported puzzle import format")
+		return nil, importing.Inspection{}, errors.New("unsupported puzzle import format")
 	}
 
 	selected := matches[0]
@@ -231,7 +226,7 @@ func (i CollectionImporter) inspectRegistry(
 			for _, match := range matches {
 				formats = append(formats, string(match.descriptor.Format))
 			}
-			return nil, puzzleInspection{}, fmt.Errorf(
+			return nil, importing.Inspection{}, fmt.Errorf(
 				"ambiguous puzzle import format: content matches %s",
 				strings.Join(formats, ", "),
 			)
@@ -243,15 +238,15 @@ func (i CollectionImporter) inspectRegistry(
 		ctx, normalizedPath, selected.adapter, selected.inspection,
 	)
 	if err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	return selected.adapter, inspection, nil
 }
 
 func (i CollectionImporter) Import(
 	ctx context.Context,
-	expected puzzleInspection,
-	progress puzzleProgressSink,
+	expected importing.Inspection,
+	progress importing.ProgressSink,
 ) (ImportReport, error) {
 	emit := importProgressEmitter(progress)
 	emit(ImportDetecting, 0, 0, 0)
@@ -263,10 +258,10 @@ func (i CollectionImporter) Import(
 	return i.importResolved(ctx, adapter, inspection, emit)
 }
 
-func importProgressEmitter(progress puzzleProgressSink) func(ImportPhase, int64, int64, int64) {
+func importProgressEmitter(progress importing.ProgressSink) func(ImportPhase, int64, int64, int64) {
 	return func(phase ImportPhase, rowsRead, bytesRead, totalBytes int64) {
 		if progress != nil {
-			progress(puzzleProgress{
+			progress(importing.Progress{
 				Phase: phase, RowsRead: rowsRead, BytesRead: bytesRead, TotalBytes: totalBytes,
 			})
 		}
@@ -276,7 +271,7 @@ func importProgressEmitter(progress puzzleProgressSink) func(ImportPhase, int64,
 func (i CollectionImporter) importResolved(
 	ctx context.Context,
 	adapter PuzzleAdapter,
-	inspection puzzleInspection,
+	inspection importing.Inspection,
 	emit func(ImportPhase, int64, int64, int64),
 ) (ImportReport, error) {
 	normalizedPath := inspection.Path
@@ -432,44 +427,44 @@ func (i CollectionImporter) importResolved(
 
 func (i CollectionImporter) revalidateInspection(
 	ctx context.Context,
-	expected puzzleInspection,
-) (PuzzleAdapter, puzzleInspection, error) {
+	expected importing.Inspection,
+) (PuzzleAdapter, importing.Inspection, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	normalizedPath, err := importing.NormalizePath(expected.Path, "puzzle import")
 	if err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	if expected.Path != normalizedPath {
 		current := expected
 		current.Path = normalizedPath
-		return nil, puzzleInspection{}, importing.CompareInspection(current, expected, "puzzle import")
+		return nil, importing.Inspection{}, importing.CompareInspection(current, expected, "puzzle import")
 	}
 	adapter, err := i.adapterForFormat(expected.Format)
 	if err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	current, matched, err := adapter.Inspect(ctx, normalizedPath)
 	if err != nil {
-		return nil, puzzleInspection{}, fmt.Errorf(
+		return nil, importing.Inspection{}, fmt.Errorf(
 			"reinspect %s puzzle source: %w",
 			expected.Format,
 			err,
 		)
 	}
 	if !matched {
-		return nil, puzzleInspection{}, fmt.Errorf(
+		return nil, importing.Inspection{}, fmt.Errorf(
 			"puzzle import no longer matches inspected format %q",
 			expected.Format,
 		)
 	}
 	current, err = normalizeAdapterInspection(normalizedPath, adapter, current)
 	if err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	if err := importing.CompareInspection(current, expected, "puzzle import"); err != nil {
-		return nil, puzzleInspection{}, err
+		return nil, importing.Inspection{}, err
 	}
 	return adapter, current, nil
 }
@@ -499,27 +494,27 @@ func (i CollectionImporter) completeInspection(
 	ctx context.Context,
 	normalizedPath string,
 	adapter PuzzleAdapter,
-	inspection puzzleInspection,
-) (puzzleInspection, error) {
+	inspection importing.Inspection,
+) (importing.Inspection, error) {
 	if err := ctx.Err(); err != nil {
-		return puzzleInspection{}, err
+		return importing.Inspection{}, err
 	}
 	inspection, err := normalizeAdapterInspection(normalizedPath, adapter, inspection)
 	if err != nil {
-		return puzzleInspection{}, err
+		return importing.Inspection{}, err
 	}
 	if i.Reader == nil {
 		if err := ctx.Err(); err != nil {
-			return puzzleInspection{}, err
+			return importing.Inspection{}, err
 		}
 		return inspection, nil
 	}
 	summaries, err := i.Reader.ActiveSourceSummaries(ctx)
 	if err != nil {
-		return puzzleInspection{}, err
+		return importing.Inspection{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return puzzleInspection{}, err
+		return importing.Inspection{}, err
 	}
 	for _, summary := range summaries {
 		if summary.SourceID == inspection.SourceID {
@@ -528,7 +523,7 @@ func (i CollectionImporter) completeInspection(
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return puzzleInspection{}, err
+		return importing.Inspection{}, err
 	}
 	return inspection, nil
 }
@@ -536,11 +531,11 @@ func (i CollectionImporter) completeInspection(
 func normalizeAdapterInspection(
 	normalizedPath string,
 	adapter PuzzleAdapter,
-	inspection puzzleInspection,
-) (puzzleInspection, error) {
+	inspection importing.Inspection,
+) (importing.Inspection, error) {
 	descriptor := adapter.Descriptor()
 	if err := validateImportFormatDescriptor(descriptor); err != nil {
-		return puzzleInspection{}, fmt.Errorf("puzzle adapter descriptor: %w", err)
+		return importing.Inspection{}, fmt.Errorf("puzzle adapter descriptor: %w", err)
 	}
 	inspection.Path = normalizedPath
 	inspection.Filename = filepath.Base(normalizedPath)
@@ -550,7 +545,7 @@ func normalizeAdapterInspection(
 		inspection.SourceID = normalizedPath
 	}
 	if strings.TrimSpace(inspection.SourceID) == "" {
-		return puzzleInspection{}, fmt.Errorf(
+		return importing.Inspection{}, fmt.Errorf(
 			"%s puzzle inspection returned an empty source ID",
 			descriptor.Format,
 		)

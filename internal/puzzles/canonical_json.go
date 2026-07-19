@@ -12,6 +12,7 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/importing"
 )
 
 const (
@@ -38,13 +39,13 @@ func (canonicalJSONAdapter) Descriptor() ImportFormatDescriptor {
 func (a canonicalJSONAdapter) Inspect(
 	ctx context.Context,
 	path string,
-) (puzzleInspection, bool, error) {
+) (importing.Inspection, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return puzzleInspection{}, false, err
+		return importing.Inspection{}, false, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return puzzleInspection{}, false, err
+		return importing.Inspection{}, false, err
 	}
 	defer file.Close()
 
@@ -52,9 +53,9 @@ func (a canonicalJSONAdapter) Inspect(
 		contextReader{ctx: ctx, reader: file},
 	)
 	if err != nil {
-		return puzzleInspection{}, false, fmt.Errorf("inspect canonical JSON: %w", err)
+		return importing.Inspection{}, false, fmt.Errorf("inspect canonical JSON: %w", err)
 	}
-	inspection := puzzleInspection{
+	inspection := importing.Inspection{
 		SourceID:       descriptor.ID,
 		SourceIDOrigin: SourceIDEmbedded,
 		SourceName:     descriptor.Name,
@@ -144,7 +145,7 @@ func inspectCanonicalJSONDocument(reader io.Reader) (canonicalSource, error) {
 
 func (a canonicalJSONAdapter) NewDecoder(
 	reader io.Reader,
-	inspection puzzleInspection,
+	inspection importing.Inspection,
 ) (PuzzleDecoder, error) {
 	if reader == nil {
 		return nil, errors.New("canonical JSON reader is required")
@@ -162,7 +163,7 @@ func (a canonicalJSONAdapter) NewDecoder(
 
 type canonicalJSONDecoder struct {
 	rules      chessrules.Rules
-	inspection puzzleInspection
+	inspection importing.Inspection
 	stream     *canonicalJSONDocumentStream
 	seen       map[string]struct{}
 	inPuzzles  bool

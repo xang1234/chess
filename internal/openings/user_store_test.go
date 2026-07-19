@@ -215,7 +215,7 @@ func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T)
 	}
 }
 
-func TestUserStoreReconcileReviewsArchivesOnlyRemovedOrChangedPrompts(t *testing.T) {
+func TestUserStoreCourseRevisionArchivesOnlyRemovedOrChangedPrompts(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
 	db := openOpeningUserTestDB(t)

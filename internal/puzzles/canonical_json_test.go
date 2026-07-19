@@ -14,6 +14,7 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/importing"
 )
 
 const canonicalJSONWhitePuzzle = `{
@@ -473,7 +474,7 @@ func TestCanonicalJSONDecoderTreatsBrokenFramingAsFatal(t *testing.T) {
 }`
 	decoder, err := NewCanonicalJSONAdapter(chessrules.Rules{}).NewDecoder(
 		strings.NewReader(contents),
-		puzzleInspection{
+		importing.Inspection{
 			SourceID:       "club-json",
 			SourceIDOrigin: SourceIDEmbedded,
 			SourceName:     "Club JSON",
@@ -502,7 +503,7 @@ func TestCanonicalJSONDecoderTreatsInvalidRecordDelimiterAsFatal(t *testing.T) {
 }`
 	decoder, err := NewCanonicalJSONAdapter(chessrules.Rules{}).NewDecoder(
 		strings.NewReader(contents),
-		puzzleInspection{
+		importing.Inspection{
 			SourceID:       "club-json",
 			SourceIDOrigin: SourceIDEmbedded,
 			SourceName:     "Club JSON",
@@ -527,19 +528,19 @@ func TestCanonicalJSONDecoderFatallyRevalidatesInspectionIdentity(t *testing.T) 
 	tests := []struct {
 		name       string
 		contents   string
-		inspection puzzleInspection
+		inspection importing.Inspection
 		want       string
 	}{
 		{
 			name:       "schema changed",
 			contents:   `{"schema":"chess-trainer-puzzles/v2","source":{"id":"club-json"},"puzzles":[]}`,
-			inspection: puzzleInspection{SourceID: "club-json", SourceIDOrigin: SourceIDEmbedded},
+			inspection: importing.Inspection{SourceID: "club-json", SourceIDOrigin: SourceIDEmbedded},
 			want:       "schema",
 		},
 		{
 			name:       "source changed",
 			contents:   `{"schema":"chess-trainer-puzzles/v1","source":{"id":"other-json"},"puzzles":[]}`,
-			inspection: puzzleInspection{SourceID: "club-json", SourceIDOrigin: SourceIDEmbedded},
+			inspection: importing.Inspection{SourceID: "club-json", SourceIDOrigin: SourceIDEmbedded},
 			want:       "source",
 		},
 	}
@@ -557,7 +558,7 @@ func TestCanonicalJSONDecoderFatallyRevalidatesInspectionIdentity(t *testing.T) 
 	}
 }
 
-func inspectCanonicalJSON(t *testing.T, contents string) (PuzzleAdapter, string, puzzleInspection) {
+func inspectCanonicalJSON(t *testing.T, contents string) (PuzzleAdapter, string, importing.Inspection) {
 	t.Helper()
 	path := writeCanonicalJSON(t, contents)
 	adapter := NewCanonicalJSONAdapter(chessrules.Rules{})
@@ -581,7 +582,7 @@ func decodeCanonicalJSONFile(
 	t *testing.T,
 	adapter PuzzleAdapter,
 	path string,
-	inspection puzzleInspection,
+	inspection importing.Inspection,
 ) []DecodedRecord {
 	t.Helper()
 	file, err := os.Open(path)

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"chess-trainer/internal/chessrules"
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/storage"
 )
 
@@ -103,7 +104,7 @@ func TestFullLichessImport(t *testing.T) {
 	importContext, cancelImport := context.WithCancel(context.Background())
 	defer cancelImport()
 
-	report, importErr := inspectAndImportLichess(importContext, importer, path, func(progress puzzleProgress) {
+	report, importErr := inspectAndImportLichess(importContext, importer, path, func(progress importing.Progress) {
 		visibilityChecks++
 		old, readErr := catalog.Get(importContext, prior.Key())
 		if readErr != nil && visibilityErr == nil {

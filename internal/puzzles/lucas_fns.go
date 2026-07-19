@@ -15,6 +15,7 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/importing"
 
 	"github.com/corentings/chess/v2"
 )
@@ -56,13 +57,13 @@ func (lucasFNSAdapter) Descriptor() ImportFormatDescriptor {
 func (a lucasFNSAdapter) Inspect(
 	ctx context.Context,
 	path string,
-) (puzzleInspection, bool, error) {
+) (importing.Inspection, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return puzzleInspection{}, false, err
+		return importing.Inspection{}, false, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return puzzleInspection{}, false, err
+		return importing.Inspection{}, false, err
 	}
 	defer file.Close()
 
@@ -71,10 +72,10 @@ func (a lucasFNSAdapter) Inspect(
 	for scanner.Scan() {
 		lineNumber++
 		if err := ctx.Err(); err != nil {
-			return puzzleInspection{}, false, err
+			return importing.Inspection{}, false, err
 		}
 		if len(scanner.Bytes()) > maxLucasFNSLineBytes {
-			return puzzleInspection{}, false, lucasFNSLineLimitError(lineNumber)
+			return importing.Inspection{}, false, lucasFNSLineLimitError(lineNumber)
 		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -87,24 +88,24 @@ func (a lucasFNSAdapter) Inspect(
 		if _, err := normalizeFEN(a.rules, strings.TrimSpace(fields[0])); err != nil {
 			continue
 		}
-		return puzzleInspection{
+		return importing.Inspection{
 			SourceID:       path,
 			SourceIDOrigin: SourceIDPath,
 		}, true, nil
 	}
 	if err := scanner.Err(); err != nil {
-		return puzzleInspection{}, false, fmt.Errorf(
+		return importing.Inspection{}, false, fmt.Errorf(
 			"inspect Lucas FNS line %d: %w",
 			lineNumber+1,
 			err,
 		)
 	}
-	return puzzleInspection{}, false, nil
+	return importing.Inspection{}, false, nil
 }
 
 func (a lucasFNSAdapter) NewDecoder(
 	reader io.Reader,
-	inspection puzzleInspection,
+	inspection importing.Inspection,
 ) (PuzzleDecoder, error) {
 	if reader == nil {
 		return nil, errors.New("Lucas FNS reader is required")

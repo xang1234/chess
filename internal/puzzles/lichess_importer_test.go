@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"chess-trainer/internal/chessrules"
+	"chess-trainer/internal/importing"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -108,7 +109,7 @@ func inspectAndImportLichess(
 	ctx context.Context,
 	importer CollectionImporter,
 	path string,
-	progress puzzleProgressSink,
+	progress importing.ProgressSink,
 ) (ImportReport, error) {
 	inspection, err := importer.Inspect(ctx, path)
 	if err != nil {
@@ -180,9 +181,9 @@ bad,not-a-fen,a1a2,1500,60,10,2,short,,
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
 	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
-	var progress []puzzleProgress
+	var progress []importing.Progress
 
-	report, err := inspectAndImportLichess(context.Background(), importer, path, func(snapshot puzzleProgress) {
+	report, err := inspectAndImportLichess(context.Background(), importer, path, func(snapshot importing.Progress) {
 		progress = append(progress, snapshot)
 	})
 	if err != nil {
@@ -292,7 +293,7 @@ func TestCollectionImporterCancellationAbortsLichessStaging(t *testing.T) {
 	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
 	ctx, cancel := context.WithCancel(context.Background())
 
-	_, err := inspectAndImportLichess(ctx, importer, path, func(progress puzzleProgress) {
+	_, err := inspectAndImportLichess(ctx, importer, path, func(progress importing.Progress) {
 		if progress.RowsRead >= 10_000 {
 			cancel()
 		}
