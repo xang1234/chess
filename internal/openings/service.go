@@ -72,6 +72,9 @@ func (s *Service) courseSummary(
 	depth Depth,
 	resumable *StoredSession,
 ) (OpeningCourseSummary, error) {
+	if err := s.store.ReconcileReviews(ctx, course.Pack.CourseID, coursePromptFingerprints(course)); err != nil {
+		return OpeningCourseSummary{}, fmt.Errorf("reconcile opening reviews: %w", err)
+	}
 	view := OpeningCourseSummary{
 		CourseID: course.Pack.CourseID, Title: course.Pack.Title,
 		Perspective: course.Pack.Perspective, Depth: depth,
@@ -189,25 +192,7 @@ func (s *Service) StartLesson(
 }
 
 func (s *Service) Resume(ctx context.Context) (*OpeningSessionView, error) {
-	if err := s.validate(); err != nil {
-		return nil, err
-	}
-	session, err := s.store.ResumableSession(ctx)
-	if err != nil || session == nil {
-		return nil, err
-	}
-	course, err := s.catalog.LoadGeneration(ctx, session.GenerationID)
-	if err != nil {
-		return nil, fmt.Errorf("load course generation for opening session: %w", err)
-	}
-	if session.Status == OpeningStatusPaused {
-		session.Status = OpeningStatusActive
-		if err := s.store.SaveSession(ctx, *session, s.now().UTC()); err != nil {
-			return nil, err
-		}
-	}
-	view, err := s.sessionView(course, *session)
-	return &view, err
+	return s.resume(ctx)
 }
 
 func (s *Service) Pause(ctx context.Context, sessionID string) error {
@@ -312,4 +297,12 @@ func lessonStepIDs(lesson Lesson) []string {
 
 func nextAttemptID() string {
 	return uuid.NewString()
+}
+
+func coursePromptFingerprints(course CompiledCourse) map[string]string {
+	fingerprints := make(map[string]string, len(course.Prompts))
+	for promptID, prompt := range course.Prompts {
+		fingerprints[promptID] = prompt.SemanticFingerprint
+	}
+	return fingerprints
 }

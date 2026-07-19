@@ -179,6 +179,7 @@ func TestOpenCreatesAndClosesAllStores(t *testing.T) {
 	}
 	if services.Catalog == nil || services.CoursesDB == nil ||
 		services.OpeningCatalog == nil || services.CourseImporter == nil ||
+		services.OpeningStore == nil || services.Openings == nil ||
 		services.ImportJobs == nil || services.Training == nil {
 		t.Fatal("core services were not composed")
 	}
@@ -207,7 +208,8 @@ func TestOpenQuarantinesCorruptReplaceableCourseStore(t *testing.T) {
 	}
 	defer services.Close()
 
-	if services.Catalog == nil || services.CoursesDB == nil || services.OpeningCatalog == nil {
+	if services.Catalog == nil || services.CoursesDB == nil || services.OpeningCatalog == nil ||
+		services.OpeningStore == nil || services.Openings == nil {
 		t.Fatal("normal services were not composed after course quarantine")
 	}
 	if !strings.HasPrefix(services.CourseNotice.QuarantinedPath, paths.CoursesDB+".quarantine-") {
@@ -215,6 +217,10 @@ func TestOpenQuarantinesCorruptReplaceableCourseStore(t *testing.T) {
 	}
 	if _, err := os.Stat(services.CourseNotice.QuarantinedPath); err != nil {
 		t.Fatalf("quarantined course database: %v", err)
+	}
+	home, err := services.Openings.Home(context.Background())
+	if err != nil || !strings.Contains(home.Notice, "Reimport") {
+		t.Fatalf("opening quarantine home = %+v err=%v", home, err)
 	}
 }
 

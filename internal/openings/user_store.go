@@ -49,6 +49,7 @@ type SessionState struct {
 	Retried            int       `json:"retried,omitempty"`
 	UsedHint           int       `json:"usedHint,omitempty"`
 	RevealedCount      int       `json:"revealedCount,omitempty"`
+	RestartStepIndex   *int      `json:"restartStepIndex,omitempty"`
 }
 
 type StoredSession struct {

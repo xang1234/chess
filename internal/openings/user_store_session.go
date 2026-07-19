@@ -238,6 +238,9 @@ func validateStoredSession(session StoredSession) error {
 	if session.StepIndex < 0 {
 		return errors.New("opening session step index cannot be negative")
 	}
+	if session.State.RestartStepIndex != nil && *session.State.RestartStepIndex < 0 {
+		return errors.New("opening restart step index cannot be negative")
+	}
 	return nil
 }
 

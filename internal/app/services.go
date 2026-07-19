@@ -31,6 +31,8 @@ type Services struct {
 	OpeningCatalog *openings.SQLiteCatalog
 	Importer       *puzzles.CollectionImporter
 	CourseImporter *openings.Importer
+	OpeningStore   *openings.UserStore
+	Openings       *openings.Service
 	ImportJobs     *importjob.Service
 	CourseNotice   storage.QuarantineNotice
 	UserStore      *training.UserStore
@@ -162,9 +164,17 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 	if services.CoursesDB != nil {
 		services.OpeningCatalog = openings.NewSQLiteCatalog(services.CoursesDB)
 		services.CourseImporter = openings.NewImporter(services.OpeningCatalog, rules)
+		services.OpeningStore = openings.NewUserStore(services.UserDB)
+		services.Openings = openings.NewService(
+			services.OpeningCatalog,
+			services.OpeningStore,
+			rules,
+			openingCourseNotice(services.CourseNotice),
+		)
 		importers = append(importers, services.CourseImporter)
-		maintenance = append(maintenance, unprotectedCourseMaintenance{
-			catalog: services.OpeningCatalog,
+		maintenance = append(maintenance, openings.SessionAwareMaintenance{
+			Catalog: services.OpeningCatalog,
+			Store:   services.OpeningStore,
 		})
 	}
 	services.ImportJobs = importjob.NewService(
@@ -287,15 +297,11 @@ func (group importMaintenance) CleanupBatch(ctx context.Context, limit int) (boo
 	return false, nil
 }
 
-type unprotectedCourseMaintenance struct {
-	catalog *openings.SQLiteCatalog
-}
-
-func (m unprotectedCourseMaintenance) CleanupBatch(
-	ctx context.Context,
-	limit int,
-) (bool, error) {
-	return m.catalog.CleanupBatch(ctx, map[string]struct{}{}, limit)
+func openingCourseNotice(notice storage.QuarantineNotice) string {
+	if notice.Detail == "" {
+		return ""
+	}
+	return "Private course storage was rebuilt. Reimport the private course pack."
 }
 
 func (s *Services) CreateBackup(

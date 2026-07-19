@@ -110,6 +110,69 @@ func TestUserStoreDepthAndSessionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestUserStoreRebasesSessionGenerationAndCheckpointExactly(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
+	store := NewUserStore(openOpeningUserTestDB(t))
+	session, err := store.CreateSession(ctx, openingSessionSeed(now), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := 1
+	previousGenerationID := session.GenerationID
+	session.GenerationID = "generation-2"
+	session.LessonID = "replacement-lesson"
+	session.Status = OpeningStatusRestartRequired
+	session.StepIndex = 2
+	session.State.RestartStepIndex = &checkpoint
+	if err := store.RebaseSession(ctx, previousGenerationID, session, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadSession(ctx, session.ID)
+	if err != nil || !reflect.DeepEqual(loaded, session) {
+		t.Fatalf("rebased session = %#v, want %#v, err=%v", loaded, session, err)
+	}
+	if err := store.RebaseSession(ctx, previousGenerationID, session, now.Add(2*time.Minute)); err == nil {
+		t.Fatal("rebase accepted a stale previous generation")
+	}
+}
+
+func TestUserStoreReconcileReviewsArchivesOnlyRemovedOrChangedPrompts(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
+	db := openOpeningUserTestDB(t)
+	store := NewUserStore(db)
+	for _, row := range []struct{ promptID, fingerprint string }{
+		{"unchanged", "same"}, {"changed", "old"}, {"removed", "gone"},
+	} {
+		if _, err := db.Exec(
+			`INSERT INTO opening_review_state(
+			 course_id, prompt_id, semantic_fingerprint, due_at, interval_index,
+			 successful_reviews, last_outcome, status
+			) VALUES ('italian-white', ?, ?, ?, 2, 3, 'clean', 'active')`,
+			row.promptID, row.fingerprint, now.UnixMilli(),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.ReconcileReviews(ctx, "italian-white", map[string]string{
+		"unchanged": "same", "changed": "new",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for promptID, want := range map[string]string{
+		"unchanged": "active", "changed": "archived", "removed": "archived",
+	} {
+		var status string
+		if err := db.QueryRow(
+			`SELECT status FROM opening_review_state WHERE course_id = 'italian-white' AND prompt_id = ?`,
+			promptID,
+		).Scan(&status); err != nil || status != want {
+			t.Fatalf("prompt %q status = %q, want %q, err=%v", promptID, status, want, err)
+		}
+	}
+}
+
 func TestOpeningLessonProgressProjectsStableStepIDs(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
