@@ -6,6 +6,10 @@ export function CancelImport(arg1) {
   return window['go']['main']['NormalController']['CancelImport'](arg1);
 }
 
+export function ChooseOpeningCourseFile() {
+  return window['go']['main']['NormalController']['ChooseOpeningCourseFile']();
+}
+
 export function ChoosePuzzleImportFile() {
   return window['go']['main']['NormalController']['ChoosePuzzleImportFile']();
 }
@@ -28,6 +32,10 @@ export function GetPracticeFilters() {
 
 export function GetProfile() {
   return window['go']['main']['NormalController']['GetProfile']();
+}
+
+export function InspectOpeningCourseImport(arg1) {
+  return window['go']['main']['NormalController']['InspectOpeningCourseImport'](arg1);
 }
 
 export function InspectPuzzleImport(arg1) {
@@ -68,6 +76,10 @@ export function StartFreePractice(arg1) {
 
 export function StartGuided() {
   return window['go']['main']['NormalController']['StartGuided']();
+}
+
+export function StartOpeningCourseImport(arg1) {
+  return window['go']['main']['NormalController']['StartOpeningCourseImport'](arg1);
 }
 
 export function StartPuzzleImport(arg1) {

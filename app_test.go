@@ -119,11 +119,86 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 	if _, err := app.StartPuzzleImport(puzzles.ImportInspection{}); err == nil {
 		t.Fatal("StartPuzzleImport() unexpectedly accepted an empty path")
 	}
+	if _, err := app.InspectOpeningCourseImport(""); err == nil {
+		t.Fatal("InspectOpeningCourseImport() unexpectedly accepted an empty path")
+	}
+	if _, err := app.StartOpeningCourseImport(puzzles.ImportInspection{}); err == nil {
+		t.Fatal("StartOpeningCourseImport() unexpectedly accepted an empty path")
+	}
 	if err := app.CancelImport("missing"); err == nil {
 		t.Fatal("CancelImport() unexpectedly accepted an unknown job")
 	}
 	if _, err := app.GetImportResult("missing"); err == nil {
 		t.Fatal("GetImportResult() unexpectedly accepted an unknown job")
+	}
+}
+
+func TestChooseOpeningCourseFileUsesDedicatedFilter(t *testing.T) {
+	dialogs := fakeNativeDialogs{
+		openPath: "/tmp/italian.ctcourse",
+		open: func(options runtime.OpenDialogOptions) {
+			if options.Title != "Choose an opening course" {
+				t.Fatalf("Title = %q", options.Title)
+			}
+			want := []runtime.FileFilter{{
+				DisplayName: "Opening course (*.ctcourse)", Pattern: "*.ctcourse",
+			}}
+			if len(options.Filters) != 1 || options.Filters[0] != want[0] {
+				t.Fatalf("Filters = %+v, want %+v", options.Filters, want)
+			}
+		},
+	}
+	path, err := (&NormalController{
+		actions: &controllerActions{ctx: context.Background(), dialogs: dialogs},
+	}).ChooseOpeningCourseFile()
+	if err != nil || path != "/tmp/italian.ctcourse" {
+		t.Fatalf("ChooseOpeningCourseFile() = %q, %v", path, err)
+	}
+}
+
+func TestOpeningCourseImportBindingsInspectAndStartConfirmedCourse(t *testing.T) {
+	services, err := appservices.Open(storage.PathsAt(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+	app := NewNormalController(services)
+	path := filepath.Join(t.TempDir(), "italian.ctcourse")
+	contents, err := os.ReadFile(filepath.Join("internal", "openings", "testdata", "mini.ctcourse"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	inspection, err := app.InspectOpeningCourseImport(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.Format != "coursepack" || inspection.SourceID != "synthetic-italian" {
+		t.Fatalf("course inspection = %+v", inspection)
+	}
+	jobID, err := app.StartOpeningCourseImport(inspection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		result, err := app.GetImportResult(jobID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != importjob.Running {
+			if result.Status != importjob.Succeeded || result.Report.Counts["moves"] != 10 {
+				t.Fatalf("course result = %+v", result)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("course import did not finish")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

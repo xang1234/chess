@@ -85,6 +85,15 @@ func (c *NormalController) ChoosePuzzleImportFile() (string, error) {
 	})
 }
 
+func (c *NormalController) ChooseOpeningCourseFile() (string, error) {
+	return c.actions.dialogs.OpenFileDialog(c.actions.ctx, runtime.OpenDialogOptions{
+		Title: "Choose an opening course",
+		Filters: []runtime.FileFilter{{
+			DisplayName: "Opening course (*.ctcourse)", Pattern: "*.ctcourse",
+		}},
+	})
+}
+
 func (c *NormalController) InspectPuzzleImport(path string) (puzzles.ImportInspection, error) {
 	return runNormalOperation(c, func() (puzzles.ImportInspection, error) {
 		return c.services.Importer.Inspect(c.actions.ctx, path)
@@ -92,6 +101,28 @@ func (c *NormalController) InspectPuzzleImport(path string) (puzzles.ImportInspe
 }
 
 func (c *NormalController) StartPuzzleImport(inspection puzzles.ImportInspection) (string, error) {
+	return c.startImport(inspection)
+}
+
+func (c *NormalController) InspectOpeningCourseImport(path string) (puzzles.ImportInspection, error) {
+	return runNormalOperation(c, func() (puzzles.ImportInspection, error) {
+		if c.services.CourseImporter == nil {
+			return puzzles.ImportInspection{}, fmt.Errorf(
+				"opening course imports are unavailable: %s",
+				c.services.CourseNotice.Detail,
+			)
+		}
+		return c.services.CourseImporter.Inspect(c.actions.ctx, path)
+	})
+}
+
+func (c *NormalController) StartOpeningCourseImport(
+	inspection puzzles.ImportInspection,
+) (string, error) {
+	return c.startImport(inspection)
+}
+
+func (c *NormalController) startImport(inspection puzzles.ImportInspection) (string, error) {
 	return runNormalOperation(c, func() (string, error) {
 		return c.services.ImportJobs.Start(c.actions.ctx, inspection)
 	})

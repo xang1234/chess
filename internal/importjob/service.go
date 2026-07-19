@@ -362,8 +362,9 @@ func cloneResult(result Result) Result {
 func cloneReport(report importing.Report) importing.Report {
 	report.Examples = append([]importing.Rejection(nil), report.Examples...)
 	if report.Counts != nil {
-		report.Counts = make(map[string]int64, len(report.Counts))
-		for key, value := range report.Counts {
+		counts := report.Counts
+		report.Counts = make(map[string]int64, len(counts))
+		for key, value := range counts {
 			report.Counts[key] = value
 		}
 	}

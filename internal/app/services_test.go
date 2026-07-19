@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"chess-trainer/internal/importjob"
+	"chess-trainer/internal/openings"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
 
@@ -170,12 +172,14 @@ func TestOpenCreatesAndClosesAllStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{paths.PuzzlesDB, paths.UserDB, paths.LibraryDB} {
+	for _, path := range []string{paths.PuzzlesDB, paths.CoursesDB, paths.UserDB, paths.LibraryDB} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("database %q: %v", path, err)
 		}
 	}
-	if services.Catalog == nil || services.ImportJobs == nil || services.Training == nil {
+	if services.Catalog == nil || services.CoursesDB == nil ||
+		services.OpeningCatalog == nil || services.CourseImporter == nil ||
+		services.ImportJobs == nil || services.Training == nil {
 		t.Fatal("core services were not composed")
 	}
 	if err := services.Close(); err != nil {
@@ -183,6 +187,68 @@ func TestOpenCreatesAndClosesAllStores(t *testing.T) {
 	}
 	if err := services.Close(); err != nil {
 		t.Fatalf("second Close()=%v", err)
+	}
+	if err := services.CoursesDB.Ping(); err == nil {
+		t.Fatal("course database remained open after close")
+	}
+}
+
+func TestOpenQuarantinesCorruptReplaceableCourseStore(t *testing.T) {
+	paths := storage.PathsAt(t.TempDir())
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.CoursesDB, []byte("not sqlite"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	services, err := Open(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+
+	if services.Catalog == nil || services.CoursesDB == nil || services.OpeningCatalog == nil {
+		t.Fatal("normal services were not composed after course quarantine")
+	}
+	if !strings.HasPrefix(services.CourseNotice.QuarantinedPath, paths.CoursesDB+".quarantine-") {
+		t.Fatalf("course notice = %+v", services.CourseNotice)
+	}
+	if _, err := os.Stat(services.CourseNotice.QuarantinedPath); err != nil {
+		t.Fatalf("quarantined course database: %v", err)
+	}
+}
+
+func TestOpenComposesCoursePackInSharedImportJobs(t *testing.T) {
+	services, err := Open(storage.PathsAt(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer services.Close()
+	path := filepath.Join(t.TempDir(), "italian.ctcourse")
+	contents, err := os.ReadFile(filepath.Join("..", "openings", "testdata", "mini.ctcourse"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := services.CourseImporter.Inspect(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.Format != openings.FormatCoursePack {
+		t.Fatalf("course inspection format = %q", inspection.Format)
+	}
+	jobID, err := services.ImportJobs.Start(context.Background(), inspection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := waitForServiceImportResult(t, services.ImportJobs, jobID)
+	if result.Status != importjob.Succeeded || result.Report.Counts["chapters"] != 3 {
+		t.Fatalf("course import result = %+v", result)
+	}
+	if _, err := services.OpeningCatalog.LoadActive(context.Background(), "synthetic-italian"); err != nil {
+		t.Fatal(err)
 	}
 }
 

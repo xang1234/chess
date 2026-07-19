@@ -13,6 +13,7 @@ import (
 	"chess-trainer/internal/backup"
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/importjob"
+	"chess-trainer/internal/openings"
 	"chess-trainer/internal/profile"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
@@ -20,25 +21,29 @@ import (
 )
 
 type Services struct {
-	Paths         storage.Paths
-	PuzzleStore   *storage.PuzzleStore
-	DataRootLock  *storage.DataRootLock
-	UserDB        *sql.DB
-	LibraryDB     *sql.DB
-	Catalog       *puzzles.SQLiteCatalog
-	Importer      *puzzles.CollectionImporter
-	ImportJobs    *importjob.Service
-	UserStore     *training.UserStore
-	Training      *training.Service
-	Profile       *profile.Service
-	backup        *backup.Service
-	quiesceOnce   sync.Once
-	quiesceResult error
-	closeOnce     sync.Once
-	closeResult   error
-	stateMu       sync.RWMutex
-	state         runtimeState
-	maintenanceMu sync.Mutex
+	Paths          storage.Paths
+	PuzzleStore    *storage.PuzzleStore
+	DataRootLock   *storage.DataRootLock
+	UserDB         *sql.DB
+	LibraryDB      *sql.DB
+	CoursesDB      *sql.DB
+	Catalog        *puzzles.SQLiteCatalog
+	OpeningCatalog *openings.SQLiteCatalog
+	Importer       *puzzles.CollectionImporter
+	CourseImporter *openings.Importer
+	ImportJobs     *importjob.Service
+	CourseNotice   storage.QuarantineNotice
+	UserStore      *training.UserStore
+	Training       *training.Service
+	Profile        *profile.Service
+	backup         *backup.Service
+	quiesceOnce    sync.Once
+	quiesceResult  error
+	closeOnce      sync.Once
+	closeResult    error
+	stateMu        sync.RWMutex
+	state          runtimeState
+	maintenanceMu  sync.Mutex
 }
 
 var ErrRuntimeUnavailable = errors.New("application services are unavailable until restart")
@@ -126,6 +131,17 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 	if err != nil {
 		return recoverFrom(paths.LibraryDB, err)
 	}
+	services.CoursesDB, services.CourseNotice, err = storage.OpenReplaceable(
+		paths.CoursesDB,
+		"courses",
+		time.Now,
+	)
+	if err != nil {
+		if services.CourseNotice.Detail == "" {
+			services.CourseNotice.Detail = err.Error()
+		}
+		services.CoursesDB = nil
+	}
 
 	rules := chessrules.Rules{}
 	services.Importer = &puzzles.CollectionImporter{
@@ -141,7 +157,21 @@ func OpenApplication(paths storage.Paths) (*Services, error) {
 		CatalogDirectory: filepath.Dir(paths.PuzzlesDB),
 		AvailableBytes:   storage.AvailableBytes,
 	}
-	services.ImportJobs = importjob.NewService(services.Importer, services.Catalog, nil)
+	importers := []importjob.Importer{services.Importer}
+	maintenance := importMaintenance{services.Catalog}
+	if services.CoursesDB != nil {
+		services.OpeningCatalog = openings.NewSQLiteCatalog(services.CoursesDB)
+		services.CourseImporter = openings.NewImporter(services.OpeningCatalog, rules)
+		importers = append(importers, services.CourseImporter)
+		maintenance = append(maintenance, unprotectedCourseMaintenance{
+			catalog: services.OpeningCatalog,
+		})
+	}
+	services.ImportJobs = importjob.NewService(
+		importjob.NewRouter(importers...),
+		maintenance,
+		nil,
+	)
 	services.UserStore = training.NewUserStore(services.UserDB)
 	services.Training = training.NewService(
 		services.Catalog,
@@ -231,7 +261,7 @@ func (s *Services) quiesceForRestore() error {
 		if s.PuzzleStore != nil {
 			closeErrors = append(closeErrors, s.PuzzleStore.Close())
 		}
-		for _, db := range []*sql.DB{s.LibraryDB, s.UserDB} {
+		for _, db := range []*sql.DB{s.CoursesDB, s.LibraryDB, s.UserDB} {
 			if db != nil {
 				closeErrors = append(closeErrors, db.Close())
 			}
@@ -240,6 +270,32 @@ func (s *Services) quiesceForRestore() error {
 		s.state = runtimeQuiesced
 	})
 	return s.quiesceResult
+}
+
+type importMaintenance []importjob.Maintenance
+
+func (group importMaintenance) CleanupBatch(ctx context.Context, limit int) (bool, error) {
+	for _, maintenance := range group {
+		if maintenance == nil {
+			continue
+		}
+		more, err := maintenance.CleanupBatch(ctx, limit)
+		if err != nil || more {
+			return more, err
+		}
+	}
+	return false, nil
+}
+
+type unprotectedCourseMaintenance struct {
+	catalog *openings.SQLiteCatalog
+}
+
+func (m unprotectedCourseMaintenance) CleanupBatch(
+	ctx context.Context,
+	limit int,
+) (bool, error) {
+	return m.catalog.CleanupBatch(ctx, map[string]struct{}{}, limit)
 }
 
 func (s *Services) CreateBackup(

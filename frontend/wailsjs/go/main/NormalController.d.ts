@@ -3,10 +3,12 @@
 import {importjob} from '../models';
 import {profile} from '../models';
 import {training} from '../models';
-import {puzzles} from '../models';
+import {importing} from '../models';
 import {domain} from '../models';
 
 export function CancelImport(arg1:string):Promise<void>;
+
+export function ChooseOpeningCourseFile():Promise<string>;
 
 export function ChoosePuzzleImportFile():Promise<string>;
 
@@ -20,7 +22,9 @@ export function GetPracticeFilters():Promise<profile.PracticeFilters>;
 
 export function GetProfile():Promise<training.Profile>;
 
-export function InspectPuzzleImport(arg1:string):Promise<puzzles.ImportInspection>;
+export function InspectOpeningCourseImport(arg1:string):Promise<importing.Inspection>;
+
+export function InspectPuzzleImport(arg1:string):Promise<importing.Inspection>;
 
 export function OpenDataFolder():Promise<void>;
 
@@ -40,7 +44,9 @@ export function StartFreePractice(arg1:training.PracticeRequest):Promise<domain.
 
 export function StartGuided():Promise<domain.SessionView>;
 
-export function StartPuzzleImport(arg1:puzzles.ImportInspection):Promise<string>;
+export function StartOpeningCourseImport(arg1:importing.Inspection):Promise<string>;
+
+export function StartPuzzleImport(arg1:importing.Inspection):Promise<string>;
 
 export function UpdateProfile(arg1:training.Profile):Promise<void>;
 

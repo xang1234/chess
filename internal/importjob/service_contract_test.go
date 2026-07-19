@@ -13,6 +13,9 @@ func TestCloneReportOwnsExamplesAndCounts(t *testing.T) {
 	}
 
 	cloned := cloneReport(original)
+	if cloned.Counts["chapters"] != 3 {
+		t.Fatalf("cloned counts = %+v, want chapters preserved", cloned.Counts)
+	}
 	cloned.Examples[0].Reason = "changed"
 	cloned.Counts["chapters"] = 99
 

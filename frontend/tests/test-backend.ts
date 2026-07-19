@@ -159,6 +159,7 @@ export async function installTestBackend(
     }
     const normalController: NormalControllerMock = {
       CancelImport: async () => {},
+      ChooseOpeningCourseFile: async () => '',
       ChoosePuzzleImportFile: async () => '',
       CreateBackup: async () => '',
       GetImportResult: async () => emptyImportResult,
@@ -171,6 +172,10 @@ export async function installTestBackend(
         learnerRatingBounds: { minimum: 800, maximum: 2200 }
       }),
       GetProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
+      InspectOpeningCourseImport: async () => ({
+        path: '', filename: '', format: 'coursepack', formatLabel: 'Opening course', sourceId: '',
+        sourceIdOrigin: 'embedded', replacesExisting: false
+      }),
       InspectPuzzleImport: async () => ({
         path: '', filename: '', format: 'tactical-pgn', formatLabel: 'Tactical PGN', sourceId: '',
         sourceIdOrigin: 'embedded', replacesExisting: false
@@ -184,6 +189,7 @@ export async function installTestBackend(
       RevealSolution: async () => { throw new Error('test backend has no reveal response') },
       StartFreePractice: async () => { throw new Error('test backend has no practice session') },
       StartGuided: async () => { throw new Error('test backend has no guided session') },
+      StartOpeningCourseImport: async () => 'unused',
       StartPuzzleImport: async () => 'unused',
       UpdateProfile: async () => {},
       UseHint: async () => { throw new Error('test backend has no hint response') }
