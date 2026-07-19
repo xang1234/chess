@@ -488,6 +488,29 @@ func generationPlaceholders(count int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
 }
 
+const activeSourceSummariesSQL = `SELECT head.source_id,
+	        source.kind,
+	        (SELECT rated.rating_key
+	         FROM occurrence_ratings AS rated
+	         WHERE rated.generation_id = head.generation_id
+	           AND rated.rating_key <> ?
+	         ORDER BY rated.rating_key, rated.fingerprint
+	         LIMIT 1),
+	        (SELECT rated.rating_key
+	         FROM occurrence_ratings AS rated
+	         WHERE rated.generation_id = head.generation_id
+	           AND rated.rating_key <> ?
+	         ORDER BY rated.rating_key DESC, rated.fingerprint DESC
+	         LIMIT 1),
+	        generation.maximum_solution_plies
+	 FROM source_heads AS head
+	 JOIN source_generations AS generation
+	   ON generation.source_id = head.source_id
+	  AND generation.generation_id = head.generation_id
+	 JOIN sources AS source ON source.source_id = head.source_id
+	 WHERE generation.status = 'sealed'
+	 ORDER BY head.source_id`
+
 func (c *SQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSummary, error) {
 	tx, err := c.readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -496,32 +519,7 @@ func (c *SQLiteCatalog) ActiveSourceSummaries(ctx context.Context) ([]SourceSumm
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(
 		ctx,
-		`SELECT head.source_id,
-		        source.kind,
-		        (SELECT rated.rating_key
-		         FROM occurrence_ratings AS rated
-		         WHERE rated.generation_id = head.generation_id
-		           AND rated.rating_key <> ?
-		         ORDER BY rated.rating_key, rated.fingerprint
-		         LIMIT 1),
-		        (SELECT rated.rating_key
-		         FROM occurrence_ratings AS rated
-		         WHERE rated.generation_id = head.generation_id
-		           AND rated.rating_key <> ?
-		         ORDER BY rated.rating_key DESC, rated.fingerprint DESC
-		         LIMIT 1),
-		        COALESCE(MAX(core.solution_plies), 0)
-		 FROM source_heads head
-		 JOIN source_generations generation
-		   ON generation.source_id = head.source_id
-		  AND generation.generation_id = head.generation_id
-		 JOIN sources source ON source.source_id = head.source_id
-		 LEFT JOIN puzzle_occurrences occurrence
-		   ON occurrence.generation_id = head.generation_id
-		 LEFT JOIN puzzle_cores core ON core.fingerprint = occurrence.fingerprint
-		 WHERE generation.status = 'sealed'
-		 GROUP BY head.source_id, source.kind
-		 ORDER BY head.source_id`,
+		activeSourceSummariesSQL,
 		nullPuzzleRatingKey,
 		nullPuzzleRatingKey,
 	)

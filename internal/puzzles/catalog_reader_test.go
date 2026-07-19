@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -348,8 +349,46 @@ func TestActiveSourceSummaryRatingBoundsUseOrderedMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(summaries) != 1 || summaries[0].MinimumRating == nil || summaries[0].MaximumRating == nil ||
-		*summaries[0].MinimumRating != 1500 || *summaries[0].MaximumRating != 1500 {
+		*summaries[0].MinimumRating != 1500 || *summaries[0].MaximumRating != 1500 ||
+		summaries[0].MaximumSolutionPlies != 1 {
 		t.Fatalf("active summaries = %+v, want bounds from ordered rating membership", summaries)
+	}
+}
+
+func TestActiveSourceSummaryPlanDoesNotVisitOccurrenceOrCoreRows(t *testing.T) {
+	_, store := openTestGenerationalCatalog(t)
+	rows, err := store.Reader.Query(
+		`EXPLAIN QUERY PLAN `+activeSourceSummariesSQL,
+		nullPuzzleRatingKey,
+		nullPuzzleRatingKey,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var details []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		details = append(details, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	plan := strings.ToLower(strings.Join(details, "\n"))
+	for _, forbidden := range []string{
+		"scan occurrence ",
+		"search occurrence ",
+		"scan core ",
+		"search core ",
+		"temp b-tree for group by",
+	} {
+		if strings.Contains(plan, forbidden) {
+			t.Fatalf("source summary plan contains %q:\n%s", forbidden, plan)
+		}
 	}
 }
 
@@ -838,6 +877,10 @@ func seedActiveReaderGeneration(
 	t.Helper()
 	ctx := context.Background()
 	generationID := source.ID + "-reader-generation"
+	maximumSolutionPlies := 0
+	for _, puzzle := range puzzles {
+		maximumSolutionPlies = max(maximumSolutionPlies, puzzle.Core.SolutionPlies)
+	}
 	tx, err := store.Writer.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -847,9 +890,11 @@ func seedActiveReaderGeneration(
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO source_generations(
-		generation_id, source_id, status, source_path, checksum, started_at, sealed_at
-	) VALUES (?, ?, 'sealed', ?, 'reader-fixture', ?, ?)`,
-		generationID, source.ID, source.Path, source.StartedAt.Unix(), source.StartedAt.Unix()); err != nil {
+		generation_id, source_id, status, source_path, checksum, started_at, sealed_at,
+		maximum_solution_plies
+	) VALUES (?, ?, 'sealed', ?, 'reader-fixture', ?, ?, ?)`,
+		generationID, source.ID, source.Path, source.StartedAt.Unix(), source.StartedAt.Unix(),
+		maximumSolutionPlies); err != nil {
 		t.Fatal(err)
 	}
 	for _, puzzle := range puzzles {

@@ -104,6 +104,41 @@ func TestActiveCandidateQueryCompletesWithin250Milliseconds(t *testing.T) {
 	t.Logf("candidate_elapsed=%s active_occurrences=%d returned=%d", elapsed, syntheticPerformanceRows, len(candidates))
 }
 
+func TestActiveSourceSummariesCompleteWithin250Milliseconds(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	ctx := context.Background()
+	source := testSource("summary-performance", "synthetic", "/summary-performance")
+	active, _ := seedSyntheticSealedGeneration(
+		t,
+		catalog,
+		store,
+		source,
+		"summary-performance",
+		syntheticPerformanceRows,
+	)
+	if err := active.Activate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	warmPuzzleReadPool(t, store.Reader)
+	if _, err := catalog.ActiveSourceSummaries(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	summaries, err := catalog.ActiveSourceSummaries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(started)
+	if elapsed >= 250*time.Millisecond {
+		t.Fatalf("active source summaries took %s, want less than 250ms", elapsed)
+	}
+	if len(summaries) != 1 || summaries[0].MaximumSolutionPlies != 1 {
+		t.Fatalf("summaries = %+v, want one source with maximum 1", summaries)
+	}
+	t.Logf("source_summary_elapsed=%s active_occurrences=%d", elapsed, syntheticPerformanceRows)
+}
+
 func TestRatedCandidateLimitAvoidsRankingWholeGeneration(t *testing.T) {
 	catalog, store := openTestGenerationalCatalog(t)
 	ctx := context.Background()
@@ -248,7 +283,7 @@ func seedSyntheticSealedGeneration(
 	if _, err := tx.ExecContext(
 		ctx,
 		`UPDATE source_generations
-		 SET status = 'sealed', checksum = ?, sealed_at = ?
+		 SET status = 'sealed', checksum = ?, sealed_at = ?, maximum_solution_plies = 1
 		 WHERE generation_id = ? AND status = 'building'`,
 		fmt.Sprintf("synthetic-%s", fingerprintPrefix),
 		time.Now().Unix(),
