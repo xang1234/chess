@@ -148,6 +148,61 @@ func (s *Service) SetDepth(ctx context.Context, courseID string, depth Depth) er
 	return s.store.SetDepth(ctx, courseID, depth, s.now().UTC())
 }
 
+func (s *Service) Explore(
+	ctx context.Context,
+	courseID string,
+	positionID string,
+	depth Depth,
+) (ExplorerPositionView, error) {
+	if err := s.validate(); err != nil {
+		return ExplorerPositionView{}, err
+	}
+	if _, ok := depthRank(depth); !ok {
+		return ExplorerPositionView{}, fmt.Errorf("invalid opening depth %q", depth)
+	}
+	course, err := s.catalog.LoadActive(ctx, courseID)
+	if err != nil {
+		return ExplorerPositionView{}, fmt.Errorf("load opening course %q: %w", courseID, err)
+	}
+	position, exists := course.Positions[positionID]
+	if !exists {
+		return ExplorerPositionView{}, fmt.Errorf(
+			"opening position %q was not found in course %q", positionID, courseID,
+		)
+	}
+	view := ExplorerPositionView{
+		CourseID: courseID, PositionID: positionID, FEN: position.FEN,
+		Label: position.Label, Evaluation: position.Evaluation,
+		Notes: []NoteView{}, Moves: []ExplorerMove{},
+	}
+	for _, noteID := range position.NoteIDs {
+		note, exists := course.Notes[noteID]
+		if !exists {
+			return ExplorerPositionView{}, fmt.Errorf(
+				"opening position %q references missing note %q", positionID, noteID,
+			)
+		}
+		view.Notes = append(view.Notes, NoteView{
+			Kind: note.Kind, Text: note.Text, SourceRef: note.SourceRef,
+		})
+	}
+	for _, move := range course.VisibleMoves(positionID, depth) {
+		view.Moves = append(view.Moves, ExplorerMove{
+			MoveID: move.MoveID, UCI: move.UCI, SAN: move.SAN,
+			ToPositionID: move.ToPositionID, Role: move.TrainingRole,
+			VariationName: move.VariationName, Evaluation: move.Evaluation,
+			SourceRef: move.SourceRef,
+		})
+	}
+	for _, moveID := range course.Incoming[positionID] {
+		move, exists := course.Moves[moveID]
+		if exists && visibleAtDepth(move.MinimumDepth, depth) {
+			view.IncomingPaths++
+		}
+	}
+	return view, nil
+}
+
 func (s *Service) StartLesson(
 	ctx context.Context,
 	courseID string,

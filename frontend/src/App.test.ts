@@ -177,6 +177,34 @@ test('opens the course hub and starts a visible opening lesson', async () => {
   expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
 })
 
+test('opens the read-only variation explorer at the course depth', async () => {
+  const getOpeningPosition = vi.fn(async (courseId: string, positionId: string) => ({
+    courseId,
+    positionId,
+    fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    label: 'Initial position',
+    evaluation: { code: 'none' as const },
+    notes: [],
+    moves: [],
+    incomingPaths: 0
+  }))
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    getOpeningHome: async () => fakeOpeningHome,
+    getOpeningPosition
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Explore variations' }))
+
+  expect(await screen.findByRole('heading', { name: 'Variation explorer' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Initial position' })).toBeInTheDocument()
+  expect(getOpeningPosition).toHaveBeenCalledWith(
+    'synthetic-italian', 'initial', 'reference'
+  )
+})
+
 function interactiveOpening(): ActiveOpeningSessionView {
   return {
     ...fakeOpeningSession,

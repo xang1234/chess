@@ -100,3 +100,31 @@ type OpeningHintResult struct {
 	TargetSquare string             `json:"targetSquare,omitempty"`
 	CanReveal    bool               `json:"canReveal"`
 }
+
+type ExplorerMove struct {
+	MoveID        string       `json:"moveId"`
+	UCI           string       `json:"uci"`
+	SAN           string       `json:"san"`
+	ToPositionID  string       `json:"toPositionId"`
+	Role          TrainingRole `json:"role"`
+	VariationName string       `json:"variationName,omitempty"`
+	Evaluation    Evaluation   `json:"evaluation"`
+	SourceRef     SourceRef    `json:"sourceRef"`
+}
+
+type NoteView struct {
+	Kind      string    `json:"kind"`
+	Text      string    `json:"text"`
+	SourceRef SourceRef `json:"sourceRef"`
+}
+
+type ExplorerPositionView struct {
+	CourseID      string         `json:"courseId"`
+	PositionID    string         `json:"positionId"`
+	FEN           string         `json:"fen"`
+	Label         string         `json:"label"`
+	Evaluation    Evaluation     `json:"evaluation"`
+	Notes         []NoteView     `json:"notes"`
+	Moves         []ExplorerMove `json:"moves"`
+	IncomingPaths int            `json:"incomingPaths"`
+}

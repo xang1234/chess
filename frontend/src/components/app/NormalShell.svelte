@@ -16,6 +16,7 @@
   import AboutLegal from '../legal/AboutLegal.svelte'
   import OpeningHub from '../openings/OpeningHub.svelte'
   import OpeningLessonScreen from '../openings/OpeningLessonScreen.svelte'
+  import VariationExplorer from '../openings/VariationExplorer.svelte'
   import InitialSetup from '../parent/InitialSetup.svelte'
   import ParentDashboard from '../parent/ParentDashboard.svelte'
   import FreePractice from '../practice/FreePractice.svelte'
@@ -33,6 +34,7 @@
   let deferredOpeningSession: OpeningSessionView | null = null
   let explorerCourseId = ''
   let explorerPositionId = ''
+  let explorerDepth: OpeningDepth = 'reference'
   let error = ''
   const puzzleImportSession = createImportSession(() => api, 'puzzle')
   const courseImportSession = createImportSession(() => api, 'course')
@@ -242,6 +244,9 @@
   ): void {
     explorerCourseId = event.detail.courseId
     explorerPositionId = event.detail.positionId
+    explorerDepth = openingHome.courses.find(
+      (course) => course.courseId === event.detail.courseId
+    )?.depth ?? 'reference'
     screen.set('opening-explorer')
   }
 </script>
@@ -296,12 +301,12 @@
         on:home={leaveOpeningLesson}
       />
     {:else if $screen === 'opening-explorer'}
-      <section class="panel placeholder-panel">
-        <p class="eyebrow">Opening course</p>
-        <h2>Variation explorer</h2>
-        <p>Course {explorerCourseId}, position {explorerPositionId}</p>
-        <button class="secondary" type="button" on:click={() => screen.set('openings')}>Back to course</button>
-      </section>
+      <VariationExplorer
+        courseId={explorerCourseId}
+        rootPositionId={explorerPositionId}
+        depth={explorerDepth}
+        on:back={() => screen.set('openings')}
+      />
     {:else if $screen === 'legal'}
       <AboutLegal {buildInfo} on:back={goHome} />
     {:else if $screen === 'import'}

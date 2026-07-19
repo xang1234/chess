@@ -30,6 +30,10 @@ export function GetOpeningHome() {
   return window['go']['main']['NormalController']['GetOpeningHome']();
 }
 
+export function GetOpeningPosition(arg1, arg2, arg3) {
+  return window['go']['main']['NormalController']['GetOpeningPosition'](arg1, arg2, arg3);
+}
+
 export function GetParentSummary() {
   return window['go']['main']['NormalController']['GetParentSummary']();
 }

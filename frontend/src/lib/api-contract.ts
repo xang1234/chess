@@ -98,6 +98,16 @@ export type OpeningStepKind = 'explain' | 'watch' | 'try' | 'branch' | 'recall'
 export type OpeningMoveFeedback = 'expected' | 'alternative' | 'off_course'
 export type OpeningSessionMode = 'lesson' | 'review'
 export type OpeningSessionStatus = 'active' | 'completed' | 'restart_required'
+export { decodeOpeningPosition } from './opening-explorer-contract'
+export type {
+  OpeningEvaluation,
+  OpeningEvaluationCode,
+  OpeningExplorerMove,
+  OpeningNoteView,
+  OpeningPositionView,
+  OpeningSourceRef,
+  OpeningTrainingRole
+} from './opening-explorer-contract'
 
 export type OpeningLessonSummary = {
   lessonId: string

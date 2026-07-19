@@ -123,6 +123,9 @@ func TestNormalControllerRejectsOperationsAfterServicesClose(t *testing.T) {
 	if _, err := controller.GetOpeningHome(); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
 		t.Fatalf("GetOpeningHome() after close = %v, want runtime unavailable", err)
 	}
+	if _, err := controller.GetOpeningPosition("course", "position", openings.DepthReference); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
+		t.Fatalf("GetOpeningPosition() after close = %v, want runtime unavailable", err)
+	}
 	if err := controller.RestoreBackup("/missing.zip"); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
 		t.Fatalf("RestoreBackup() after close = %v, want runtime unavailable", err)
 	}
@@ -161,6 +164,12 @@ func TestNormalControllerOpeningBindingsDelegateThroughOpeningService(t *testing
 	}
 	if err := controller.SetOpeningDepth(pack.CourseID, openings.DepthReference); err != nil {
 		t.Fatal(err)
+	}
+	position, err := controller.GetOpeningPosition(
+		pack.CourseID, pack.RootPositionID, openings.DepthReference,
+	)
+	if err != nil || position.PositionID != pack.RootPositionID || len(position.Moves) == 0 {
+		t.Fatalf("GetOpeningPosition() = %+v err=%v", position, err)
 	}
 	session, err := controller.StartOpeningLesson(pack.CourseID, "giuoco-c3")
 	if err != nil || session.Current == nil || session.Current.Kind != openings.StepExplain {
@@ -235,6 +244,10 @@ func TestNormalControllerOpeningBindingsReturnStableUnavailableError(t *testing.
 	}
 	if !strings.Contains(err.Error(), "Reimport") {
 		t.Fatalf("unavailable error = %v", err)
+	}
+	_, err = controller.GetOpeningPosition("course", "position", openings.DepthReference)
+	if err == nil || err.Error() != "Opening courses are unavailable. Reimport the private course pack." {
+		t.Fatalf("GetOpeningPosition() error = %v", err)
 	}
 }
 

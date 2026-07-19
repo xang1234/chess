@@ -11,6 +11,7 @@ import {
   decodeImportResult,
   decodeOpeningHintResult,
   decodeOpeningHome,
+  decodeOpeningPosition,
   decodeOpeningSession,
   decodeOpeningStepResult
 } from './api-contract'
@@ -32,6 +33,7 @@ const production = vi.hoisted(() => ({
   playMove: vi.fn(),
   pauseSession: vi.fn(),
   getOpeningHome: vi.fn(),
+  getOpeningPosition: vi.fn(),
   setOpeningDepth: vi.fn(),
   startOpeningLesson: vi.fn(),
   resumeOpeningSession: vi.fn(),
@@ -65,6 +67,7 @@ vi.mock('../../wailsjs/go/main/NormalController', () => ({
   PlayMove: production.playMove,
   PauseSession: production.pauseSession,
   GetOpeningHome: production.getOpeningHome,
+  GetOpeningPosition: production.getOpeningPosition,
   SetOpeningDepth: production.setOpeningDepth,
   StartOpeningLesson: production.startOpeningLesson,
   ResumeOpeningSession: production.resumeOpeningSession,
@@ -134,6 +137,52 @@ const activeOpeningPayload = {
   depth: 'reference',
   current: openingStepPayload
 }
+
+const openingPositionPayload = {
+  courseId: 'italian-white',
+  positionId: 'after-bc5',
+  fen: 'opening-fen',
+  label: 'Giuoco Piano',
+  evaluation: { code: 'equal', sourceSymbol: '=' },
+  notes: [{
+    kind: 'overview',
+    text: 'Prepare the centre.',
+    sourceRef: { printedPage: 18, noteLabel: 'a', coverageId: 'p18-a' }
+  }],
+  moves: [{
+    moveId: 'white-c3',
+    uci: 'c2c3',
+    san: 'c3',
+    toPositionId: 'after-c3',
+    role: 'repertoire',
+    variationName: 'Giuoco Piano',
+    evaluation: { code: 'white_slight', sourceSymbol: '+=' },
+    sourceRef: { printedPage: 18, tableColumn: 'I', coverageId: 'p18-c3' }
+  }],
+  incomingPaths: 2
+}
+
+test('strictly decodes opening explorer positions, notes, sources, and moves', () => {
+  expect(decodeOpeningPosition(openingPositionPayload)).toEqual(openingPositionPayload)
+})
+
+test.each([
+  ['role', { ...openingPositionPayload, moves: [{ ...openingPositionPayload.moves[0], role: 'primary' }] }],
+  ['evaluation', { ...openingPositionPayload, evaluation: { code: 'edge' } }],
+  ['source', {
+    ...openingPositionPayload,
+    moves: [{ ...openingPositionPayload.moves[0], sourceRef: { printedPage: 0, coverageId: 'bad' } }]
+  }],
+  ['coverageId', {
+    ...openingPositionPayload,
+    notes: [{ ...openingPositionPayload.notes[0], sourceRef: { printedPage: 18 } }]
+  }],
+  ['notes', { ...openingPositionPayload, notes: null }],
+  ['san', { ...openingPositionPayload, moves: [{ ...openingPositionPayload.moves[0], san: 3 }] }],
+  ['incomingPaths', { ...openingPositionPayload, incomingPaths: -1 }]
+])('opening explorer decoder rejects malformed %s data', (_field, value) => {
+  expect(() => decodeOpeningPosition(value)).toThrow()
+})
 
 test('strictly decodes the opening home hierarchy', () => {
   expect(decodeOpeningHome({
@@ -359,11 +408,16 @@ test('preview API exposes an original guided opening lesson', async () => {
   const expected = await application.api.playOpeningMove(started.sessionId, 'c2c3')
   expect(expected).toMatchObject({ feedback: 'expected', stepCompleted: true })
   expect(expected.finalFen).toBe(expected.appliedMoves?.[0].resultingFen)
+  const position = await application.api.getOpeningPosition(
+    'synthetic-italian', 'initial', 'reference'
+  )
+  expect(position).toMatchObject({ positionId: 'initial', moves: [{ san: 'e4' }] })
 })
 
 test('production opening adapters decode every returned boundary', async () => {
   enableProduction()
   production.getOpeningHome.mockResolvedValue({ courses: [] })
+  production.getOpeningPosition.mockResolvedValue(openingPositionPayload)
   production.startOpeningLesson.mockResolvedValue(activeOpeningPayload)
   production.resumeOpeningSession.mockResolvedValue(activeOpeningPayload)
   production.playOpeningMove.mockResolvedValue({
@@ -377,6 +431,8 @@ test('production opening adapters decode every returned boundary', async () => {
   const application = await (await import('./api')).loadApplicationAPI()
   if (application.mode !== 'normal') throw new Error('expected normal production API')
   await expect(application.api.getOpeningHome()).resolves.toEqual({ courses: [] })
+  await expect(application.api.getOpeningPosition('italian-white', 'after-bc5', 'reference'))
+    .resolves.toEqual(openingPositionPayload)
   await expect(application.api.startOpeningLesson('italian-white', 'giuoco-c3')).resolves
     .toMatchObject({ status: 'active', current: { kind: 'try' } })
   await expect(application.api.resumeOpeningSession()).resolves
@@ -384,6 +440,9 @@ test('production opening adapters decode every returned boundary', async () => {
   await expect(application.api.playOpeningMove('opening-session', 'c2c3')).resolves
     .toMatchObject({ feedback: 'expected', finalFen: 'after-c3' })
   expect(production.playOpeningMove).toHaveBeenCalledWith('opening-session', 'c2c3')
+  expect(production.getOpeningPosition).toHaveBeenCalledWith(
+    'italian-white', 'after-bc5', 'reference'
+  )
 })
 
 test('production adaptation preserves authoritative board fields exactly', async () => {

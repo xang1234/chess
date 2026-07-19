@@ -12,6 +12,7 @@ import {
   decodeMoveResult,
   decodeOpeningHintResult,
   decodeOpeningHome,
+  decodeOpeningPosition,
   decodeOpeningSession,
   decodeOpeningStepResult,
   decodeParentSummary,
@@ -33,6 +34,7 @@ import {
   type OpeningDepth,
   type OpeningHintResult,
   type OpeningHomeView,
+  type OpeningPositionView,
   type OpeningSessionView,
   type OpeningStepResult,
   type OpeningStepView,
@@ -77,6 +79,11 @@ export type {
   OpeningHomeView,
   OpeningLessonSummary,
   OpeningMoveFeedback,
+  OpeningEvaluation,
+  OpeningEvaluationCode,
+  OpeningExplorerMove,
+  OpeningNoteView,
+  OpeningPositionView,
   OpeningPerspective,
   OpeningSessionMode,
   OpeningSessionStatus,
@@ -85,6 +92,8 @@ export type {
   OpeningStepResult,
   OpeningStepView,
   OpeningSummary,
+  OpeningSourceRef,
+  OpeningTrainingRole,
   RestartRequiredOpeningSessionView,
   ParentSummary,
   PracticeFilters,
@@ -127,6 +136,7 @@ export interface NormalAPI extends BackupAPI {
   revealSolution(sessionId: string): Promise<MoveResult>
   pauseSession(sessionId: string): Promise<void>
   getOpeningHome(): Promise<OpeningHomeView>
+  getOpeningPosition(courseId: string, positionId: string, depth: OpeningDepth): Promise<OpeningPositionView>
   setOpeningDepth(courseId: string, depth: OpeningDepth): Promise<void>
   startOpeningLesson(courseId: string, lessonId: string): Promise<OpeningSessionView>
   resumeOpeningSession(): Promise<OpeningSessionView | null>
@@ -183,6 +193,9 @@ const productionNormalAPI: NormalAPI = {
   revealSolution: async (sessionId) => decodeMoveResult(await Normal.RevealSolution(sessionId)),
   pauseSession: Normal.PauseSession,
   getOpeningHome: async () => decodeOpeningHome(await Normal.GetOpeningHome()),
+  getOpeningPosition: async (courseId, positionId, depth) => decodeOpeningPosition(
+    await Normal.GetOpeningPosition(courseId, positionId, depth)
+  ),
   setOpeningDepth: Normal.SetOpeningDepth,
   startOpeningLesson: async (courseId, lessonId) => decodeOpeningSession(
     await Normal.StartOpeningLesson(courseId, lessonId)
@@ -531,6 +544,41 @@ const previewNormalAPI: NormalAPI = {
   revealSolution: async () => completePreviewPuzzle(),
   pauseSession: async () => {},
   getOpeningHome: async () => structuredClone(previewOpeningHome()),
+  getOpeningPosition: async (courseId, positionId, _depth) => {
+    if (courseId !== 'synthetic-italian') throw new Error('preview opening course was not found')
+    if (positionId === 'initial') {
+      return {
+        courseId,
+        positionId,
+        fen: previewOpeningFens.initial,
+        label: 'Initial position',
+        evaluation: { code: 'none' },
+        notes: [],
+        moves: [{
+          moveId: 'white-e4', uci: 'e2e4', san: 'e4', toPositionId: 'after-e4',
+          role: 'repertoire', variationName: 'Italian setup', evaluation: { code: 'equal' },
+          sourceRef: { printedPage: 1, coverageId: 'p1-e4' }
+        }],
+        incomingPaths: 0
+      }
+    }
+    if (positionId === 'after-e4') {
+      return {
+        courseId,
+        positionId,
+        fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+        label: 'King pawn opening',
+        evaluation: { code: 'equal' },
+        notes: [{
+          kind: 'overview', text: 'Black meets the centre directly.',
+          sourceRef: { printedPage: 1, noteLabel: 'overview', coverageId: 'p1-overview' }
+        }],
+        moves: [],
+        incomingPaths: 1
+      }
+    }
+    throw new Error(`preview opening position ${positionId} was not found`)
+  },
   setOpeningDepth: async (_courseId, depth) => { previewOpeningDepth = depth },
   startOpeningLesson: async () => {
     previewOpeningStepIndex = 0

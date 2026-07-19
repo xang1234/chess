@@ -193,6 +193,20 @@ func (c *NormalController) GetOpeningHome() (openings.OpeningHomeView, error) {
 	})
 }
 
+func (c *NormalController) GetOpeningPosition(
+	courseID string,
+	positionID string,
+	depth openings.Depth,
+) (openings.ExplorerPositionView, error) {
+	return runNormalOperation(c, func() (openings.ExplorerPositionView, error) {
+		service, err := c.openingService()
+		if err != nil {
+			return openings.ExplorerPositionView{}, err
+		}
+		return service.Explore(c.actions.ctx, courseID, positionID, depth)
+	})
+}
+
 func (c *NormalController) SetOpeningDepth(courseID string, depth openings.Depth) error {
 	return runNormalAction(c, func() error {
 		service, err := c.openingService()

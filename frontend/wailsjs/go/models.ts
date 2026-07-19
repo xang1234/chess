@@ -391,6 +391,161 @@ export namespace main {
 
 export namespace openings {
 
+	export class Evaluation {
+	    code: string;
+	    sourceSymbol?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Evaluation(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.sourceSymbol = source["sourceSymbol"];
+	    }
+	}
+	export class SourceRef {
+	    printedPage: number;
+	    tableColumn?: string;
+	    noteLabel?: string;
+	    coverageId: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SourceRef(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.printedPage = source["printedPage"];
+	        this.tableColumn = source["tableColumn"];
+	        this.noteLabel = source["noteLabel"];
+	        this.coverageId = source["coverageId"];
+	    }
+	}
+	export class ExplorerMove {
+	    moveId: string;
+	    uci: string;
+	    san: string;
+	    toPositionId: string;
+	    role: string;
+	    variationName?: string;
+	    evaluation: Evaluation;
+	    sourceRef: SourceRef;
+
+	    static createFrom(source: any = {}) {
+	        return new ExplorerMove(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.moveId = source["moveId"];
+	        this.uci = source["uci"];
+	        this.san = source["san"];
+	        this.toPositionId = source["toPositionId"];
+	        this.role = source["role"];
+	        this.variationName = source["variationName"];
+	        this.evaluation = this.convertValues(source["evaluation"], Evaluation);
+	        this.sourceRef = this.convertValues(source["sourceRef"], SourceRef);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class NoteView {
+	    kind: string;
+	    text: string;
+	    sourceRef: SourceRef;
+
+	    static createFrom(source: any = {}) {
+	        return new NoteView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.text = source["text"];
+	        this.sourceRef = this.convertValues(source["sourceRef"], SourceRef);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExplorerPositionView {
+	    courseId: string;
+	    positionId: string;
+	    fen: string;
+	    label: string;
+	    evaluation: Evaluation;
+	    notes: NoteView[];
+	    moves: ExplorerMove[];
+	    incomingPaths: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ExplorerPositionView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.courseId = source["courseId"];
+	        this.positionId = source["positionId"];
+	        this.fen = source["fen"];
+	        this.label = source["label"];
+	        this.evaluation = this.convertValues(source["evaluation"], Evaluation);
+	        this.notes = this.convertValues(source["notes"], NoteView);
+	        this.moves = this.convertValues(source["moves"], ExplorerMove);
+	        this.incomingPaths = source["incomingPaths"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
 	export class OpeningLessonSummary {
 	    lessonId: string;
 	    title: string;
@@ -719,6 +874,7 @@ export namespace openings {
 		    return a;
 		}
 	}
+
 
 
 }

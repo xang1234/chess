@@ -21,6 +21,8 @@ export function GetImportResult(arg1:string):Promise<importjob.Result>;
 
 export function GetOpeningHome():Promise<openings.OpeningHomeView>;
 
+export function GetOpeningPosition(arg1:string,arg2:string,arg3:openings.Depth):Promise<openings.ExplorerPositionView>;
+
 export function GetParentSummary():Promise<profile.Summary>;
 
 export function GetPracticeFilters():Promise<profile.PracticeFilters>;

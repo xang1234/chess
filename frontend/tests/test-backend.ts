@@ -170,6 +170,16 @@ export async function installTestBackend(
       CreateBackup: async () => '',
       GetImportResult: async () => emptyImportResult,
       GetOpeningHome: async () => ({ courses: [] }),
+      GetOpeningPosition: async (courseId: string, positionId: string) => ({
+        courseId,
+        positionId,
+        fen: '8/8/8/8/8/8/8/8 w - - 0 1',
+        label: 'Test position',
+        evaluation: { code: 'none' },
+        notes: [],
+        moves: [],
+        incomingPaths: 0
+      }),
       GetParentSummary: async () => ({
         learnerRating: 1200, ratingTrend: [], firstAttemptAccuracy: 0, hintRate: 0,
         dueReviews: 0, themePerformance: [], recentSessions: []

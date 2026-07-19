@@ -125,6 +125,25 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
     }),
     pauseSession: async () => {},
     getOpeningHome: async () => fakeOpeningHome,
+    getOpeningPosition: async (courseId, positionId) => ({
+      courseId,
+      positionId,
+      fen: fakeStartingFen,
+      label: 'Initial position',
+      evaluation: { code: 'none' },
+      notes: [],
+      moves: [{
+        moveId: 'white-e4',
+        uci: 'e2e4',
+        san: 'e4',
+        toPositionId: 'after-e4',
+        role: 'repertoire',
+        variationName: 'Italian setup',
+        evaluation: { code: 'equal' },
+        sourceRef: { printedPage: 1, coverageId: 'p1-e4' }
+      }],
+      incomingPaths: 0
+    }),
     setOpeningDepth: async () => {},
     startOpeningLesson: async () => fakeOpeningSession,
     resumeOpeningSession: async () => null,
