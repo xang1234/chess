@@ -141,9 +141,11 @@ const importFormats = [
   'tactical-pgn',
   'canonical-json',
   'lucas-fns',
-  'linear-fen-uci'
+  'linear-fen-uci',
+  'coursepack'
 ] as const
 export type ImportFormat = typeof importFormats[number]
+export type ImportKind = 'puzzle' | 'course'
 export type ImportSourceIDOrigin = 'fixed' | 'embedded' | 'path'
 export type ImportInspection = {
   path: string
@@ -172,6 +174,7 @@ export type ImportReport = {
   duplicates: number
   rejected: number
   examples: ImportRejection[]
+  counts: Record<string, number>
 }
 export type ImportResult = {
   jobId: string
@@ -188,6 +191,19 @@ function record(value: unknown, path: string): UnknownRecord {
     throw new Error(`${path} must be an object`)
   }
   return value as UnknownRecord
+}
+
+function numberRecord(value: unknown, path: string): Record<string, number> {
+  const raw = record(value, path)
+  const decoded: Record<string, number> = {}
+  for (const [key, entry] of Object.entries(raw)) {
+    if (typeof entry !== 'number' || !Number.isFinite(entry) ||
+      !Number.isInteger(entry) || entry < 0) {
+      throw new Error(`${path}.${key} must be a non-negative integer`)
+    }
+    decoded[key] = entry
+  }
+  return decoded
 }
 
 function string(value: unknown, path: string): string {
@@ -496,7 +512,8 @@ function decodeImportReport(value: unknown, path: string): ImportReport {
     accepted: number(raw.accepted, `${path}.accepted`),
     duplicates: number(raw.duplicates, `${path}.duplicates`),
     rejected: number(raw.rejected, `${path}.rejected`),
-    examples
+    examples,
+    counts: raw.counts === undefined ? {} : numberRecord(raw.counts, `${path}.counts`)
   }
 }
 

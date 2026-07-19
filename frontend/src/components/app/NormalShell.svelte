@@ -20,7 +20,8 @@
   let activeSession: SessionView | null = null
   let deferredSession: SessionView | null = null
   let error = ''
-  const importSession = createImportSession(() => api)
+  const puzzleImportSession = createImportSession(() => api, 'puzzle')
+  const courseImportSession = createImportSession(() => api, 'course')
   let disconnectImport = (): void => {}
 
   onMount(() => {
@@ -30,7 +31,12 @@
 
   async function initialise(): Promise<void> {
     try {
-      disconnectImport = importSession.connect()
+      const disconnectCourse = courseImportSession.connect()
+      const disconnectPuzzle = puzzleImportSession.connect()
+      disconnectImport = () => {
+        disconnectPuzzle()
+        disconnectCourse()
+      }
       const profile = await api.getProfile()
       if (!profile) {
         screen.set('setup')
@@ -125,7 +131,10 @@
     {:else if $screen === 'legal'}
       <AboutLegal {buildInfo} on:back={goHome} />
     {:else if $screen === 'import'}
-      <ImportPanel session={importSession} />
+      <ImportPanel
+        puzzleSession={puzzleImportSession}
+        courseSession={courseImportSession}
+      />
     {:else if $screen === 'puzzle' && activeSession}
       <PuzzleScreen
         session={activeSession}

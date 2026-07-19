@@ -45,6 +45,7 @@ export type {
   HintResult,
   ImportFormat,
   ImportInspection,
+  ImportKind,
   ImportPhase,
   ImportProgress,
   ImportRejection,
@@ -98,6 +99,9 @@ export interface NormalAPI extends BackupAPI {
   choosePuzzleImportFile(): Promise<string>
   inspectPuzzleImport(path: string): Promise<ImportInspection>
   startPuzzleImport(inspection: ImportInspection): Promise<string>
+  chooseOpeningCourseFile(): Promise<string>
+  inspectOpeningCourseImport(path: string): Promise<ImportInspection>
+  startOpeningCourseImport(inspection: ImportInspection): Promise<string>
   cancelImport(jobId: string): Promise<void>
   getImportResult(jobId: string): Promise<ImportResult>
   onImportProgress(listener: (progress: ImportProgress) => void): () => void
@@ -144,6 +148,11 @@ const productionNormalAPI: NormalAPI = {
   choosePuzzleImportFile: Normal.ChoosePuzzleImportFile,
   inspectPuzzleImport: async (path) => decodeImportInspection(await Normal.InspectPuzzleImport(path)),
   startPuzzleImport: Normal.StartPuzzleImport,
+  chooseOpeningCourseFile: Normal.ChooseOpeningCourseFile,
+  inspectOpeningCourseImport: async (path) => decodeImportInspection(
+    await Normal.InspectOpeningCourseImport(path)
+  ),
+  startOpeningCourseImport: Normal.StartOpeningCourseImport,
   cancelImport: Normal.CancelImport,
   getImportResult: async (jobId) => decodeImportResult(await Normal.GetImportResult(jobId)),
   onImportProgress: (listener) => EventsOn('import:progress', (payload: unknown) => {
@@ -354,12 +363,24 @@ const previewNormalAPI: NormalAPI = {
     replacesExisting: false
   }),
   startPuzzleImport: async () => 'preview-import',
+  chooseOpeningCourseFile: async () => '/Users/preview/Documents/italian.ctcourse',
+  inspectOpeningCourseImport: async () => ({
+    path: '/Users/preview/Documents/italian.ctcourse',
+    filename: 'italian.ctcourse',
+    format: 'coursepack',
+    formatLabel: 'Opening course',
+    sourceId: 'italian-white',
+    sourceIdOrigin: 'embedded',
+    sourceName: 'Italian Game for White',
+    replacesExisting: false
+  }),
+  startOpeningCourseImport: async () => 'preview-course-import',
   cancelImport: async () => {},
   getImportResult: async (jobId) => ({
     jobId,
     status: 'running',
     progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
-    report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
+    report: { accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {} }
   }),
   onImportProgress: () => () => {},
   onImportFinished: () => () => {}

@@ -64,6 +64,6 @@ test('shows progress and saves parent settings', async () => {
   await waitFor(() => expect(updateProfile).toHaveBeenCalledWith({ learnerRating: 3300, sessionSize: 5 }))
   expect(screen.getByText('Settings saved')).toBeInTheDocument()
 
-  await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Import content' }))
   expect(openImport).toBe(true)
 })

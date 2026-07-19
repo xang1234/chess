@@ -32,8 +32,11 @@ const production = vi.hoisted(() => ({
   openDataFolder: vi.fn(),
   quit: vi.fn(),
   choosePuzzleImportFile: vi.fn(),
+  chooseOpeningCourseFile: vi.fn(),
   inspectPuzzleImport: vi.fn(),
+  inspectOpeningCourseImport: vi.fn(),
   startPuzzleImport: vi.fn(),
+  startOpeningCourseImport: vi.fn(),
   cancelImport: vi.fn()
 }))
 
@@ -51,8 +54,11 @@ vi.mock('../../wailsjs/go/main/NormalController', () => ({
   OpenDataFolder: production.openDataFolder,
   Quit: production.quit,
   ChoosePuzzleImportFile: production.choosePuzzleImportFile,
+  ChooseOpeningCourseFile: production.chooseOpeningCourseFile,
   InspectPuzzleImport: production.inspectPuzzleImport,
+  InspectOpeningCourseImport: production.inspectOpeningCourseImport,
   StartPuzzleImport: production.startPuzzleImport,
+  StartOpeningCourseImport: production.startOpeningCourseImport,
   CancelImport: production.cancelImport
 }))
 vi.mock('../../wailsjs/go/main/RecoveryController', () => ({
@@ -358,7 +364,8 @@ test.each([
   'tactical-pgn',
   'canonical-json',
   'lucas-fns',
-  'linear-fen-uci'
+  'linear-fen-uci',
+  'coursepack'
 ] as const)('accepts the supported import format %s', (format) => {
   expect(decodeImportInspection({
     path: '/collections/puzzles',
@@ -508,6 +515,39 @@ test('normalizes a nil Go rejection sample to an empty decoded array', () => {
   }).report.examples).toEqual([])
 })
 
+test('decodes course counts and defaults legacy puzzle counts to empty', () => {
+  const base = {
+    jobId: 'course-job',
+    status: 'succeeded',
+    progress: { phase: 'activating', rowsRead: 40, bytesRead: 800, totalBytes: 800 }
+  }
+  expect(decodeImportResult({
+    ...base,
+    report: {
+      accepted: 1, duplicates: 0, rejected: 0, examples: [],
+      counts: { chapters: 3, moves: 40, lessons: 8 }
+    }
+  }).report.counts).toEqual({ chapters: 3, moves: 40, lessons: 8 })
+  expect(decodeImportResult({
+    ...base,
+    report: { accepted: 1, duplicates: 0, rejected: 0, examples: [] }
+  }).report.counts).toEqual({})
+})
+
+test.each([
+  [['not', 'a record'], 'object'],
+  [{ moves: -1 }, 'non-negative integer'],
+  [{ moves: 1.5 }, 'non-negative integer'],
+  [{ moves: Number.POSITIVE_INFINITY }, 'non-negative integer']
+])('rejects invalid import report counts %#', (counts, message) => {
+  expect(() => decodeImportResult({
+    jobId: 'course-job',
+    status: 'succeeded',
+    progress: { phase: 'activating', rowsRead: 1, bytesRead: 1, totalBytes: 1 },
+    report: { accepted: 1, duplicates: 0, rejected: 0, examples: [], counts }
+  })).toThrow(message)
+})
+
 test.each(['detecting', 'parsing', 'sealing', 'activating'] as const)(
   'accepts the supported import phase %s',
   (phase) => {
@@ -539,4 +579,30 @@ test('production API inspects and starts puzzle imports through generic generate
   expect(production.inspectPuzzleImport).toHaveBeenCalledWith('/chosen/club.pgn')
   expect(production.startPuzzleImport).toHaveBeenCalledWith(inspection)
   expect('startLichessImport' in application.api).toBe(false)
+})
+
+test('production API keeps the confirmed course inspection intact', async () => {
+  const inspection: ImportInspection = {
+    path: '/normalized/italian.ctcourse',
+    filename: 'italian.ctcourse',
+    format: 'coursepack',
+    formatLabel: 'Opening course',
+    sourceId: 'italian-white',
+    sourceIdOrigin: 'embedded',
+    sourceName: 'Italian Game for White',
+    replacesExisting: true
+  }
+  enableProduction()
+  production.chooseOpeningCourseFile.mockResolvedValue(inspection.path)
+  production.inspectOpeningCourseImport.mockResolvedValue(inspection)
+  production.startOpeningCourseImport.mockResolvedValue('course-job')
+
+  const application = await (await import('./api')).loadApplicationAPI()
+  if (application.mode !== 'normal') throw new Error('expected normal production API')
+
+  await expect(application.api.chooseOpeningCourseFile()).resolves.toBe(inspection.path)
+  await expect(application.api.inspectOpeningCourseImport(inspection.path)).resolves.toEqual(inspection)
+  await expect(application.api.startOpeningCourseImport(inspection)).resolves.toBe('course-job')
+  expect(production.inspectOpeningCourseImport).toHaveBeenCalledWith(inspection.path)
+  expect(production.startOpeningCourseImport).toHaveBeenCalledWith(inspection)
 })

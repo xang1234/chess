@@ -1,5 +1,11 @@
 import { writable, type Readable } from 'svelte/store'
-import type { ImportInspection, ImportProgress, ImportResult, NormalAPI } from './api'
+import type {
+  ImportInspection,
+  ImportKind,
+  ImportProgress,
+  ImportResult,
+  NormalAPI
+} from './api'
 
 export type IdleImportState = {
   phase: 'idle'
@@ -129,7 +135,10 @@ function messageFrom(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
 }
 
-export function createImportSession(api: () => NormalAPI): ImportSession {
+export function createImportSession(
+  api: () => NormalAPI,
+  kind: ImportKind = 'puzzle'
+): ImportSession {
   const initial: ImportSessionState = { phase: 'idle', error: '' }
   const state = writable<ImportSessionState>(initial)
   let current: ImportSessionState = initial
@@ -188,7 +197,9 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
 
       let path: string
       try {
-        path = await api().choosePuzzleImportFile()
+        path = kind === 'course'
+          ? await api().chooseOpeningCourseFile()
+          : await api().choosePuzzleImportFile()
       } catch (cause) {
         state.set({ ...previous, error: messageFrom(cause) })
         return
@@ -200,7 +211,9 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
 
       state.set({ phase: 'inspecting', path, error: '' })
       try {
-        const inspection = await api().inspectPuzzleImport(path)
+        const inspection = kind === 'course'
+          ? await api().inspectOpeningCourseImport(path)
+          : await api().inspectPuzzleImport(path)
         state.set({ phase: 'ready', inspection, error: '' })
       } catch (cause) {
         state.set({ phase: 'idle', error: messageFrom(cause) })
@@ -211,8 +224,12 @@ export function createImportSession(api: () => NormalAPI): ImportSession {
       const inspection = current.inspection
       state.set({ phase: 'starting', inspection, error: '' })
       try {
-        const jobId = await api().startPuzzleImport(inspection)
-        if (!jobId) throw new Error('Puzzle import returned an empty job ID')
+        const jobId = kind === 'course'
+          ? await api().startOpeningCourseImport(inspection)
+          : await api().startPuzzleImport(inspection)
+        if (!jobId) {
+          throw new Error(`${kind === 'course' ? 'Course' : 'Puzzle'} import returned an empty job ID`)
+        }
         state.set({
           phase: 'running',
           inspection,

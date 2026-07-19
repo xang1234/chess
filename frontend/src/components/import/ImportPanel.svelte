@@ -1,144 +1,51 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import type { ImportPhase, ImportSourceIDOrigin } from '../../lib/api'
-  import {
-    canSelectImportFile,
-    canStartImport,
-    selectedImportInspection
-  } from '../../lib/import-session'
   import type { ImportSession } from '../../lib/import-session'
+  import ImportCard from './ImportCard.svelte'
 
-  export let session: ImportSession
-
-  const formatted = (value: number) => new Intl.NumberFormat().format(value)
-  const originLabels: Record<ImportSourceIDOrigin, string> = {
-    fixed: 'Fixed source ID',
-    embedded: 'Embedded source ID',
-    path: 'Fallback source ID (file path)'
-  }
-  const phaseLabels: Record<ImportPhase, string> = {
-    detecting: 'Inspecting collection',
-    parsing: 'Reading puzzles',
-    sealing: 'Finalizing collection',
-    activating: 'Activating collection'
-  }
-
-  $: inspection = selectedImportInspection($session)
-  $: runningState = $session.phase === 'running' ? $session : null
-  $: finishedState = $session.phase === 'finished' ? $session : null
-
-  onMount(() => {
-    void session.refresh()
-  })
+  export let puzzleSession: ImportSession
+  export let courseSession: ImportSession
 </script>
 
 <section class="panel import-panel" aria-labelledby="import-title">
-  <p class="eyebrow">Puzzle collection</p>
-  <h2 id="import-title">Import puzzle collection</h2>
-  <p class="muted">
-    Lichess, tactical PGN, canonical JSON, Lucas FNS, and linear FEN/UCI collections are
-    streamed directly from this computer. No intermediate copy is created.
+  <p class="eyebrow">Local content</p>
+  <h2 id="import-title">Import content</h2>
+  <p class="muted intro">
+    Select a puzzle collection or a private opening course stored on this computer.
   </p>
 
-  <div class="file-picker" aria-labelledby="puzzle-file-label">
-    <span id="puzzle-file-label">Puzzle collection file</span>
-    <button
-      class="secondary"
-      type="button"
-      on:click={() => session.selectFile()}
-      disabled={!canSelectImportFile($session)}
-    >Choose puzzle collection</button>
-    {#if inspection}
-      <div
-        class="selected-source"
-        aria-label="Selected puzzle collection"
-        aria-live="polite"
-      >
-        <strong>{inspection.sourceId}</strong>
-        <span class="format-label">{inspection.formatLabel}</span>
-        <span>{originLabels[inspection.sourceIdOrigin]}</span>
-        <span class="filename">{inspection.filename}</span>
-        <span class="path">{inspection.path}</span>
-        {#if inspection.replacesExisting}
-          <span class="replacement-warning">
-            This import will replace the active {inspection.sourceId} collection
-          </span>
-        {/if}
-      </div>
-    {:else}
-      <p class="muted">No collection selected</p>
-    {/if}
+  <div class="import-grid">
+    <ImportCard
+      kind="puzzle"
+      session={puzzleSession}
+      heading="Import puzzle collection"
+      description="Lichess, tactical PGN, canonical JSON, Lucas FNS, and linear FEN/UCI collections are streamed directly from this computer. No intermediate copy is created."
+      fileLabel="Puzzle collection file"
+      chooseLabel="Choose puzzle collection"
+      startLabel="Import puzzles"
+    />
+    <ImportCard
+      kind="course"
+      session={courseSession}
+      heading="Import opening course"
+      description="Private .ctcourse files stay on this Mac. The validated course is copied into the local course library."
+      fileLabel="Opening course file"
+      chooseLabel="Choose opening course"
+      startLabel="Import course"
+    />
   </div>
-
-  {#if runningState}
-    <div class="progress-card" aria-live="polite">
-      <strong>{phaseLabels[runningState.progress.phase]}</strong>
-      <span>{formatted(runningState.progress.rowsRead)} rows read</span>
-      <span>
-        {#if runningState.progress.totalBytes > 0}
-          {formatted(runningState.progress.bytesRead)} of {formatted(runningState.progress.totalBytes)} bytes
-        {:else}
-          {formatted(runningState.progress.bytesRead)} bytes
-        {/if}
-      </span>
-    </div>
-    <button class="secondary" type="button" on:click={() => session.cancel()}>Cancel import</button>
-  {:else}
-    <button
-      class="primary"
-      type="button"
-      on:click={() => session.start()}
-      disabled={!canStartImport($session)}
-    >Import puzzles</button>
-  {/if}
-
-  {#if finishedState && finishedState.result.status === 'succeeded'}
-    <div class="report-grid" aria-label="Import report">
-      <strong>{formatted(finishedState.result.report.accepted)} accepted</strong>
-      <span>{formatted(finishedState.result.report.duplicates)} duplicates</span>
-      <span>{formatted(finishedState.result.report.rejected)} rejected</span>
-    </div>
-    {#if finishedState.result.report.examples.length > 0}
-      <div class="rejection-examples" aria-labelledby="rejection-examples-title">
-        <h3 id="rejection-examples-title">Rejection examples</h3>
-        <ul>
-          {#each finishedState.result.report.examples as example}
-            <li>{example.ordinal}: {example.reason}</li>
-          {/each}
-        </ul>
-      </div>
-    {/if}
-  {/if}
-  {#if finishedState && finishedState.result.status === 'cancelled'}
-    <p role="status">Import cancelled.</p>
-  {/if}
-  {#if $session.error}<p class="error" role="alert">{$session.error}</p>{/if}
 </section>
 
 <style>
-  .file-picker { display: grid; gap: 10px; }
-  .file-picker > span { font-weight: 700; }
-  .file-picker button { justify-self: start; }
-  .selected-source {
+  .import-panel { max-width: 1180px; }
+  .import-panel h2 { margin-bottom: 8px; }
+  .intro { margin: 0; }
+  .import-grid {
     display: grid;
-    gap: 4px;
-    min-width: 0;
-    padding: 14px 16px;
-    border-radius: 12px;
-    background: var(--ivory-100);
+    margin-top: 22px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
   }
-  .selected-source strong { overflow-wrap: anywhere; font-size: 1.15rem; }
-  .selected-source span { color: var(--ink-700); font-size: 0.9rem; }
-  .selected-source .format-label { color: var(--ink-900); font-weight: 800; }
-  .selected-source .filename { margin-top: 4px; color: var(--ink-900); font-weight: 700; }
-  .selected-source .path { overflow-wrap: anywhere; }
-  .selected-source .replacement-warning {
-    margin-top: 6px;
-    color: var(--red-600);
-    font-weight: 800;
+  @media (max-width: 850px) {
+    .import-grid { grid-template-columns: 1fr; }
   }
-  .rejection-examples { margin-top: 20px; }
-  .rejection-examples h3 { margin: 0 0 8px; font-size: 1rem; }
-  .rejection-examples ul { margin: 0; padding-left: 22px; }
-  .rejection-examples li { margin-top: 6px; overflow-wrap: anywhere; }
 </style>

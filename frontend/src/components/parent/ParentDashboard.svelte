@@ -82,7 +82,7 @@
       <p class="eyebrow">For parents</p>
       <h2 id="parent-title">Progress & settings</h2>
     </div>
-    <button class="secondary" type="button" on:click={() => dispatch('import')}>Import puzzles</button>
+    <button class="secondary" type="button" on:click={() => dispatch('import')}>Import content</button>
   </div>
 
   {#if loading}

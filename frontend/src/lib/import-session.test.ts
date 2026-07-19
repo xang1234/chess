@@ -32,7 +32,20 @@ const jsonInspection: ImportInspection = {
   replacesExisting: false
 }
 
-const emptyReport = () => ({ accepted: 0, duplicates: 0, rejected: 0, examples: [] })
+const courseInspection: ImportInspection = {
+  path: '/normalized/italian.ctcourse',
+  filename: 'italian.ctcourse',
+  format: 'coursepack',
+  formatLabel: 'Opening course',
+  sourceId: 'italian-white',
+  sourceIdOrigin: 'embedded',
+  sourceName: 'Italian Game for White',
+  replacesExisting: false
+}
+
+const emptyReport = () => ({
+  accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {}
+})
 
 function observe(session: ReturnType<typeof createImportSession>): {
   state: () => ImportSessionState
@@ -62,6 +75,39 @@ test('starts in the exact idle shape and derives actions from the whole state', 
   expect(selectedImportInspection(state)).toBeNull()
 
   observed.stop()
+})
+
+test('course configuration selects, inspects, and starts only course methods', async () => {
+  const choosePuzzleImportFile = vi.fn()
+  const inspectPuzzleImport = vi.fn()
+  const startPuzzleImport = vi.fn()
+  const chooseOpeningCourseFile = vi.fn(async () => courseInspection.path)
+  const inspectOpeningCourseImport = vi.fn(async () => courseInspection)
+  const startOpeningCourseImport = vi.fn(async () => 'course-job')
+  const session = createImportSession(() => fakeAPI({
+    choosePuzzleImportFile,
+    inspectPuzzleImport,
+    startPuzzleImport,
+    chooseOpeningCourseFile,
+    inspectOpeningCourseImport,
+    startOpeningCourseImport,
+    getImportResult: async (jobId) => ({
+      jobId,
+      status: 'running',
+      progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 100 },
+      report: emptyReport()
+    })
+  }), 'course')
+
+  await session.selectFile()
+  await session.start()
+
+  expect(chooseOpeningCourseFile).toHaveBeenCalledOnce()
+  expect(inspectOpeningCourseImport).toHaveBeenCalledWith(courseInspection.path)
+  expect(startOpeningCourseImport).toHaveBeenCalledWith(courseInspection)
+  expect(choosePuzzleImportFile).not.toHaveBeenCalled()
+  expect(inspectPuzzleImport).not.toHaveBeenCalled()
+  expect(startPuzzleImport).not.toHaveBeenCalled()
 })
 
 test('inspection owns only the chosen path before ready owns the inspection', async () => {
@@ -284,7 +330,7 @@ test('ignores stale job events while preserving the active running state', async
     jobId: 'stale-job',
     status: 'succeeded',
     progress: { phase: 'activating', rowsRead: 999, bytesRead: 999, totalBytes: 999 },
-    report: { accepted: 999, duplicates: 0, rejected: 0, examples: [] }
+    report: { accepted: 999, duplicates: 0, rejected: 0, examples: [], counts: {} }
   })
   expect(observed.state()).toEqual(active)
   disconnect()
@@ -313,7 +359,7 @@ test('terminal state owns its result and ignores a later running poll', async ()
     jobId: 'job-1',
     status: 'succeeded',
     progress: { phase: 'activating', rowsRead: 110, bytesRead: 2_000, totalBytes: 2_000 },
-    report: { accepted: 100, duplicates: 5, rejected: 5, examples: [] }
+    report: { accepted: 100, duplicates: 5, rejected: 5, examples: [], counts: {} }
   }
   finishedListener(terminal)
   resolveSnapshot({
@@ -365,7 +411,7 @@ test('restarting a finished inspection resets progress for the new job', async (
     jobId: 'job-1',
     status: 'succeeded',
     progress: { phase: 'activating', rowsRead: 10, bytesRead: 1_000, totalBytes: 1_000 },
-    report: { accepted: 10, duplicates: 0, rejected: 0, examples: [] }
+    report: { accepted: 10, duplicates: 0, rejected: 0, examples: [], counts: {} }
   })
   requirePhase(observed.state(), 'finished')
 
@@ -402,7 +448,7 @@ test('new selection clears a finished result before accepting another inspection
     jobId: 'job-1',
     status: 'succeeded',
     progress: { phase: 'activating', rowsRead: 1, bytesRead: 1, totalBytes: 1 },
-    report: { accepted: 1, duplicates: 0, rejected: 0, examples: [] }
+    report: { accepted: 1, duplicates: 0, rejected: 0, examples: [], counts: {} }
   })
   requirePhase(observed.state(), 'finished')
 

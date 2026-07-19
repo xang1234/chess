@@ -100,12 +100,23 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
       replacesExisting: false
     }),
     startPuzzleImport: async () => 'job-1',
+    chooseOpeningCourseFile: async () => '/tmp/italian.ctcourse',
+    inspectOpeningCourseImport: async () => ({
+      path: '/tmp/italian.ctcourse',
+      filename: 'italian.ctcourse',
+      format: 'coursepack',
+      formatLabel: 'Opening course',
+      sourceId: 'italian-white',
+      sourceIdOrigin: 'embedded',
+      replacesExisting: false
+    }),
+    startOpeningCourseImport: async () => 'course-job-1',
     cancelImport: async () => {},
     getImportResult: async (): Promise<ImportResult> => ({
       jobId: 'job-1',
       status: 'running',
       progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 0 },
-      report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
+      report: { accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {} }
     }),
     onImportProgress: () => () => {},
     onImportFinished: () => () => {},

@@ -306,7 +306,7 @@ test('keeps monitoring an active import while navigating away and reconciles it 
     jobId,
     status: 'running',
     progress: { phase: 'parsing', rowsRead: 10_000, bytesRead: 2048, totalBytes: 4096 },
-    report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
+    report: { accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {} }
   }))
   const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 5 }),
@@ -324,7 +324,7 @@ test('keeps monitoring an active import while navigating away and reconciles it 
   render(App, { loadAPI: async () => normalApplication(api) })
 
   await fireEvent.click(await screen.findByRole('button', { name: 'Parent settings' }))
-  await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Import content' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Choose puzzle collection' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
@@ -333,7 +333,7 @@ test('keeps monitoring an active import while navigating away and reconciles it 
   })
 
   await fireEvent.click(screen.getByRole('button', { name: 'Parent settings' }))
-  await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Import content' }))
 
   await waitFor(() => expect(getImportResult).toHaveBeenCalledWith('job-1'))
   expect(screen.getByText('10,000 rows read')).toBeInTheDocument()
@@ -343,7 +343,7 @@ test('keeps monitoring an active import while navigating away and reconciles it 
     jobId: 'job-1',
     status: 'succeeded',
     progress: { phase: 'activating', rowsRead: 10_000, bytesRead: 4096, totalBytes: 4096 },
-    report: { accepted: 9800, duplicates: 150, rejected: 50, examples: [] }
+    report: { accepted: 9800, duplicates: 150, rejected: 50, examples: [], counts: {} }
   })
   await waitFor(() => expect(screen.getByText('9,800 accepted')).toBeInTheDocument())
 })

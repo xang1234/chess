@@ -15,11 +15,25 @@ const embeddedInspection: ImportInspection = {
   replacesExisting: true
 }
 
+function renderPanel(puzzleSession: ReturnType<typeof createImportSession>) {
+  const courseSession = createImportSession(() => fakeAPI(), 'course')
+  return render(ImportPanel, { puzzleSession, courseSession })
+}
+
+test('offers puzzle collections and private opening courses separately', () => {
+  renderPanel(createImportSession(() => fakeAPI(), 'puzzle'))
+
+  expect(screen.getByRole('heading', { name: 'Import content' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Import puzzle collection' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Import opening course' })).toBeInTheDocument()
+  expect(screen.getByText(/Private \.ctcourse files stay on this Mac/)).toBeInTheDocument()
+})
+
 test('shows the source identity first with format, origin, file details, and replacement warning', async () => {
   const session = createImportSession(() => fakeAPI({
     inspectPuzzleImport: async () => embeddedInspection
   }))
-  render(ImportPanel, { session })
+  renderPanel(session)
 
   await fireEvent.click(screen.getByRole('button', { name: 'Choose puzzle collection' }))
 
@@ -52,7 +66,7 @@ test('labels a path-derived identity as the fallback source ID', async () => {
   const session = createImportSession(() => fakeAPI({
     inspectPuzzleImport: async () => pathInspection
   }))
-  render(ImportPanel, { session })
+  renderPanel(session)
 
   await fireEvent.click(screen.getByRole('button', { name: 'Choose puzzle collection' }))
 
@@ -68,7 +82,7 @@ test('keeps import disabled until authoritative inspection succeeds', async () =
   const session = createImportSession(() => fakeAPI({
     inspectPuzzleImport: async () => pendingInspection
   }))
-  render(ImportPanel, { session })
+  renderPanel(session)
 
   const importButton = screen.getByRole('button', { name: 'Import puzzles' })
   expect(importButton).toBeDisabled()
@@ -89,7 +103,7 @@ test('shows phase-aware progress using ordinary source bytes', async () => {
     }
   }))
   const disconnect = session.connect()
-  render(ImportPanel, { session })
+  renderPanel(session)
 
   await session.selectFile()
   await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
@@ -125,7 +139,7 @@ test('renders only backend-provided rejection examples as plain text', async () 
     }
   }))
   const disconnect = session.connect()
-  render(ImportPanel, { session })
+  renderPanel(session)
 
   await session.selectFile()
   await fireEvent.click(screen.getByRole('button', { name: 'Import puzzles' }))
@@ -140,7 +154,8 @@ test('renders only backend-provided rejection examples as plain text', async () 
       examples: [
         { ordinal: 17, reason: 'illegal move e2e5' },
         { ordinal: 23, reason: '<strong>untrusted source text</strong>' }
-      ]
+      ],
+      counts: {}
     }
   })
 
@@ -161,7 +176,7 @@ test('treats closing the file chooser as cancellation, not an error', async () =
     choosePuzzleImportFile: async () => '',
     inspectPuzzleImport
   }))
-  render(ImportPanel, { session })
+  renderPanel(session)
 
   await fireEvent.click(screen.getByRole('button', { name: 'Choose puzzle collection' }))
 
