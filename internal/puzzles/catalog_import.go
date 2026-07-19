@@ -46,15 +46,16 @@ type generationRow struct {
 }
 
 type sqliteGenerationImport struct {
-	catalog         *SQLiteCatalog
-	stage           *generationStage
-	source          Source
-	generationID    string
-	hadExpectedHead bool
-	expectedHead    string
-	buffer          []generationRow
-	report          ImportReport
-	state           generationImportState
+	catalog              *SQLiteCatalog
+	stage                *generationStage
+	source               Source
+	generationID         string
+	hadExpectedHead      bool
+	expectedHead         string
+	buffer               []generationRow
+	report               ImportReport
+	maximumSolutionPlies int
+	state                generationImportState
 }
 
 var _ GenerationImport = (*sqliteGenerationImport)(nil)
@@ -335,10 +336,11 @@ func (s *sqliteGenerationImport) sealMaterializedGeneration(
 	result, err := tx.ExecContext(
 		ctx,
 		`UPDATE source_generations
-		 SET status = 'sealed', checksum = ?, sealed_at = ?
+		 SET status = 'sealed', checksum = ?, sealed_at = ?, maximum_solution_plies = ?
 		 WHERE generation_id = ? AND source_id = ? AND status = 'building'`,
 		normalizedChecksum,
 		time.Now().Unix(),
+		s.maximumSolutionPlies,
 		s.generationID,
 		s.source.ID,
 	)

@@ -80,6 +80,70 @@ func TestSealBuildsEmptyThemeFacetForEmptyGeneration(t *testing.T) {
 	}
 }
 
+func TestSealPersistsMaximumSolutionPliesFromGenerationWinners(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("summary-max", "test", "/summary-max")
+	short := testTrainingPuzzle(source, "short", 0)
+	short.Occurrence.Rating = nil
+	short.Core.Solution = linearTestSolution([]string{"f7f8", "h8h7"})
+	short.Core.SolutionPlies = 2
+	long := testTrainingPuzzle(source, "long", 0)
+	long.Occurrence.Rating = nil
+	long.Occurrence.Ordinal = 2
+	long.Core.Solution = linearTestSolution([]string{
+		"f7f8", "h8h7", "f8f7", "h7h8", "f7f8", "h8h7", "f8f7",
+	})
+	long.Core.SolutionPlies = 7
+
+	importing := beginGenerationImport(t, catalog, source)
+	if err := importing.Add(context.Background(), short); err != nil {
+		t.Fatal(err)
+	}
+	if err := importing.Add(context.Background(), long); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := importing.Seal(context.Background(), "summary-max-checksum"); err != nil {
+		t.Fatal(err)
+	}
+	assertGenerationMaximumSolutionPlies(t, store.Reader, source.Path, 7)
+}
+
+func TestSealPersistsZeroMaximumForEmptyGeneration(t *testing.T) {
+	catalog, store := openTestGenerationalCatalog(t)
+	source := testSource("summary-empty", "test", "/summary-empty")
+	importing := beginGenerationImport(t, catalog, source)
+	if _, err := importing.Seal(context.Background(), "summary-empty-checksum"); err != nil {
+		t.Fatal(err)
+	}
+	assertGenerationMaximumSolutionPlies(t, store.Reader, source.Path, 0)
+}
+
+func assertGenerationMaximumSolutionPlies(
+	t *testing.T,
+	db generationSummaryQueryer,
+	sourcePath string,
+	want int,
+) {
+	t.Helper()
+	var got int
+	if err := db.QueryRowContext(
+		context.Background(),
+		`SELECT maximum_solution_plies
+		 FROM source_generations
+		 WHERE source_path = ?`,
+		sourcePath,
+	).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("generation maximum solution plies = %d, want %d", got, want)
+	}
+}
+
+type generationSummaryQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 type generationThemeQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }

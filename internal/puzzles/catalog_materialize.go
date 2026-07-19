@@ -146,6 +146,13 @@ func (s *sqliteGenerationImport) materializeWinner(
 	if err := s.validateExistingCores(ctx); err != nil {
 		return err
 	}
+	if err := s.catalog.writeDB.QueryRowContext(
+		ctx,
+		`SELECT COALESCE(MAX(solution_plies), 0)
+		 FROM generation_winner.winner_rows`,
+	).Scan(&s.maximumSolutionPlies); err != nil {
+		return fmt.Errorf("read generation maximum solution plies: %w", err)
+	}
 
 	phases := []struct {
 		name               string
