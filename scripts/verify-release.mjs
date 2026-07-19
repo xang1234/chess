@@ -449,6 +449,7 @@ export async function verifyRelease({
   assertRequiredTrackedFiles(tracked, {
     chessgroundVersion:
       packageJSON.dependencies?.['@lichess-org/chessground'],
+    courseFixtureRoot: buildRoot,
   })
 
   const goMod = await ports.readFile(path.join(buildRoot, 'go.mod'), 'utf8')

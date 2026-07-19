@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -11,6 +13,10 @@ export const RELEASE_PLATFORM = 'darwin/arm64'
 export const RELEASE_BUNDLE_IDENTIFIER = 'com.xang1234.chesstrainer'
 export const WAILS_MODULE = 'github.com/wailsapp/wails/v2'
 export const WAILS_VERSION = 'v2.12.0'
+export const COURSE_FIXTURE_SHA256 = Object.freeze({
+  'internal/openings/testdata/mini.ctcourse':
+    'bcaee75d5f5dafcae827baf5a9baaef28d6a931b906314fe52186271b5af2054',
+})
 
 export const RELEASE_TARGET_ENVIRONMENT_VARIABLES = Object.freeze([
   'GOOS',
@@ -208,20 +214,44 @@ export async function verifyPublicTag({
   }
 }
 
-export function assertCourseFixtureBoundary(paths) {
+export function assertCourseFixtureBoundary(
+  paths,
+  {
+    root = process.cwd(),
+    readFixture = (filename) => readFileSync(filename),
+  } = {},
+) {
   for (const filename of paths) {
-    if (!filename.endsWith('.ctcourse')) continue
-    if (!filename.startsWith('internal/openings/testdata/')) {
-      throw new Error(`private opening course must not be tracked: ${filename}`)
+    if (path.posix.extname(filename).toLowerCase() !== '.ctcourse') continue
+    if (path.posix.isAbsolute(filename) || path.posix.normalize(filename) !== filename ||
+      filename.startsWith('../')) {
+      throw new Error('non-canonical opening course path: ' + filename)
+    }
+    const expected = COURSE_FIXTURE_SHA256[filename]
+    if (!expected) {
+      throw new Error('unreviewed opening course fixture: ' + filename)
+    }
+    const actual = createHash('sha256')
+      .update(readFixture(path.join(root, filename)))
+      .digest('hex')
+    if (actual !== expected) {
+      throw new Error('opening course fixture digest differs: ' + filename)
     }
   }
 }
 
 export function assertRequiredTrackedFiles(
   tracked,
-  { chessgroundVersion } = {},
+  {
+    chessgroundVersion,
+    courseFixtureRoot = process.cwd(),
+    readCourseFixture,
+  } = {},
 ) {
-  assertCourseFixtureBoundary(tracked)
+  assertCourseFixtureBoundary(tracked, {
+    root: courseFixtureRoot,
+    ...(readCourseFixture ? { readFixture: readCourseFixture } : {}),
+  })
   if (chessgroundVersion !== undefined && chessgroundVersion !== '10.1.1') {
     throw new Error('Chessground dependency must be pinned exactly to 10.1.1')
   }

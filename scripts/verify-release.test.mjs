@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import {
   PUBLIC_REPOSITORY_URL,
@@ -41,6 +42,7 @@ import {
 } from './verify-legal-assets.mjs'
 
 const commit = '0123456789abcdef0123456789abcdef01234567'
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 
 test('rejects a dirty tree and reports the first changed path', () => {
   assert.throws(
@@ -59,14 +61,38 @@ test('rejects a missing or untracked required release input', () => {
   )
 })
 
-test('allows only synthetic opening course fixtures in tracked source', () => {
-  assert.doesNotThrow(() => assertCourseFixtureBoundary([
-    'internal/openings/testdata/synthetic-course.ctcourse',
-    'README.md',
-  ]))
+test('allows only the reviewed synthetic opening course fixture', () => {
+  assert.doesNotThrow(() => assertCourseFixtureBoundary(
+    ['internal/openings/testdata/mini.ctcourse', 'README.md'],
+    { root: repositoryRoot },
+  ))
   assert.throws(
-    () => assertCourseFixtureBoundary(['courses/mco15-italian-white.ctcourse']),
-    /private opening course must not be tracked: courses\/mco15-italian-white\.ctcourse/,
+    () => assertCourseFixtureBoundary(
+      ['internal/openings/testdata/private-source.ctcourse'],
+      { root: repositoryRoot },
+    ),
+    /unreviewed opening course fixture/,
+  )
+  assert.throws(
+    () => assertCourseFixtureBoundary(
+      ['internal/openings/testdata/private-source.CTCOURSE'],
+      { root: repositoryRoot },
+    ),
+    /unreviewed opening course fixture/,
+  )
+  assert.throws(
+    () => assertCourseFixtureBoundary(
+      ['internal/openings/testdata/..\/testdata\/mini.ctcourse'],
+      { root: repositoryRoot },
+    ),
+    /non-canonical opening course path/,
+  )
+  assert.throws(
+    () => assertCourseFixtureBoundary(
+      ['internal/openings/testdata/mini.ctcourse'],
+      { root: repositoryRoot, readFixture: () => Buffer.from('changed') },
+    ),
+    /opening course fixture digest differs/,
   )
 })
 
