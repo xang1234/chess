@@ -10,6 +10,7 @@ import {
   RELEASE_PLATFORM,
   REQUIRED_TRACKED_FILES,
   assertCleanStatus,
+  assertCourseFixtureBoundary,
   assertBundleMetadata,
   assertBundleIdentifier,
   assertDistLegalAssets,
@@ -55,6 +56,17 @@ test('rejects a missing or untracked required release input', () => {
   assert.throws(
     () => assertRequiredTrackedFiles(tracked),
     /required release file is not tracked: frontend\/public\/legal\/NUNITO_OFL\.txt/,
+  )
+})
+
+test('allows only synthetic opening course fixtures in tracked source', () => {
+  assert.doesNotThrow(() => assertCourseFixtureBoundary([
+    'internal/openings/testdata/synthetic-course.ctcourse',
+    'README.md',
+  ]))
+  assert.throws(
+    () => assertCourseFixtureBoundary(['courses/mco15-italian-white.ctcourse']),
+    /private opening course must not be tracked: courses\/mco15-italian-white\.ctcourse/,
   )
 })
 

@@ -66,13 +66,20 @@ Expected results:
   release-scoped Go and npm caches and that cleanup runs after success or
   failure.
 
-## Puzzle catalogue storage and startup
+## Replaceable content storage and startup
 
 `user.sqlite` is durable learner history. It contains settings, sessions,
 attempts, review state, and rating history and is never recreated as part of
-puzzle-catalogue recovery. `library.sqlite` is durable when the optional game
-library is used. `puzzles.sqlite` is different: it is a disposable, versioned
-cache that can be rebuilt by reimporting its source data.
+puzzle- or course-catalogue recovery. `library.sqlite` is durable when the
+optional game library is used. `puzzles.sqlite` and `courses.sqlite` are
+different: they are replaceable, versioned content catalogues that can be
+rebuilt by reimporting their external source data.
+
+An invalid or incompatible `courses.sqlite` is quarantined with its existing
+WAL/SHM sidecars to a timestamped `.quarantine-<UTC>` path before a fresh course
+catalogue is created. Learner progress remains in `user.sqlite`; reimport the
+private `.ctcourse` pack to restore the course content. Puzzle-catalogue
+replacement remains more conservative because of its legacy migration path:
 
 Startup still treats replacement conservatively:
 
@@ -116,6 +123,14 @@ report remain available after navigating away from the import screen and
 returning during the same app run. See the
 [puzzle import format guide](puzzle-import-formats.md) for exact grammars,
 identity rules, atomicity, and limits.
+
+Private opening courses use strict `.ctcourse` JSON. Choose one with **Choose
+opening course** on the same Import content screen; the app validates the full
+graph, lesson structure, source coverage, and chess legality before atomically
+activating it. Reimporting the same course ID activates a new generation and
+rebases compatible paused work. See the
+[opening-course authoring guide](opening-course-authoring.md) for the schema,
+validator, update rules, and private-source boundary.
 
 Application shutdown first rejects new jobs, cancels active import and cleanup
 contexts, and waits for their registered goroutines. SQLite handles close only
@@ -209,11 +224,20 @@ Use a backup from Parent view before testing restore against valuable data.
    the previous catalogue remains available.
 2. Start guided training, make one move, force-quit the app, relaunch it, and
    confirm **Continue today's training** restores the same board and progress.
-3. Finish or pause the session. Confirm the home hub is interactive within
-   three seconds after returning from import.
-4. In Parent view, create a backup. Change profile data, restore that backup,
+3. Import `internal/openings/testdata/mini.ctcourse`. Confirm the report, then
+   open **Learn Openings** and select Reference. Complete Explain and Watch;
+   verify an accepted alternative and neutral off-course response; use all hint
+   levels; reveal; pause on the next step; and confirm resume returns to that
+   exact step. Complete Recall, finish the due review, switch to Quick without
+   losing progress, and navigate forward/back in the read-only explorer.
+4. Finish or pause the session. Confirm the home hub is interactive within
+   three seconds after returning from import. For quarantine acceptance, use a
+   disposable data root, replace `courses.sqlite` with invalid bytes while the
+   app is stopped, relaunch, and verify the timestamped quarantine plus clean
+   course catalogue; confirm `user.sqlite` learner history is unchanged.
+5. In Parent view, create a backup. Change profile data, restore that backup,
    relaunch, and confirm the earlier data returns.
-5. While the production app is running, verify it has no listening TCP socket:
+6. While the production app is running, verify it has no listening TCP socket:
 
    ```bash
    pgrep -fl "Chess Trainer"

@@ -46,7 +46,8 @@ export type BoardScenario = {
 }
 
 export type TrainerScenario = { kind: 'trainer' }
-export type TestBackendScenario = BoardScenario | TrainerScenario
+export type OpeningScenario = { kind: 'openings' }
+export type TestBackendScenario = BoardScenario | TrainerScenario | OpeningScenario
 
 export type TrustedInput = { type: string; trusted: boolean }
 
@@ -55,8 +56,12 @@ type TestBackendState = {
   reveals: number
   trustedInputs: TrustedInput[]
   semanticFrames: string[][]
+  openingMoves: string[]
+  openingHints: number[]
+  openingDepths: string[]
   holdImportOpen(): void
   selectedImportPath(): string
+  selectedCoursePath(): string
   reportImportProgress(rowsRead: number, bytesRead: number): void
 }
 
@@ -94,6 +99,8 @@ type RuntimeBindings = typeof import('../wailsjs/runtime/runtime')
 type WireSession = Exclude<Awaited<ReturnType<NormalControllerMock['StartGuided']>>, null>
 type WirePuzzle = NonNullable<WireSession['current']>
 type WireImportResult = Awaited<ReturnType<NormalControllerMock['GetImportResult']>>
+type WireOpeningSession = Awaited<ReturnType<NormalControllerMock['StartOpeningLesson']>>
+type WireOpeningStep = NonNullable<WireOpeningSession['current']>
 
 type TestWindow = Window & {
   __testBackend: TestBackendState
@@ -119,8 +126,12 @@ export async function installTestBackend(
       reveals: 0,
       trustedInputs: [] as TrustedInput[],
       semanticFrames: [] as string[][],
+      openingMoves: [] as string[],
+      openingHints: [] as number[],
+      openingDepths: [] as string[],
       holdImportOpen: () => {},
       selectedImportPath: () => '',
+      selectedCoursePath: () => '',
       reportImportProgress: (_rowsRead: number, _bytesRead: number) => {}
     }
     const testWindow = window as unknown as TestWindow
@@ -231,10 +242,12 @@ export async function installTestBackend(
       Quit: async () => {},
       RestoreBackup: async () => {}
     }
+    let installedNormalController = normalController
     const installNormalController = (overrides: Partial<NormalControllerMock>) => {
+      installedNormalController = { ...installedNormalController, ...overrides }
       testWindow.go = { main: {
         ModeController: modeController,
-        NormalController: { ...normalController, ...overrides },
+        NormalController: installedNormalController,
         RecoveryController: recoveryController
       } }
     }
@@ -551,6 +564,340 @@ export async function installTestBackend(
       OpenDataFolder: async () => {},
       Quit: async () => {}
     })
+
+    if (configured.kind === 'openings') {
+      const initialFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+      const promptFen = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4'
+      const afterC3Fen = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+      const watchFrames = [
+        { uci: 'e2e4', resultingFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1' },
+        { uci: 'e7e5', resultingFen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2' },
+        { uci: 'g1f3', resultingFen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2' },
+        { uci: 'b8c6', resultingFen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3' },
+        { uci: 'f1c4', resultingFen: 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3' },
+        { uci: 'f8c5', resultingFen: promptFen }
+      ]
+      const courseChooserPath = '/Users/family/Documents/synthetic-italian.ctcourse'
+      const courseInspection = {
+        path: courseChooserPath,
+        filename: 'synthetic-italian.ctcourse',
+        format: 'coursepack',
+        formatLabel: 'Opening course',
+        sourceId: 'synthetic-italian',
+        sourceIdOrigin: 'embedded',
+        sourceName: 'Synthetic Italian for White',
+        replacesExisting: false
+      } as const
+      let selectedCourse = ''
+      let courseImported = false
+      let lessonCompleted = false
+      let reviewCompleted = false
+      let openingDepth = 'standard'
+      let openingStepIndex = 0
+      let openingHintLevel = 0
+      let openingMode: 'lesson' | 'review' = 'lesson'
+      let openingSession: WireOpeningSession | null = null
+      let lessonRevealed = false
+      let courseImportResult: WireImportResult = {
+        jobId: 'course-job-1',
+        status: 'running',
+        progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 8192 },
+        report: { accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {} }
+      }
+
+      const openingStep = (index: number, mode: 'lesson' | 'review'): WireOpeningStep => {
+        if (mode === 'review') {
+          return {
+            stepId: 'review-recall-c3', kind: 'recall', title: 'Review the Giuoco Piano',
+            instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
+            positionId: 'after-bc5', currentFen: promptFen, orientation: 'white',
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], noteTexts: [], stepNumber: 1,
+            stepTotal: 1, hintLevel: openingHintLevel, canReveal: openingHintLevel >= 4
+          }
+        }
+        const common = {
+          orientation: 'white',
+          noteTexts: ['Develop quickly and prepare the centre.'],
+          stepTotal: 5,
+          hintLevel: openingHintLevel,
+          canReveal: openingHintLevel >= 4
+        }
+        const steps: WireOpeningStep[] = [
+          {
+            ...common, stepId: 'explain-plan', kind: 'explain', title: 'The central plan',
+            instruction: 'White prepares d4 while keeping the position flexible.',
+            positionId: 'after-bc5', currentFen: promptFen, legalMoves: [], stepNumber: 1
+          },
+          {
+            ...common, stepId: 'watch-setup', kind: 'watch', title: 'Reach the Italian',
+            instruction: 'Watch both sides develop toward the Italian Game.',
+            variationName: 'Giuoco Piano', positionId: 'initial', currentFen: initialFen,
+            legalMoves: [], stepNumber: 2
+          },
+          {
+            ...common, stepId: 'try-c3', kind: 'try', title: 'Prepare the centre',
+            instruction: 'Choose White\'s preparation move.', variationName: 'Giuoco Piano',
+            positionId: 'after-bc5', currentFen: promptFen,
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 3
+          },
+          {
+            ...common, stepId: 'branch-giuoco', kind: 'branch', title: 'Recognise the branch',
+            instruction: 'Choose White\'s setup after Black develops the bishop.',
+            variationName: 'Giuoco Piano', positionId: 'after-bc5', currentFen: promptFen,
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 4
+          },
+          {
+            ...common, stepId: 'recall-c3', kind: 'recall', title: 'Recall the Giuoco move',
+            instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
+            positionId: 'after-bc5', currentFen: promptFen,
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 5
+          }
+        ]
+        return steps[index]
+      }
+      const activeOpening = (
+        index: number,
+        mode: 'lesson' | 'review' = openingMode
+      ): WireOpeningSession => ({
+        sessionId: mode === 'review' ? 'opening-review-session' : 'opening-lesson-session',
+        mode,
+        status: 'active',
+        courseId: 'synthetic-italian',
+        generationId: 'synthetic-generation-1',
+        lessonId: mode === 'review' ? 'review-c3' : 'giuoco-c3',
+        depth: openingDepth,
+        current: openingStep(index, mode)
+      })
+      const completedOpening = (mode: 'lesson' | 'review'): WireOpeningSession => ({
+        sessionId: mode === 'review' ? 'opening-review-session' : 'opening-lesson-session',
+        mode,
+        status: 'completed',
+        courseId: 'synthetic-italian',
+        generationId: 'synthetic-generation-1',
+        lessonId: mode === 'review' ? 'review-c3' : 'giuoco-c3',
+        depth: openingDepth,
+        summary: {
+          totalPrompts: mode === 'review' ? 1 : 3,
+          positionsRecalled: 1,
+          branchesRecognized: mode === 'review' ? 0 : 1,
+          retried: 0,
+          usedHint: mode === 'lesson' ? 1 : 0,
+          revealed: mode === 'lesson' && lessonRevealed ? 1 : 0
+        }
+      })
+      const openingHome = () => ({
+        courses: courseImported ? [{
+          courseId: 'synthetic-italian',
+          title: 'Synthetic Italian for White',
+          perspective: 'white',
+          depth: openingDepth,
+          rootPositionId: 'initial',
+          completedLessons: lessonCompleted ? 1 : 0,
+          totalLessons: 1,
+          dueReviews: reviewCompleted ? 0 : 1,
+          nextLessonId: 'giuoco-c3',
+          nextLessonTitle: 'Prepare d4 with c3',
+          hasResumable: openingSession?.status === 'active',
+          chapters: [
+            { chapterId: 'foundations', title: 'Italian Foundations', lessons: [] },
+            {
+              chapterId: 'giuoco', title: 'Giuoco Piano',
+              lessons: [{
+                lessonId: 'giuoco-c3', title: 'Prepare d4 with c3',
+                completedSteps: lessonCompleted ? 5 : 0, totalSteps: 5,
+                completed: lessonCompleted
+              }]
+            },
+            { chapterId: 'two-knights', title: "Two Knights' Defence", lessons: [] }
+          ]
+        }] : []
+      })
+      const requireOpening = (): WireOpeningSession => {
+        if (!openingSession || openingSession.status !== 'active') {
+          throw new Error('test backend has no active opening session')
+        }
+        return openingSession
+      }
+      const completeMove = () => {
+        const activeSession = requireOpening()
+        const nextIndex = openingStepIndex + 1
+        if (openingMode === 'review') {
+          reviewCompleted = true
+          openingSession = completedOpening('review')
+        } else if (nextIndex >= 5) {
+          lessonCompleted = true
+          openingSession = completedOpening('lesson')
+        } else {
+          openingStepIndex = nextIndex
+          openingSession = activeOpening(openingStepIndex, 'lesson')
+        }
+        return {
+          session: clone(openingSession),
+          stepCompleted: true,
+          feedback: 'expected',
+          appliedMoves: [{ uci: 'c2c3', resultingFen: afterC3Fen }],
+          finalFen: afterC3Fen
+        }
+      }
+
+      state.selectedCoursePath = () => selectedCourse
+
+      installNormalController({
+        ChooseOpeningCourseFile: async () => courseChooserPath,
+        InspectOpeningCourseImport: async (path: string) => {
+          if (path !== courseChooserPath) throw new Error(`unexpected course path ${path}`)
+          return courseInspection
+        },
+        StartOpeningCourseImport: async (inspection) => {
+          if (inspection.path !== courseChooserPath || inspection.sourceId !== 'synthetic-italian') {
+            throw new Error(`unexpected course inspection ${JSON.stringify(inspection)}`)
+          }
+          selectedCourse = inspection.path
+          courseImportResult = {
+            jobId: 'course-job-1',
+            status: 'running',
+            progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 8192 },
+            report: { accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {} }
+          }
+          setTimeout(() => {
+            courseImported = true
+            courseImportResult = {
+              ...courseImportResult,
+              status: 'succeeded',
+              progress: { phase: 'activating', rowsRead: 84, bytesRead: 8192, totalBytes: 8192 },
+              report: {
+                accepted: 1, duplicates: 0, rejected: 0, examples: [],
+                counts: { chapters: 3, moves: 42, lessons: 5 }
+              }
+            }
+            emit('import:finished', courseImportResult)
+          }, 20)
+          return 'course-job-1'
+        },
+        GetImportResult: async (jobId: string) => jobId === 'course-job-1'
+          ? courseImportResult
+          : importResult,
+        GetOpeningHome: async () => clone(openingHome()),
+        SetOpeningDepth: async (_courseId: string, depth: string) => {
+          openingDepth = depth
+          state.openingDepths.push(depth)
+        },
+        StartOpeningLesson: async (_courseId: string, lessonId: string) => {
+          if (lessonId !== 'giuoco-c3') throw new Error(`unexpected lesson ${lessonId}`)
+          openingMode = 'lesson'
+          openingStepIndex = 0
+          openingHintLevel = 0
+          lessonRevealed = false
+          openingSession = activeOpening(0, 'lesson')
+          return clone(openingSession)
+        },
+        ResumeOpeningSession: async () => openingSession ? clone(openingSession) : null,
+        RestartOpeningSession: async () => {
+          openingStepIndex = 0
+          openingHintLevel = 0
+          openingSession = activeOpening(0, openingMode)
+          return clone(openingSession)
+        },
+        AdvanceOpeningStep: async () => {
+          const activeSession = requireOpening()
+          if (activeSession.current?.kind !== 'explain' && activeSession.current?.kind !== 'watch') {
+            throw new Error('opening step requires a learner move')
+          }
+          const watched = activeSession.current.kind === 'watch'
+          openingStepIndex++
+          openingSession = activeOpening(openingStepIndex, 'lesson')
+          return {
+            session: clone(openingSession),
+            stepCompleted: true,
+            ...(watched ? { appliedMoves: watchFrames, finalFen: promptFen } : {})
+          }
+        },
+        PlayOpeningMove: async (_sessionId: string, uci: string) => {
+          state.openingMoves.push(uci)
+          if (uci === 'c2c3') return completeMove()
+          if (uci === 'b2b4') {
+            return {
+              session: clone(requireOpening()),
+              stepCompleted: false,
+              feedback: 'alternative',
+              message: 'Playable alternative. Return to the lesson position.'
+            }
+          }
+          if (uci === 'd2d3') {
+            return {
+              session: clone(requireOpening()),
+              stepCompleted: false,
+              feedback: 'off_course',
+              message: 'This lesson is practising c3.'
+            }
+          }
+          throw new Error(`unexpected opening move ${uci}`)
+        },
+        UseOpeningHint: async () => {
+          requireOpening()
+          openingHintLevel = Math.min(4, openingHintLevel + 1)
+          state.openingHints.push(openingHintLevel)
+          openingSession = activeOpening(openingStepIndex, openingMode)
+          const text = [
+            '',
+            'Plan: prepare d4 while keeping the centre flexible.',
+            'Start with the c-pawn.',
+            'Move it one square.',
+            'The course move is ready to show.'
+          ][openingHintLevel]
+          return {
+            session: clone(openingSession),
+            level: openingHintLevel,
+            text,
+            ...(openingHintLevel >= 2 ? { sourceSquare: 'c2' } : {}),
+            ...(openingHintLevel >= 3 ? { targetSquare: 'c3' } : {}),
+            canReveal: openingHintLevel >= 4
+          }
+        },
+        RevealOpeningMove: async () => {
+          lessonRevealed = true
+          return completeMove()
+        },
+        PauseOpeningSession: async () => {},
+        StartOpeningReview: async () => {
+          openingMode = 'review'
+          openingStepIndex = 0
+          openingHintLevel = 0
+          openingSession = activeOpening(0, 'review')
+          return clone(openingSession)
+        },
+        GetOpeningPosition: async (courseId: string, positionId: string) => {
+          if (courseId !== 'synthetic-italian') throw new Error(`unexpected course ${courseId}`)
+          if (positionId === 'initial') {
+            return {
+              courseId, positionId, fen: initialFen, label: 'Initial position',
+              evaluation: { code: 'none' }, notes: [], incomingPaths: 0,
+              moves: [{
+                moveId: 'white-e4', uci: 'e2e4', san: 'e4',
+                toPositionId: 'after-e4', role: 'repertoire',
+                variationName: 'Italian setup', evaluation: { code: 'equal' },
+                sourceRef: { printedPage: 1, coverageId: 'synthetic-p1-e4' }
+              }]
+            }
+          }
+          if (positionId === 'after-e4') {
+            return {
+              courseId, positionId,
+              fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+              label: 'King pawn opening', evaluation: { code: 'equal' },
+              notes: [{
+                kind: 'overview', text: 'Black can now contest the centre.',
+                sourceRef: {
+                  printedPage: 1, noteLabel: 'overview', coverageId: 'synthetic-p1-overview'
+                }
+              }],
+              moves: [], incomingPaths: 1
+            }
+          }
+          throw new Error(`unexpected opening position ${positionId}`)
+        }
+      })
+    }
   }, scenario)
 }
 
@@ -567,6 +914,10 @@ export async function holdImportOpen(page: Page): Promise<void> {
 
 export async function selectedImportPath(page: Page): Promise<string> {
   return page.evaluate(() => (window as unknown as TestWindow).__testBackend.selectedImportPath())
+}
+
+export async function selectedCoursePath(page: Page): Promise<string> {
+  return page.evaluate(() => (window as unknown as TestWindow).__testBackend.selectedCoursePath())
 }
 
 export async function reportImportProgress(

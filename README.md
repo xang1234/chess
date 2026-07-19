@@ -1,11 +1,15 @@
 # Chess Trainer
 
-Chess Trainer is a calm, local-first macOS puzzle app designed for a child to
+Chess Trainer is a calm, local-first macOS chess-learning app designed for a child to
 use without a browser account, advertisements, or a hosted service. It imports
 local Lichess zstd/CSV, tactical PGN, canonical JSON, Lucas `.fns`, and linear
 FEN/UCI puzzle collections, keeps learner history on the Mac, and includes a
-basic PGN game library. The puzzle board uses Chessground for familiar click,
-drag, selection, and move-marker behavior.
+**Learn Openings** workspace for guided lessons, spaced review, depth controls,
+and read-only variation exploration. Opening material is supplied as an
+external private `.ctcourse` pack; no commercial opening book or private course
+is bundled with the application. A basic PGN game library is also included.
+The board uses Chessground for familiar click, drag, selection, and move-marker
+behavior.
 
 The production application is a Wails desktop bundle. It does not start an HTTP
 listener or require an internet connection at runtime. User data lives under
@@ -40,6 +44,9 @@ ordinary local `.app` build. Local builds identify their source as
 `development`. The [puzzle import format guide](docs/operations/puzzle-import-formats.md)
 defines the supported grammars, source IDs, rating behavior, atomic replacement,
 and exact resource limits.
+The [opening-course authoring guide](docs/operations/opening-course-authoring.md)
+defines the private course schema, validator, source-coverage checks, update
+behavior, and the rule that private packs remain outside Git and releases.
 
 ## Public releases
 

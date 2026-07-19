@@ -208,10 +208,20 @@ export async function verifyPublicTag({
   }
 }
 
+export function assertCourseFixtureBoundary(paths) {
+  for (const filename of paths) {
+    if (!filename.endsWith('.ctcourse')) continue
+    if (!filename.startsWith('internal/openings/testdata/')) {
+      throw new Error(`private opening course must not be tracked: ${filename}`)
+    }
+  }
+}
+
 export function assertRequiredTrackedFiles(
   tracked,
   { chessgroundVersion } = {},
 ) {
+  assertCourseFixtureBoundary(tracked)
   if (chessgroundVersion !== undefined && chessgroundVersion !== '10.1.1') {
     throw new Error('Chessground dependency must be pinned exactly to 10.1.1')
   }

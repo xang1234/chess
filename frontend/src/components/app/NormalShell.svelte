@@ -39,10 +39,23 @@
   const puzzleImportSession = createImportSession(() => api, 'puzzle')
   const courseImportSession = createImportSession(() => api, 'course')
   let disconnectImport = (): void => {}
+  let refreshedCourseImportJobId = ''
+  const disconnectCourseImportRefresh = courseImportSession.subscribe((state) => {
+    if (
+      state.phase !== 'finished' ||
+      state.result.status !== 'succeeded' ||
+      state.jobId === refreshedCourseImportJobId
+    ) return
+    refreshedCourseImportJobId = state.jobId
+    void refreshOpeningHome()
+  })
 
   onMount(() => {
     void initialise()
-    return () => disconnectImport()
+    return () => {
+      disconnectImport()
+      disconnectCourseImportRefresh()
+    }
   })
 
   async function initialise(): Promise<void> {
@@ -87,6 +100,13 @@
     } catch (cause) {
       return { value: fallback, error: errorMessage(cause) }
     }
+  }
+
+  async function refreshOpeningHome(): Promise<void> {
+    const result = await safeOpeningRead(() => api.getOpeningHome(), openingHome)
+    openingHome = result.error
+      ? { ...result.value, notice: result.error }
+      : result.value
   }
 
   function errorMessage(cause: unknown): string {

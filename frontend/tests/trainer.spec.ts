@@ -21,7 +21,7 @@ test('runs setup, import, guided training, practice, and parent progress', async
   await expect(page.getByText('What would you like to play?')).toBeVisible()
 
   await page.getByRole('button', { name: 'Parent settings' }).click()
-  await page.getByRole('button', { name: 'Import puzzles' }).click()
+  await page.getByRole('button', { name: 'Import content' }).click()
   await page.getByRole('button', { name: 'Choose puzzle collection' }).click()
   const selectedCollection = page.getByLabel('Selected puzzle collection')
   await expect(selectedCollection.getByText('club-tactics', { exact: true })).toBeVisible()
@@ -87,7 +87,7 @@ test('keeps an active import observable across navigation and can cancel it', as
   await holdImportOpen(page)
 
   await page.getByRole('button', { name: 'Parent settings' }).click()
-  await page.getByRole('button', { name: 'Import puzzles' }).click()
+  await page.getByRole('button', { name: 'Import content' }).click()
   await page.getByRole('button', { name: 'Choose puzzle collection' }).click()
   await page.getByRole('button', { name: 'Import puzzles' }).click()
   await expect.poll(() => selectedImportPath(page))
@@ -96,7 +96,7 @@ test('keeps an active import observable across navigation and can cancel it', as
   await page.getByRole('button', { name: 'Chess Trainer home' }).click()
   await reportImportProgress(page, 10_000, 2048)
   await page.getByRole('button', { name: 'Parent settings' }).click()
-  await page.getByRole('button', { name: 'Import puzzles' }).click()
+  await page.getByRole('button', { name: 'Import content' }).click()
 
   await expect(page.getByText('Reading puzzles', { exact: true })).toBeVisible()
   await expect(page.getByText('10,000 rows read')).toBeVisible()
