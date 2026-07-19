@@ -75,7 +75,7 @@
         {"stepId":"explain-plan","kind":"explain","positionId":"after-bc5","title":"The central plan","instruction":"White prepares d4 while keeping the position flexible.","noteIds":["italian-overview"],"moveIds":[]},
         {"stepId":"watch-setup","kind":"watch","positionId":"initial","title":"Reach the Italian","instruction":"Watch both sides develop toward the Italian Game.","noteIds":[],"moveIds":["white-e4","black-e5","white-nf3","black-nc6","white-bc4","black-bc5"]},
         {"stepId":"try-c3","kind":"try","positionId":"after-bc5","title":"Prepare the center","instruction":"Choose White's preparation move.","noteIds":[],"moveIds":[],"promptId":"recall-c3"},
-        {"stepId":"branch-two-knights","kind":"branch","positionId":"after-nf6","title":"Recognize the Two Knights branch","instruction":"Choose White's quiet setup against ...Nf6.","noteIds":[],"moveIds":[],"promptId":"recall-d3"},
+        {"stepId":"branch-giuoco","kind":"branch","positionId":"after-bc5","title":"Recognize the Giuoco branch","instruction":"Choose White's setup after Black develops the bishop.","noteIds":[],"moveIds":[],"promptId":"recall-c3"},
         {"stepId":"recall-c3-step","kind":"recall","positionId":"after-bc5","title":"Recall the Giuoco move","instruction":"Play the course move from memory.","noteIds":[],"moveIds":[],"promptId":"recall-c3"}
       ]
     }
