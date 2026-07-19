@@ -30,7 +30,7 @@ func (s *UserStore) CompletePrompt(
 	}
 	defer tx.Rollback()
 
-	state := completion.Session.State
+	attempt := promptCompletionAttempt(completion)
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO opening_attempts(
@@ -38,18 +38,18 @@ func (s *UserStore) CompletePrompt(
 		   started_at, completed_at, outcome, incorrect_moves,
 		   alternatives_tried, hints_used, revealed
 		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		state.AttemptID,
+		attempt.AttemptID,
 		completion.Session.ID,
 		completion.Session.CourseID,
-		state.PromptID,
+		attempt.PromptID,
 		completion.SemanticFingerprint,
-		state.StartedAt.UnixMilli(),
+		attempt.StartedAt.UnixMilli(),
 		now.UnixMilli(),
 		completion.Outcome,
-		state.IncorrectMoves,
-		state.AlternativesTried,
-		state.HintsUsed,
-		state.Revealed,
+		attempt.IncorrectMoves,
+		attempt.AlternativesTried,
+		attempt.HintsUsed,
+		attempt.Revealed,
 	); err != nil {
 		return fmt.Errorf("insert opening attempt: %w", err)
 	}
@@ -63,7 +63,7 @@ func (s *UserStore) CompletePrompt(
 		   last_outcome = excluded.last_outcome,
 		   updated_at = excluded.updated_at`,
 		completion.Session.CourseID,
-		state.PromptID,
+		attempt.PromptID,
 		completion.SemanticFingerprint,
 		completion.Outcome,
 		now.UnixMilli(),
@@ -140,7 +140,7 @@ func upsertOpeningReview(
 		`SELECT semantic_fingerprint, interval_index, successful_reviews
 		 FROM opening_review_state WHERE course_id = ? AND prompt_id = ?`,
 		completion.Session.CourseID,
-		completion.Session.State.PromptID,
+		promptCompletionAttempt(completion).PromptID,
 	).Scan(&storedFingerprint, &state.IntervalIndex, &state.SuccessfulReviews)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read opening review: %w", err)
@@ -163,7 +163,7 @@ func upsertOpeningReview(
 		   last_outcome = excluded.last_outcome,
 		   status = 'active'`,
 		completion.Session.CourseID,
-		completion.Session.State.PromptID,
+		promptCompletionAttempt(completion).PromptID,
 		completion.SemanticFingerprint,
 		scheduled.DueAt.UnixMilli(),
 		scheduled.State.IntervalIndex,
@@ -277,7 +277,7 @@ func validatePromptCompletion(completion PromptCompletion, now time.Time) error 
 	if err := validateStoredSession(completion.Session); err != nil {
 		return err
 	}
-	state := completion.Session.State
+	state := promptCompletionAttempt(completion)
 	if strings.TrimSpace(state.AttemptID) == "" {
 		return errors.New("opening attempt ID is required")
 	}
@@ -307,4 +307,11 @@ func validatePromptCompletion(completion PromptCompletion, now time.Time) error 
 		}
 	}
 	return nil
+}
+
+func promptCompletionAttempt(completion PromptCompletion) SessionState {
+	if completion.AttemptState != nil {
+		return *completion.AttemptState
+	}
+	return completion.Session.State
 }

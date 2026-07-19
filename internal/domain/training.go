@@ -26,11 +26,6 @@ type PuzzleView struct {
 	LegalMoves     []string `json:"legalMoves"`
 }
 
-type AppliedMove struct {
-	UCI          string `json:"uci"`
-	ResultingFEN string `json:"resultingFen"`
-}
-
 type MoveResult struct {
 	Session         SessionView   `json:"session"`
 	Correct         bool          `json:"correct"`

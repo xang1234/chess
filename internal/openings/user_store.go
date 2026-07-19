@@ -30,19 +30,25 @@ const (
 )
 
 type SessionState struct {
-	PositionID        string    `json:"positionId"`
-	CurrentFEN        string    `json:"currentFen"`
-	PlayedMoveIDs     []string  `json:"playedMoveIds"`
-	ReviewPromptIDs   []string  `json:"reviewPromptIds,omitempty"`
-	ReviewIndex       int       `json:"reviewIndex,omitempty"`
-	HintLevel         int       `json:"hintLevel"`
-	IncorrectMoves    int       `json:"incorrectMoves"`
-	AlternativesTried int       `json:"alternativesTried"`
-	HintsUsed         int       `json:"hintsUsed"`
-	Revealed          bool      `json:"revealed"`
-	AttemptID         string    `json:"attemptId"`
-	PromptID          string    `json:"promptId,omitempty"`
-	StartedAt         time.Time `json:"startedAt"`
+	PositionID         string    `json:"positionId"`
+	CurrentFEN         string    `json:"currentFen"`
+	PlayedMoveIDs      []string  `json:"playedMoveIds"`
+	ReviewPromptIDs    []string  `json:"reviewPromptIds,omitempty"`
+	ReviewIndex        int       `json:"reviewIndex,omitempty"`
+	HintLevel          int       `json:"hintLevel"`
+	IncorrectMoves     int       `json:"incorrectMoves"`
+	AlternativesTried  int       `json:"alternativesTried"`
+	HintsUsed          int       `json:"hintsUsed"`
+	Revealed           bool      `json:"revealed"`
+	AttemptID          string    `json:"attemptId"`
+	PromptID           string    `json:"promptId,omitempty"`
+	StartedAt          time.Time `json:"startedAt"`
+	CompletedPrompts   int       `json:"completedPrompts,omitempty"`
+	PositionsRecalled  int       `json:"positionsRecalled,omitempty"`
+	BranchesRecognized int       `json:"branchesRecognized,omitempty"`
+	Retried            int       `json:"retried,omitempty"`
+	UsedHint           int       `json:"usedHint,omitempty"`
+	RevealedCount      int       `json:"revealedCount,omitempty"`
 }
 
 type StoredSession struct {
@@ -97,6 +103,7 @@ type ReviewState struct {
 
 type PromptCompletion struct {
 	Session             StoredSession
+	AttemptState        *SessionState
 	SemanticFingerprint string
 	Outcome             ReviewOutcome
 	CompletedStepIDs    []string
