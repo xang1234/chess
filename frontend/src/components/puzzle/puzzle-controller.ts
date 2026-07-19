@@ -7,10 +7,14 @@ import type {
   NormalAPI,
   SessionView
 } from '../../lib/api'
-import type { SoundService } from '../../lib/sound'
 import { moveSquares } from '../../lib/uci'
-import { animateAppliedMoves, type PositionFrame } from './move-animation'
-import type { PuzzleEffects } from './puzzle-effects'
+import type { BoardEffects } from '../chess/board-effects'
+import {
+  InteractiveBoardRuntime,
+  type InteractiveBoardPort
+} from '../chess/interactive-board-runtime'
+import { animateAppliedMoves } from '../chess/move-animation'
+import type { RequestToken } from '../chess/request-owner'
 import {
   acceptsResponse,
   acknowledgeSolved,
@@ -39,13 +43,7 @@ import {
   validatePuzzle,
   validateSuccessfulResult
 } from './puzzle-validation'
-import { RequestOwner, type RequestToken } from './request-owner'
-
-export type { PuzzleEffects } from './puzzle-effects'
-
-export type PuzzleBoardPort = {
-  setPosition(fen: string, lastMove?: PositionFrame['lastMove'], animate?: boolean): void
-}
+export type PuzzleBoardPort = InteractiveBoardPort
 
 export type PuzzleControllerEvents = {
   home(completed: boolean): void
@@ -55,7 +53,7 @@ export type PuzzleControllerEvents = {
 
 type ControllerOptions = {
   api: NormalAPI
-  effects: PuzzleEffects
+  effects: BoardEffects
   events: PuzzleControllerEvents
   afterRender(): Promise<void>
 }
@@ -69,25 +67,26 @@ type ViewSubscriber = (view: PuzzleRenderState) => void
 
 export class PuzzleController {
   private readonly api: NormalAPI
-  private readonly effects: PuzzleEffects
   private readonly events: PuzzleControllerEvents
   private readonly afterRender: () => Promise<void>
-  private readonly requests = new RequestOwner()
+  private readonly runtime: InteractiveBoardRuntime
   private readonly subscribers = new Set<ViewSubscriber>()
   private currentView = initialRenderState()
-  private board: PuzzleBoardPort | undefined
   private mounted = false
   private observedSession: SessionView | undefined
-  private sound: SoundService | undefined
-  private soundUnlockStarted = false
-  private recoveringBoard = false
-  private pendingBoardWarning = ''
 
   constructor(options: ControllerOptions) {
     this.api = options.api
-    this.effects = options.effects
     this.events = options.events
     this.afterRender = options.afterRender
+    this.runtime = new InteractiveBoardRuntime(options.effects, {
+      publishPosition: (fen, lastMove, replaceBoard) => {
+        const state = this.requirePuzzleState()
+        this.setPuzzle({ ...state, fen, lastMove }, replaceBoard
+          ? { boardGeneration: this.currentView.boardGeneration + 1 }
+          : {})
+      }
+    })
   }
 
   readonly subscribe = (subscriber: ViewSubscriber): (() => void) => {
@@ -103,25 +102,18 @@ export class PuzzleController {
   mount(session: SessionView): void {
     if (this.mounted) return
     this.mounted = true
-    this.sound = this.effects.createSound()
-    this.updateCommon({
-      reducedMotion: this.effects.prefersReducedMotion(),
-      soundMuted: this.sound.muted
-    })
+    this.updateCommon(this.runtime.mount())
     this.observedSession = session
     this.adoptVisibleSession(session)
   }
 
   destroy(): void {
     this.mounted = false
-    this.requests.cancel()
-    this.sound?.destroy()
-    this.sound = undefined
-    this.board = undefined
+    this.runtime.destroy()
   }
 
   attachBoard(board: PuzzleBoardPort | undefined): void {
-    this.board = board
+    this.runtime.attachBoard(board)
   }
 
   receiveSession(session: SessionView): void {
@@ -221,7 +213,7 @@ export class PuzzleController {
     this.updateCommon({ announcement: 'Training paused.' })
     await this.afterRender()
     if (!this.acceptsOwnedResponse(owned)) return
-    this.requests.cancel()
+    this.runtime.cancelRequest()
     this.events.home(false)
   }
 
@@ -230,7 +222,7 @@ export class PuzzleController {
     if (!state || state.phase !== 'solved') return
     try {
       const acknowledged = acknowledgeSolved(state, this.currentView.reducedMotion)
-      this.requests.cancel()
+      this.runtime.cancelRequest()
       if (acknowledged.kind === 'puzzle') {
         this.setPuzzle(acknowledged.state, {
           announcement: 'Next puzzle.',
@@ -251,10 +243,10 @@ export class PuzzleController {
   }
 
   handleBoardError(message: string): void {
-    if (this.recoveringBoard) {
-      this.pendingBoardWarning = message
-      return
-    }
+    const recovering = this.runtime.isRecovering()
+    this.runtime.noteBoardError(message)
+    if (recovering) return
+    this.runtime.consumeWarnings()
     this.failFatal(message)
   }
 
@@ -263,22 +255,15 @@ export class PuzzleController {
   }
 
   startSoundUnlock(): void {
-    if (!this.sound || this.soundUnlockStarted) return
-    this.soundUnlockStarted = true
-    try {
-      void this.sound.unlock().catch(() => { this.soundUnlockStarted = false })
-    } catch {
-      this.soundUnlockStarted = false
-    }
+    this.runtime.unlockFromPointer()
   }
 
   unlockFromKeyboard(key: string): void {
-    if (key === 'Enter' || key === ' ') this.startSoundUnlock()
+    this.runtime.unlockFromKeyboard(key)
   }
 
   toggleSound(): void {
-    if (!this.sound) return
-    this.updateCommon({ soundMuted: this.sound.toggleMuted() })
+    this.updateCommon({ soundMuted: this.runtime.toggleSound() })
   }
 
   finishHome(): void {
@@ -292,9 +277,8 @@ export class PuzzleController {
   }
 
   private adoptVisibleSession(next: SessionView, notice = '', notify = false): void {
-    this.requests.cancel()
-    this.pendingBoardWarning = ''
-    this.recoveringBoard = false
+    this.runtime.cancelRequest()
+    this.runtime.consumeWarnings()
     const common = {
       announcement: notice,
       boardGeneration: this.currentView.boardGeneration + 1
@@ -321,13 +305,13 @@ export class PuzzleController {
   private async playPrelude(): Promise<void> {
     const state = this.puzzleState()
     if (!state || state.phase !== 'prelude' || !state.displaySession.current.preludeUci) return
-    const token = this.requests.start()
+    const token = this.runtime.startRequest()
     await this.afterRender()
     const currentState = this.puzzleState()
-    if (!this.isCurrent(token) || !currentState || currentState.phase !== 'prelude') return
+    if (!this.runtime.isCurrent(token) || !currentState || currentState.phase !== 'prelude') return
     const currentPuzzle = currentState.displaySession.current
     const result = await animateAppliedMoves({
-      port: this.animationPort(),
+      port: this.runtime.animationPort(),
       startingFen: currentState.fen,
       appliedMoves: [{
         uci: currentPuzzle.preludeUci!,
@@ -336,10 +320,10 @@ export class PuzzleController {
       finalFen: currentPuzzle.displayedFen,
       reducedMotion: false,
       signal: token.controller.signal,
-      onStep: (kind) => this.sound?.play(kind)
+      onStep: (kind) => this.runtime.playSound(kind)
     })
     const latest = this.puzzleState()
-    if (!this.isCurrent(token) || result.status === 'aborted' ||
+    if (!this.runtime.isCurrent(token) || result.status === 'aborted' ||
       !latest || latest.phase !== 'prelude') return
     try {
       this.setPuzzle(finishPrelude(latest), { announcement: 'The puzzle is ready.' })
@@ -352,7 +336,7 @@ export class PuzzleController {
   private beginOwnedRequest(operation: Operation, submittedUci?: string): OwnedRequest | null {
     const state = this.puzzleState()
     if (!state || !acceptsInput(state)) return null
-    const token = this.requests.start()
+    const token = this.runtime.startRequest()
     try {
       let request = beginRequest(state, operation, token.id, submittedUci)
       if (request.phase !== 'requesting') throw new Error('Puzzle request did not start.')
@@ -367,7 +351,7 @@ export class PuzzleController {
 
   private acceptsOwnedResponse(owned: OwnedRequest): boolean {
     const state = this.puzzleState()
-    return this.isCurrent(owned) && Boolean(state && acceptsResponse(state, owned.id))
+    return this.runtime.isCurrent(owned) && Boolean(state && acceptsResponse(state, owned.id))
   }
 
   private async finishIncorrect(
@@ -385,9 +369,9 @@ export class PuzzleController {
       this.failFatal(errorMessage(error))
       return
     }
-    const warning = await this.reconcilePosition(
+    const warning = await this.runtime.reconcilePosition(
       owned.request.authoritativeFen,
-      owned.controller,
+      owned.controller.signal,
       !this.currentView.reducedMotion
     )
     if (!this.acceptsOwnedResponse(owned)) return
@@ -401,7 +385,7 @@ export class PuzzleController {
       )
       this.setPuzzle(next, { announcement: result.message || 'Try again' })
       this.applyBoardWarnings(warning)
-      this.sound?.play('incorrect')
+      this.runtime.playSound('incorrect')
       this.events.change(result.session)
     } catch (error) {
       this.failFatal(errorMessage(error))
@@ -432,17 +416,17 @@ export class PuzzleController {
     }
 
     const animation = await animateAppliedMoves({
-      port: this.animationPort(),
+      port: this.runtime.animationPort(),
       startingFen: owned.request.authoritativeFen,
       appliedMoves: frames,
       optimisticUci,
       finalFen: target,
       reducedMotion: this.currentView.reducedMotion,
       signal: owned.controller.signal,
-      onStep: (kind) => this.sound?.play(kind)
+      onStep: (kind) => this.runtime.playSound(kind)
     })
     const state = this.puzzleState()
-    if (!this.isCurrent(owned) || animation.status === 'aborted' ||
+    if (!this.runtime.isCurrent(owned) || animation.status === 'aborted' ||
       !state || state.phase !== 'animating' || state.requestId !== owned.id) return
 
     const lastMove = moveSquares(frames[frames.length - 1].uci)
@@ -452,7 +436,7 @@ export class PuzzleController {
           announcement: outcome === 'correct' ? 'Correct!' : 'Solution shown'
         })
         this.applyBoardWarnings(animation.warning)
-        if (outcome === 'correct') this.sound?.play('correct')
+        if (outcome === 'correct') this.runtime.playSound('correct')
         this.events.persisted(result.session)
       } else {
         this.setPuzzle({
@@ -476,9 +460,9 @@ export class PuzzleController {
     if (!this.acceptsOwnedResponse(owned)) return
     let warning = ''
     if (reconcile) {
-      warning = await this.reconcilePosition(
+      warning = await this.runtime.reconcilePosition(
         owned.request.authoritativeFen,
-        owned.controller,
+        owned.controller.signal,
         !this.currentView.reducedMotion
       )
     }
@@ -488,52 +472,10 @@ export class PuzzleController {
     this.applyBoardWarnings(warning)
   }
 
-  private async reconcilePosition(
-    fen: string,
-    controller: AbortController,
-    animate: boolean
-  ): Promise<string> {
-    try {
-      const state = this.requirePuzzleState()
-      if (!this.board) throw new Error('Chess board is unavailable')
-      this.setPuzzle({ ...state, fen, lastMove: undefined })
-      this.board.setPosition(fen, undefined, animate)
-      if (animate) await this.effects.delay(180, controller.signal)
-      return ''
-    } catch (error) {
-      if (controller.signal.aborted) return ''
-      this.recoverBoard(fen)
-      return `Board reconciliation failed: ${errorMessage(error)}. The saved position was restored.`
-    }
-  }
-
-  private animationPort() {
-    return {
-      setPosition: (frame: PositionFrame) => {
-        const state = this.requirePuzzleState()
-        if (!this.board) throw new Error('Chess board is unavailable')
-        this.setPuzzle({ ...state, fen: frame.fen, lastMove: frame.lastMove })
-        this.board.setPosition(frame.fen, frame.lastMove, frame.animate)
-      },
-      delay: this.effects.delay,
-      recover: (finalFen: string) => this.recoverBoard(finalFen)
-    }
-  }
-
-  private recoverBoard(finalFen: string): void {
-    const state = this.requirePuzzleState()
-    this.recoveringBoard = true
-    this.setPuzzle({ ...state, fen: finalFen, lastMove: undefined }, {
-      boardGeneration: this.currentView.boardGeneration + 1
-    })
-  }
-
   private applyBoardWarnings(warning = ''): void {
-    const messages = [warning, this.pendingBoardWarning].filter(Boolean)
-    this.pendingBoardWarning = ''
-    this.recoveringBoard = false
+    const message = this.runtime.consumeWarnings(warning)
     const state = this.puzzleState()
-    if (messages.length > 0 && state) this.setPuzzle({ ...state, notice: messages.join(' ') })
+    if (message && state) this.setPuzzle({ ...state, notice: message })
   }
 
   private failFatal(message: string): void {
@@ -545,10 +487,6 @@ export class PuzzleController {
       return
     }
     this.setPuzzle(markFailed(state, message, false))
-  }
-
-  private isCurrent(token: RequestToken): boolean {
-    return this.mounted && this.requests.isCurrent(token)
   }
 
   private puzzleState(): PuzzleState | undefined {

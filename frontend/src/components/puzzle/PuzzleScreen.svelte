@@ -7,12 +7,12 @@
     createChessgroundAdapter,
     type ChessgroundAdapterFactory
   } from '../chess/chessground-adapter'
+  import { browserBoardEffects, type BoardEffects } from '../chess/board-effects'
   import { createPuzzleController } from './puzzle-controller'
-  import { browserPuzzleEffects, type PuzzleEffects } from './puzzle-effects'
   import { acceptsInput, feedbackMessage, optionalSquare } from './puzzle-view'
 
   export let session: SessionView
-  export let effects: PuzzleEffects = browserPuzzleEffects
+  export let effects: BoardEffects = browserBoardEffects
   export let boardAdapterFactory: ChessgroundAdapterFactory = createChessgroundAdapter
 
   const api = useNormalAPI()

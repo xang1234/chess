@@ -5,11 +5,14 @@ import type {
   OpeningSessionView,
   OpeningStepResult
 } from '../../lib/api'
-import type { SoundService } from '../../lib/sound'
 import { moveSquares, type Square } from '../../lib/uci'
 import type { BoardEffects } from '../chess/board-effects'
-import { animateAppliedMoves, type PositionFrame } from '../chess/move-animation'
-import { RequestOwner, type RequestToken } from '../chess/request-owner'
+import {
+  InteractiveBoardRuntime,
+  type InteractiveBoardPort
+} from '../chess/interactive-board-runtime'
+import { animateAppliedMoves } from '../chess/move-animation'
+import type { RequestToken } from '../chess/request-owner'
 import {
   acceptsOpeningInput,
   acceptsOpeningResponse,
@@ -25,9 +28,7 @@ import {
   type OpeningState
 } from './opening-state'
 
-export type OpeningBoardPort = {
-  setPosition(fen: string, lastMove?: [Square, Square], animate?: boolean): void
-}
+export type OpeningBoardPort = InteractiveBoardPort
 
 export type OpeningControllerEvents = {
   home(completed: boolean): void
@@ -62,25 +63,25 @@ type ViewSubscriber = (view: OpeningControllerView) => void
 
 export class OpeningController {
   private readonly api: NormalAPI
-  private readonly effects: BoardEffects
   private readonly events: OpeningControllerEvents
   private readonly afterRender: () => Promise<void>
-  private readonly requests = new RequestOwner()
+  private readonly runtime: InteractiveBoardRuntime
   private readonly subscribers = new Set<ViewSubscriber>()
   private currentView: OpeningControllerView | undefined
-  private board: OpeningBoardPort | undefined
   private mounted = false
   private observedSession: OpeningSessionView | undefined
-  private sound: SoundService | undefined
-  private soundUnlockStarted = false
-  private recoveringBoard = false
-  private pendingBoardWarning = ''
 
   constructor(options: ControllerOptions) {
     this.api = options.api
-    this.effects = options.effects
     this.events = options.events
     this.afterRender = options.afterRender
+    this.runtime = new InteractiveBoardRuntime(options.effects, {
+      publishPosition: (fen, lastMove, replaceBoard) => this.updateStateFen(
+        fen,
+        lastMove,
+        replaceBoard ? this.view.boardGeneration + 1 : this.view.boardGeneration
+      )
+    })
   }
 
   readonly subscribe = (subscriber: ViewSubscriber): (() => void) => {
@@ -97,7 +98,7 @@ export class OpeningController {
   mount(session: OpeningSessionView): void {
     if (this.mounted) return
     this.mounted = true
-    this.sound = this.effects.createSound()
+    const preferences = this.runtime.mount()
     this.observedSession = session
     this.publish({
       state: initialiseOpening(session),
@@ -106,28 +107,25 @@ export class OpeningController {
       notice: session.notice ?? '',
       announcement: '',
       boardGeneration: 0,
-      reducedMotion: this.effects.prefersReducedMotion(),
-      soundMuted: this.sound.muted
+      reducedMotion: preferences.reducedMotion,
+      soundMuted: preferences.soundMuted
     })
   }
 
   destroy(): void {
     this.mounted = false
-    this.requests.cancel()
-    this.sound?.destroy()
-    this.sound = undefined
-    this.board = undefined
+    this.runtime.destroy()
   }
 
   attachBoard(board: OpeningBoardPort | undefined): void {
-    this.board = board
+    this.runtime.attachBoard(board)
   }
 
   receiveSession(session: OpeningSessionView): void {
     if (!this.mounted || session === this.observedSession) return
     this.observedSession = session
     if (session === this.visibleSession()) return
-    this.requests.cancel()
+    this.runtime.cancelRequest()
     this.adoptSession(session)
   }
 
@@ -209,8 +207,8 @@ export class OpeningController {
         announcement: 'Lesson paused.'
       })
       await this.afterRender()
-      if (!this.isCurrent(owned)) return
-      this.requests.cancel()
+      if (!this.runtime.isCurrent(owned)) return
+      this.runtime.cancelRequest()
       this.events.home(false)
     } catch (error) {
       await this.failRequest(owned, error, false)
@@ -220,16 +218,16 @@ export class OpeningController {
   async restart(): Promise<void> {
     const state = this.requireState()
     if (state.phase !== 'restart-required') return
-    const token = this.requests.start()
+    const token = this.runtime.startRequest()
     this.update({ message: 'Restarting from a safe checkpoint…', announcement: 'Restarting lesson.' })
     try {
       const next = await this.api.restartOpeningSession(state.session.sessionId)
-      if (!this.isCurrent(token)) return
-      this.requests.cancel()
+      if (!this.runtime.isCurrent(token)) return
+      this.runtime.cancelRequest()
       this.adoptSession(next)
       this.events.change(next)
     } catch (error) {
-      if (!this.isCurrent(token)) return
+      if (!this.runtime.isCurrent(token)) return
       const message = errorMessage(error)
       this.update({ message, announcement: message })
     }
@@ -239,7 +237,7 @@ export class OpeningController {
     const state = this.requireState()
     if (state.phase !== 'step-complete') return
     const pending = state.pending
-    this.requests.cancel()
+    this.runtime.cancelRequest()
     this.publishState(acknowledgeOpeningStep(state), {
       message: '',
       feedback: null,
@@ -256,10 +254,10 @@ export class OpeningController {
   }
 
   handleBoardError(message: string): void {
-    if (this.recoveringBoard) {
-      this.pendingBoardWarning = message
-      return
-    }
+    const recovering = this.runtime.isRecovering()
+    this.runtime.noteBoardError(message)
+    if (recovering) return
+    this.runtime.consumeWarnings()
     const state = this.requireState()
     if (state.phase === 'step-complete') {
       this.update({ notice: message, announcement: message })
@@ -276,22 +274,15 @@ export class OpeningController {
   }
 
   startSoundUnlock(): void {
-    if (!this.sound || this.soundUnlockStarted) return
-    this.soundUnlockStarted = true
-    try {
-      void this.sound.unlock().catch(() => { this.soundUnlockStarted = false })
-    } catch {
-      this.soundUnlockStarted = false
-    }
+    this.runtime.unlockFromPointer()
   }
 
   unlockFromKeyboard(key: string): void {
-    if (key === 'Enter' || key === ' ') this.startSoundUnlock()
+    this.runtime.unlockFromKeyboard(key)
   }
 
   toggleSound(): void {
-    if (!this.sound) return
-    this.update({ soundMuted: this.sound.toggleMuted() })
+    this.update({ soundMuted: this.runtime.toggleSound() })
   }
 
   private visibleSession(): OpeningSessionView | undefined {
@@ -299,8 +290,7 @@ export class OpeningController {
   }
 
   private adoptSession(session: OpeningSessionView): void {
-    this.pendingBoardWarning = ''
-    this.recoveringBoard = false
+    this.runtime.consumeWarnings()
     this.publishState(initialiseOpening(session), {
       message: '',
       feedback: null,
@@ -315,7 +305,7 @@ export class OpeningController {
     const state = this.requireState()
     const allowed = state.phase === 'passive' || acceptsOpeningInput(state)
     if (!allowed) return null
-    const token = this.requests.start()
+    const token = this.runtime.startRequest()
     try {
       const request = beginOpeningRequest(state, operation, token.id)
       if (request.phase !== 'requesting') throw new Error('Opening request did not start.')
@@ -330,7 +320,7 @@ export class OpeningController {
   }
 
   private acceptsOwnedResponse(owned: OwnedRequest): boolean {
-    return this.isCurrent(owned) && acceptsOpeningResponse(this.requireState(), owned.id)
+    return this.runtime.isCurrent(owned) && acceptsOpeningResponse(this.requireState(), owned.id)
   }
 
   private async finishFeedback(
@@ -338,9 +328,9 @@ export class OpeningController {
     result: Extract<OpeningStepResult, { stepCompleted: false }>
   ): Promise<void> {
     const authoritativeFen = result.session.current.currentFen
-    const warning = await this.reconcilePosition(
+    const warning = await this.runtime.reconcilePosition(
       authoritativeFen,
-      owned.controller,
+      owned.controller.signal,
       !this.view.reducedMotion
     )
     if (!this.acceptsOwnedResponse(owned)) return
@@ -373,17 +363,17 @@ export class OpeningController {
     this.publishState(animating, { message: 'Showing the course line…', feedback: null })
 
     const animation = await animateAppliedMoves({
-      port: this.animationPort(),
+      port: this.runtime.animationPort(),
       startingFen: owned.request.fen,
       appliedMoves: frames,
       ...(optimisticUci ? { optimisticUci } : {}),
       finalFen,
       reducedMotion: this.view.reducedMotion,
       signal: owned.controller.signal,
-      onStep: (kind) => this.sound?.play(kind)
+      onStep: (kind) => this.runtime.playSound(kind)
     })
     const state = this.requireState()
-    if (!this.isCurrent(owned) || animation.status === 'aborted' ||
+    if (!this.runtime.isCurrent(owned) || animation.status === 'aborted' ||
       state.phase !== 'animating' || state.requestId !== owned.id) return
 
     const message = result.message || (owned.request.operation === 'reveal'
@@ -399,7 +389,7 @@ export class OpeningController {
       ...(lastMove ? { lastMove } : {})
     })
     this.applyBoardWarnings()
-    if (owned.request.operation === 'move') this.sound?.play('correct')
+    if (owned.request.operation === 'move') this.runtime.playSound('correct')
     this.events.persisted(result.session)
   }
 
@@ -407,9 +397,9 @@ export class OpeningController {
     if (!this.acceptsOwnedResponse(owned)) return
     let warning = ''
     if (reconcile) {
-      warning = await this.reconcilePosition(
+      warning = await this.runtime.reconcilePosition(
         owned.request.fen,
-        owned.controller,
+        owned.controller.signal,
         !this.view.reducedMotion
       )
     }
@@ -421,41 +411,6 @@ export class OpeningController {
       notice: warning
     })
     this.applyBoardWarnings()
-  }
-
-  private async reconcilePosition(
-    fen: string,
-    controller: AbortController,
-    animate: boolean
-  ): Promise<string> {
-    try {
-      if (!this.board) throw new Error('Chess board is unavailable')
-      this.updateStateFen(fen, undefined)
-      this.board.setPosition(fen, undefined, animate)
-      if (animate) await this.effects.delay(180, controller.signal)
-      return ''
-    } catch (error) {
-      if (controller.signal.aborted) return ''
-      this.recoverBoard(fen)
-      return `Board reconciliation failed: ${errorMessage(error)}. The saved position was restored.`
-    }
-  }
-
-  private animationPort() {
-    return {
-      setPosition: (frame: PositionFrame) => {
-        if (!this.board) throw new Error('Chess board is unavailable')
-        this.updateStateFen(frame.fen, frame.lastMove)
-        this.board.setPosition(frame.fen, frame.lastMove, frame.animate)
-      },
-      delay: this.effects.delay,
-      recover: (finalFen: string) => this.recoverBoard(finalFen)
-    }
-  }
-
-  private recoverBoard(finalFen: string): void {
-    this.recoveringBoard = true
-    this.updateStateFen(finalFen, undefined, this.view.boardGeneration + 1)
   }
 
   private updateStateFen(
@@ -472,14 +427,8 @@ export class OpeningController {
   }
 
   private applyBoardWarnings(warning = ''): void {
-    const messages = [warning, this.view.notice, this.pendingBoardWarning].filter(Boolean)
-    this.pendingBoardWarning = ''
-    this.recoveringBoard = false
-    if (messages.length > 0) this.update({ notice: [...new Set(messages)].join(' ') })
-  }
-
-  private isCurrent(token: RequestToken): boolean {
-    return this.mounted && this.requests.isCurrent(token)
+    const message = this.runtime.consumeWarnings(warning, this.view.notice)
+    if (message) this.update({ notice: message })
   }
 
   private requireState(): OpeningState {

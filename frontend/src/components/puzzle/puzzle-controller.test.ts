@@ -5,11 +5,11 @@ import type {
 } from '../../lib/api'
 import type { SoundService } from '../../lib/sound'
 import { fakeAPI } from '../../test-fakes'
+import type { BoardEffects } from '../chess/board-effects'
 import {
   createPuzzleController,
   type PuzzleBoardPort,
-  type PuzzleControllerEvents,
-  type PuzzleEffects
+  type PuzzleControllerEvents
 } from './puzzle-controller'
 import type { PuzzleRenderState } from './puzzle-view'
 
@@ -78,7 +78,7 @@ function sound(): SoundService {
   }
 }
 
-function effects(overrides: Partial<PuzzleEffects> = {}): PuzzleEffects {
+function effects(overrides: Partial<BoardEffects> = {}): BoardEffects {
   return {
     createSound: sound,
     delay: async () => {},

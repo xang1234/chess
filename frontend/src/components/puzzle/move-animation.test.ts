@@ -3,7 +3,7 @@ import {
   animateAppliedMoves,
   type AnimationPort,
   type PositionFrame
-} from './move-animation'
+} from '../chess/move-animation'
 
 const startFen = '4k3/4p3/8/8/8/8/4P3/4K3 w - - 0 1'
 const afterE4 = '4k3/4p3/8/8/4P3/8/8/4K3 b - - 0 1'
