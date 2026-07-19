@@ -1,6 +1,10 @@
 package training
 
-import "time"
+import (
+	"time"
+
+	"chess-trainer/internal/spacedreview"
+)
 
 type Outcome string
 
@@ -10,14 +14,6 @@ const (
 	OutcomeHinted   Outcome = "hinted"
 	OutcomeRevealed Outcome = "revealed"
 )
-
-var reviewIntervals = []time.Duration{
-	24 * time.Hour,
-	72 * time.Hour,
-	7 * 24 * time.Hour,
-	21 * 24 * time.Hour,
-	60 * 24 * time.Hour,
-}
 
 type ReviewState struct {
 	Fingerprint       string    `json:"fingerprint"`
@@ -30,16 +26,27 @@ type ReviewState struct {
 
 func NextReview(now time.Time, current ReviewState, outcome Outcome) ReviewState {
 	current.LastOutcome = outcome
+	scheduled := spacedreview.Next(now, spacedreview.State{
+		IntervalIndex:     current.IntervalIndex,
+		SuccessfulReviews: current.SuccessfulReviews,
+	}, spacedReviewOutcome(outcome))
+	current.IntervalIndex = scheduled.State.IntervalIndex
+	current.SuccessfulReviews = scheduled.State.SuccessfulReviews
+	current.DueAt = scheduled.DueAt
+	return current
+}
+
+func spacedReviewOutcome(outcome Outcome) spacedreview.Outcome {
 	switch outcome {
-	case OutcomeMissed, OutcomeHinted, OutcomeRevealed:
-		current.IntervalIndex = 0
-		current.SuccessfulReviews = 0
 	case OutcomeClean:
-		current.IntervalIndex = min(current.IntervalIndex+1, len(reviewIntervals)-1)
-		current.SuccessfulReviews++
+		return spacedreview.Clean
+	case OutcomeMissed:
+		return spacedreview.Missed
+	case OutcomeHinted:
+		return spacedreview.Hinted
+	case OutcomeRevealed:
+		return spacedreview.Revealed
 	default:
 		panic("unknown review outcome")
 	}
-	current.DueAt = now.Add(reviewIntervals[current.IntervalIndex])
-	return current
 }

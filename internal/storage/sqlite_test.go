@@ -14,7 +14,7 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 		migrations int
 	}{
 		{schema: "puzzles", table: "puzzle_cores", migrations: 1},
-		{schema: "user", table: "profile", migrations: 3},
+		{schema: "user", table: "profile", migrations: 4},
 		{schema: "library", table: "library_metadata", migrations: 1},
 		{schema: "courses", table: "course_generations", migrations: 1},
 	}
@@ -59,6 +59,38 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 				t.Fatalf("migrations=%d, want %d", migrations, tt.migrations)
 			}
 		})
+	}
+}
+
+func TestUserMigration004CreatesOpeningLearningState(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "user.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := Migrate(db, "user"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{
+		"opening_preferences",
+		"opening_sessions",
+		"opening_lesson_progress",
+		"opening_attempts",
+		"opening_prompt_progress",
+		"opening_review_state",
+		"idx_opening_sessions_resume",
+		"idx_opening_sessions_single_resumable",
+		"idx_opening_reviews_due",
+		"idx_opening_attempts_prompt",
+	} {
+		var found string
+		if err := db.QueryRow(
+			`SELECT name FROM sqlite_master WHERE name = ? AND type IN ('table','index')`,
+			name,
+		).Scan(&found); err != nil {
+			t.Fatalf("schema object %q: %v", name, err)
+		}
 	}
 }
 
