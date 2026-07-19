@@ -10,6 +10,7 @@ import (
 	"time"
 
 	appservices "chess-trainer/internal/app"
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/importjob"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
@@ -18,7 +19,7 @@ import (
 )
 
 type bindingImportCall struct {
-	inspection puzzles.ImportInspection
+	inspection importing.Inspection
 }
 
 type bindingImporter struct {
@@ -63,14 +64,14 @@ func (bindingImporter) Supports(format puzzles.ImportFormat) bool {
 
 func (i bindingImporter) Import(
 	_ context.Context,
-	inspection puzzles.ImportInspection,
-	_ puzzles.ProgressSink,
+	inspection importing.Inspection,
+	_ importing.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	i.called <- bindingImportCall{inspection: inspection}
 	return puzzles.ImportReport{}, nil
 }
 
-func (e bindingEmitter) Progress(string, puzzles.Progress) {}
+func (e bindingEmitter) Progress(string, importing.Progress) {}
 
 func (e bindingEmitter) Finished(result importjob.Result) {
 	e.finished <- result
@@ -89,18 +90,18 @@ func (a bindingInspectionAdapter) Descriptor() puzzles.ImportFormatDescriptor {
 func (a bindingInspectionAdapter) Inspect(
 	_ context.Context,
 	path string,
-) (puzzles.ImportInspection, bool, error) {
+) (importing.Inspection, bool, error) {
 	if a.inspected != nil {
 		a.inspected <- path
 	}
-	return puzzles.ImportInspection{
+	return importing.Inspection{
 		SourceID: a.sourceID, SourceIDOrigin: puzzles.SourceIDEmbedded,
 	}, true, nil
 }
 
 func (bindingInspectionAdapter) NewDecoder(
 	io.Reader,
-	puzzles.ImportInspection,
+	importing.Inspection,
 ) (puzzles.PuzzleDecoder, error) {
 	return nil, errors.New("binding inspection adapter does not decode")
 }
@@ -116,13 +117,13 @@ func TestAppImportBindingsDelegateValidation(t *testing.T) {
 	if _, err := app.InspectPuzzleImport(""); err == nil {
 		t.Fatal("InspectPuzzleImport() unexpectedly accepted an empty path")
 	}
-	if _, err := app.StartPuzzleImport(puzzles.ImportInspection{}); err == nil {
+	if _, err := app.StartPuzzleImport(importing.Inspection{}); err == nil {
 		t.Fatal("StartPuzzleImport() unexpectedly accepted an empty path")
 	}
 	if _, err := app.InspectOpeningCourseImport(""); err == nil {
 		t.Fatal("InspectOpeningCourseImport() unexpectedly accepted an empty path")
 	}
-	if _, err := app.StartOpeningCourseImport(puzzles.ImportInspection{}); err == nil {
+	if _, err := app.StartOpeningCourseImport(importing.Inspection{}); err == nil {
 		t.Fatal("StartOpeningCourseImport() unexpectedly accepted an empty path")
 	}
 	if err := app.CancelImport("missing"); err == nil {
@@ -311,7 +312,7 @@ func TestStartPuzzleImportPassesConfirmedInspection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inspection := puzzles.ImportInspection{
+	inspection := importing.Inspection{
 		Path: normalizedPath, Filename: filepath.Base(normalizedPath),
 		Format: puzzles.FormatCanonicalJSON, SourceID: "authoritative-source",
 		SourceIDOrigin: puzzles.SourceIDEmbedded, SourceName: "Club",
@@ -336,7 +337,7 @@ func TestGenericImportBindingsRespectNormalOperationLifecycle(t *testing.T) {
 	if _, err := app.InspectPuzzleImport("/collection.json"); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
 		t.Fatalf("InspectPuzzleImport() error = %v, want runtime unavailable", err)
 	}
-	if _, err := app.StartPuzzleImport(puzzles.ImportInspection{Path: "/collection.json"}); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
+	if _, err := app.StartPuzzleImport(importing.Inspection{Path: "/collection.json"}); !errors.Is(err, appservices.ErrRuntimeUnavailable) {
 		t.Fatalf("StartPuzzleImport() error = %v, want runtime unavailable", err)
 	}
 }

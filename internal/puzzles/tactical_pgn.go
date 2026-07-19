@@ -48,13 +48,13 @@ func (tacticalPGNAdapter) Descriptor() ImportFormatDescriptor {
 func (a tacticalPGNAdapter) Inspect(
 	ctx context.Context,
 	path string,
-) (ImportInspection, bool, error) {
+) (puzzleInspection, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	defer file.Close()
 
@@ -62,10 +62,10 @@ func (a tacticalPGNAdapter) Inspect(
 	for {
 		scanned, err := scanner.ScanGame()
 		if errors.Is(err, io.EOF) {
-			return ImportInspection{}, false, nil
+			return puzzleInspection{}, false, nil
 		}
 		if err != nil {
-			return ImportInspection{}, false, fmt.Errorf("inspect tactical PGN: scan game: %w", err)
+			return puzzleInspection{}, false, fmt.Errorf("inspect tactical PGN: scan game: %w", err)
 		}
 		if len(scanned.Raw) > maxTacticalPGNGameBytes {
 			continue
@@ -81,7 +81,7 @@ func (a tacticalPGNAdapter) Inspect(
 			sourceID = path
 			origin = SourceIDPath
 		}
-		return ImportInspection{
+		return puzzleInspection{
 			SourceID:       sourceID,
 			SourceIDOrigin: origin,
 		}, true, nil
@@ -107,7 +107,7 @@ func firstTacticalPGNTag(tags map[string][]string, name string) string {
 
 func (a tacticalPGNAdapter) NewDecoder(
 	reader io.Reader,
-	inspection ImportInspection,
+	inspection puzzleInspection,
 ) (PuzzleDecoder, error) {
 	sourceID := strings.TrimSpace(inspection.SourceID)
 	if sourceID == "" {

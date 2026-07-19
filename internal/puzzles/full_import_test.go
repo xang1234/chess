@@ -103,7 +103,7 @@ func TestFullLichessImport(t *testing.T) {
 	importContext, cancelImport := context.WithCancel(context.Background())
 	defer cancelImport()
 
-	report, importErr := inspectAndImportLichess(importContext, importer, path, func(progress Progress) {
+	report, importErr := inspectAndImportLichess(importContext, importer, path, func(progress puzzleProgress) {
 		visibilityChecks++
 		old, readErr := catalog.Get(importContext, prior.Key())
 		if readErr != nil && visibilityErr == nil {

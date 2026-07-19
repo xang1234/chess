@@ -15,6 +15,7 @@ import (
 
 	"chess-trainer/internal/chessrules"
 	"chess-trainer/internal/domain"
+	importcontract "chess-trainer/internal/importing"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -216,7 +217,7 @@ func TestLichessProducesCoreAndOccurrence(t *testing.T) {
 	if catalog.beginCalls != 1 {
 		t.Fatalf("BeginImport calls = %d, want 1", catalog.beginCalls)
 	}
-	normalizedPath, err := normalizeImportPath(path)
+	normalizedPath, err := importcontract.NormalizePath(path, "puzzle import")
 	if err != nil {
 		t.Fatal(err)
 	}

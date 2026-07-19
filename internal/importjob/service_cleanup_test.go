@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/puzzles"
 )
 
@@ -23,7 +24,7 @@ func TestConcurrentProgressEmitsMonotonicSnapshots(t *testing.T) {
 	t.Cleanup(service.Close)
 	t.Cleanup(releaseEmitter)
 
-	jobID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	jobID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/concurrent-progress",
 	})
 	if err != nil {
@@ -32,7 +33,7 @@ func TestConcurrentProgressEmitsMonotonicSnapshots(t *testing.T) {
 	call := receive(t, importer.started)
 	firstReturned := make(chan struct{})
 	go func() {
-		call.progress(puzzles.Progress{RowsRead: 10, BytesRead: 20})
+		call.progress(importing.Progress{RowsRead: 10, BytesRead: 20})
 		close(firstReturned)
 	}()
 	firstStarted := receive(t, emitter.started)
@@ -42,7 +43,7 @@ func TestConcurrentProgressEmitsMonotonicSnapshots(t *testing.T) {
 
 	secondReturned := make(chan struct{})
 	go func() {
-		call.progress(puzzles.Progress{RowsRead: 20, BytesRead: 30})
+		call.progress(importing.Progress{RowsRead: 20, BytesRead: 30})
 		close(secondReturned)
 	}()
 	assertNoReceive(t, secondReturned, "later progress overtook a blocked earlier callback")
@@ -52,9 +53,9 @@ func TestConcurrentProgressEmitsMonotonicSnapshots(t *testing.T) {
 
 	first := receive(t, emitter.progress)
 	second := receive(t, emitter.progress)
-	if first.snapshot != (puzzles.Progress{
+	if first.snapshot != (importing.Progress{
 		Phase: puzzles.ImportDetecting, RowsRead: 10, BytesRead: 20,
-	}) || second.snapshot != (puzzles.Progress{
+	}) || second.snapshot != (importing.Progress{
 		Phase: puzzles.ImportDetecting, RowsRead: 20, BytesRead: 30,
 	}) {
 		t.Fatalf("emitted progress = %+v then %+v", first.snapshot, second.snapshot)
@@ -78,7 +79,7 @@ func TestTerminalEventPrecedesLaterJobProgress(t *testing.T) {
 	t.Cleanup(service.Close)
 	t.Cleanup(releaseEmitter)
 
-	firstID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	firstID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
@@ -91,7 +92,7 @@ func TestTerminalEventPrecedesLaterJobProgress(t *testing.T) {
 		t.Fatalf("blocked terminal job = %q, want %q", terminalStarted.JobID, firstID)
 	}
 
-	secondID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	secondID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
@@ -100,7 +101,7 @@ func TestTerminalEventPrecedesLaterJobProgress(t *testing.T) {
 	secondCall := receive(t, importer.started)
 	progressReturned := make(chan struct{})
 	go func() {
-		secondCall.progress(puzzles.Progress{RowsRead: 1})
+		secondCall.progress(importing.Progress{RowsRead: 1})
 		close(progressReturned)
 	}()
 	assertNoReceive(t, progressReturned, "later-job progress overtook the earlier terminal event")
@@ -130,7 +131,7 @@ func TestStaleCleanupWaitsForLaterTerminalEvent(t *testing.T) {
 	maintenance := newBlockingMaintenance()
 	emitter := &staleCleanupOrderingEmitter{
 		importer: importer,
-		nextInspection: puzzles.ImportInspection{
+		nextInspection: importing.Inspection{
 			Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 		},
 		nextJob:         make(chan startedNextJob, 1),
@@ -144,7 +145,7 @@ func TestStaleCleanupWaitsForLaterTerminalEvent(t *testing.T) {
 	t.Cleanup(service.Close)
 	t.Cleanup(releaseEmitter)
 
-	firstID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	firstID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
@@ -192,7 +193,7 @@ func TestCleanupStartsAfterTerminalAndNeverOverlapsImport(t *testing.T) {
 	service := NewService(importer, maintenance, emitter)
 	t.Cleanup(service.Close)
 
-	firstID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	firstID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
@@ -214,7 +215,7 @@ func TestCleanupStartsAfterTerminalAndNeverOverlapsImport(t *testing.T) {
 		t.Fatalf("Result() when cleanup started = %+v, %v", stored, err)
 	}
 
-	_, err = service.Start(context.Background(), puzzles.ImportInspection{
+	_, err = service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
@@ -236,7 +237,7 @@ func TestNewImportPreemptsFurtherCleanupBatches(t *testing.T) {
 	service := NewService(importer, maintenance, emitter)
 	t.Cleanup(service.Close)
 
-	_, err := service.Start(context.Background(), puzzles.ImportInspection{
+	_, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
@@ -247,7 +248,7 @@ func TestNewImportPreemptsFurtherCleanupBatches(t *testing.T) {
 	_ = receive(t, emitter.finished)
 	firstCleanup := receive(t, maintenance.started)
 
-	_, err = service.Start(context.Background(), puzzles.ImportInspection{
+	_, err = service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
@@ -280,7 +281,7 @@ func TestCloseCancelsAndWaitsForImporterAndCleanup(t *testing.T) {
 	emitter := newRecordingEmitter()
 	service := NewService(importer, maintenance, emitter)
 
-	_, err := service.Start(context.Background(), puzzles.ImportInspection{
+	_, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
@@ -291,7 +292,7 @@ func TestCloseCancelsAndWaitsForImporterAndCleanup(t *testing.T) {
 	_ = receive(t, emitter.finished)
 	cleanup := receive(t, maintenance.started)
 
-	_, err = service.Start(context.Background(), puzzles.ImportInspection{
+	_, err = service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {
@@ -324,7 +325,7 @@ func TestCloseCancelsAndWaitsForImporterAndCleanup(t *testing.T) {
 	receive(t, closedFirst)
 	receive(t, closedSecond)
 
-	if _, err := service.Start(context.Background(), puzzles.ImportInspection{
+	if _, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "later", Path: "/later",
 	}); err == nil {
 		t.Fatal("Start() unexpectedly succeeded after Close()")
@@ -349,7 +350,7 @@ func TestConcurrentStartAndCloseWaitsForEveryRegisteredJob(t *testing.T) {
 
 		go func() {
 			<-begin
-			jobID, err := service.Start(context.Background(), puzzles.ImportInspection{
+			jobID, err := service.Start(context.Background(), importing.Inspection{
 				Format: puzzles.FormatLichess, SourceID: "race", Path: "/race",
 			})
 			started <- startResult{jobID: jobID, err: err}

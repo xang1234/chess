@@ -265,7 +265,7 @@ func TestMultiFormatImportFailuresPreserveThePriorPGNHead(t *testing.T) {
 	cancelContext, cancel := context.WithCancel(ctx)
 	_, err = importer.Import(
 		cancelContext, cancelInspection,
-		func(progress Progress) {
+		func(progress puzzleProgress) {
 			if progress.Phase == ImportParsing {
 				cancel()
 			}
@@ -336,7 +336,7 @@ func importMultiFormatFixture(
 	t *testing.T,
 	importer CollectionImporter,
 	path string,
-) ImportInspection {
+) puzzleInspection {
 	t.Helper()
 	inspection, err := importer.Inspect(context.Background(), path)
 	if err != nil {

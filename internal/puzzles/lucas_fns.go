@@ -56,13 +56,13 @@ func (lucasFNSAdapter) Descriptor() ImportFormatDescriptor {
 func (a lucasFNSAdapter) Inspect(
 	ctx context.Context,
 	path string,
-) (ImportInspection, bool, error) {
+) (puzzleInspection, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	defer file.Close()
 
@@ -71,10 +71,10 @@ func (a lucasFNSAdapter) Inspect(
 	for scanner.Scan() {
 		lineNumber++
 		if err := ctx.Err(); err != nil {
-			return ImportInspection{}, false, err
+			return puzzleInspection{}, false, err
 		}
 		if len(scanner.Bytes()) > maxLucasFNSLineBytes {
-			return ImportInspection{}, false, lucasFNSLineLimitError(lineNumber)
+			return puzzleInspection{}, false, lucasFNSLineLimitError(lineNumber)
 		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -87,24 +87,24 @@ func (a lucasFNSAdapter) Inspect(
 		if _, err := normalizeFEN(a.rules, strings.TrimSpace(fields[0])); err != nil {
 			continue
 		}
-		return ImportInspection{
+		return puzzleInspection{
 			SourceID:       path,
 			SourceIDOrigin: SourceIDPath,
 		}, true, nil
 	}
 	if err := scanner.Err(); err != nil {
-		return ImportInspection{}, false, fmt.Errorf(
+		return puzzleInspection{}, false, fmt.Errorf(
 			"inspect Lucas FNS line %d: %w",
 			lineNumber+1,
 			err,
 		)
 	}
-	return ImportInspection{}, false, nil
+	return puzzleInspection{}, false, nil
 }
 
 func (a lucasFNSAdapter) NewDecoder(
 	reader io.Reader,
-	inspection ImportInspection,
+	inspection puzzleInspection,
 ) (PuzzleDecoder, error) {
 	if reader == nil {
 		return nil, errors.New("Lucas FNS reader is required")

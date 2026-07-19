@@ -49,44 +49,44 @@ func (lichessAdapter) Descriptor() ImportFormatDescriptor {
 func (lichessAdapter) Inspect(
 	ctx context.Context,
 	path string,
-) (ImportInspection, bool, error) {
+) (puzzleInspection, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	defer file.Close()
 
 	var magic [len(lichessZstandardMagic)]byte
 	if _, err := io.ReadFull(contextReader{ctx: ctx, reader: file}, magic[:]); err != nil {
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			return ImportInspection{}, false, nil
+			return puzzleInspection{}, false, nil
 		}
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	if magic != lichessZstandardMagic {
-		return ImportInspection{}, false, nil
+		return puzzleInspection{}, false, nil
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 
 	decoder, err := newLichessZstandardReader(contextReader{ctx: ctx, reader: file})
 	if err != nil {
-		return ImportInspection{}, false, fmt.Errorf("unsupported Lichess content: %w", err)
+		return puzzleInspection{}, false, fmt.Errorf("unsupported Lichess content: %w", err)
 	}
 	defer decoder.Close()
 	reader := newLichessCSVReader(decoder)
 	header, err := reader.Read()
 	if err != nil {
-		return ImportInspection{}, false, fmt.Errorf("unsupported Lichess content: read header: %w", err)
+		return puzzleInspection{}, false, fmt.Errorf("unsupported Lichess content: read header: %w", err)
 	}
 	if _, err := lichessColumnIndexes(header); err != nil {
-		return ImportInspection{}, false, fmt.Errorf("unsupported Lichess content: %w", err)
+		return puzzleInspection{}, false, fmt.Errorf("unsupported Lichess content: %w", err)
 	}
-	return ImportInspection{
+	return puzzleInspection{
 		SourceID:       "lichess",
 		SourceIDOrigin: SourceIDFixed,
 	}, true, nil
@@ -94,7 +94,7 @@ func (lichessAdapter) Inspect(
 
 func (a lichessAdapter) NewDecoder(
 	reader io.Reader,
-	_ ImportInspection,
+	_ puzzleInspection,
 ) (PuzzleDecoder, error) {
 	decoder, err := newLichessZstandardReader(reader)
 	if err != nil {

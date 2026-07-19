@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/puzzles"
 )
 
@@ -15,7 +16,7 @@ func TestStartPassesCanonicalFormatToImporter(t *testing.T) {
 	service := NewService(importer, nil, emitter)
 	t.Cleanup(service.Close)
 
-	inspection := puzzles.ImportInspection{
+	inspection := importing.Inspection{
 		Format: puzzles.FormatCanonicalJSON, SourceID: "club", Path: "/club.json",
 	}
 	jobID, err := service.Start(context.Background(), inspection)
@@ -38,7 +39,7 @@ func TestResultJSONOmitsInspection(t *testing.T) {
 	payload, err := json.Marshal(Result{
 		JobID:    "job-1",
 		Status:   Succeeded,
-		Progress: puzzles.Progress{Phase: puzzles.ImportActivating, RowsRead: 3},
+		Progress: importing.Progress{Phase: puzzles.ImportActivating, RowsRead: 3},
 		Report:   puzzles.ImportReport{Accepted: 3},
 	})
 	if err != nil {
@@ -59,10 +60,10 @@ func TestResultJSONOmitsInspection(t *testing.T) {
 }
 
 func TestStartPassesConfirmedInspectionToImporter(t *testing.T) {
-	importer := confirmedInspectionImporter{received: make(chan puzzles.ImportInspection, 1)}
+	importer := confirmedInspectionImporter{received: make(chan importing.Inspection, 1)}
 	service := NewService(importer, nil, nil)
 	t.Cleanup(service.Close)
-	inspection := puzzles.ImportInspection{
+	inspection := importing.Inspection{
 		Path: "/club.json", Filename: "club.json", Format: puzzles.FormatCanonicalJSON,
 		SourceID: "club", SourceIDOrigin: puzzles.SourceIDEmbedded, SourceName: "Club",
 	}
@@ -80,7 +81,7 @@ func TestStartSeedsDetectingProgressBeforePublishingJob(t *testing.T) {
 	service := NewService(importer, nil, nil)
 	t.Cleanup(service.Close)
 
-	jobID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	jobID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles.csv.zst",
 	})
 	if err != nil {
@@ -91,7 +92,7 @@ func TestStartSeedsDetectingProgressBeforePublishingJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := puzzles.Progress{Phase: puzzles.ImportDetecting}
+	want := importing.Progress{Phase: puzzles.ImportDetecting}
 	if result.Status != Running || result.Progress != want {
 		t.Fatalf("immediate Result() = %+v, want running progress %+v", result, want)
 	}
@@ -106,12 +107,12 @@ func TestStartValidatesInspection(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		inspection puzzles.ImportInspection
+		inspection importing.Inspection
 	}{
-		{name: "kind", inspection: puzzles.ImportInspection{SourceID: "source", Path: "/puzzles"}},
-		{name: "configured kind", inspection: puzzles.ImportInspection{Format: "missing", SourceID: "source", Path: "/puzzles"}},
-		{name: "source", inspection: puzzles.ImportInspection{Format: puzzles.FormatLichess, Path: "/puzzles"}},
-		{name: "path", inspection: puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "source"}},
+		{name: "kind", inspection: importing.Inspection{SourceID: "source", Path: "/puzzles"}},
+		{name: "configured kind", inspection: importing.Inspection{Format: "missing", SourceID: "source", Path: "/puzzles"}},
+		{name: "source", inspection: importing.Inspection{Format: puzzles.FormatLichess, Path: "/puzzles"}},
+		{name: "path", inspection: importing.Inspection{Format: puzzles.FormatLichess, SourceID: "source"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -126,14 +127,14 @@ func TestStartRejectsSecondActivePuzzleImport(t *testing.T) {
 	importer := newBlockingImporter()
 	service := NewService(importer, nil, nil)
 	t.Cleanup(service.Close)
-	inspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/first.csv.zst"}
+	inspection := importing.Inspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/first.csv.zst"}
 
 	activeJobID, err := service.Start(context.Background(), inspection)
 	if err != nil {
 		t.Fatal(err)
 	}
 	call := receive(t, importer.started)
-	_, err = service.Start(context.Background(), puzzles.ImportInspection{
+	_, err = service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/second.csv.zst",
 	})
 	var busy *BusyError
@@ -150,7 +151,7 @@ func TestStartRejectsSecondActivePuzzleImport(t *testing.T) {
 func TestResultKeepsMonotonicProgress(t *testing.T) {
 	emitter := newRecordingEmitter()
 	service := NewService(scriptedImporter{
-		progress: []puzzles.Progress{
+		progress: []importing.Progress{
 			{RowsRead: 10, BytesRead: 20},
 			{RowsRead: 5, BytesRead: 25},
 			{RowsRead: 12, BytesRead: 15},
@@ -158,13 +159,13 @@ func TestResultKeepsMonotonicProgress(t *testing.T) {
 		report: puzzles.ImportReport{Accepted: 9},
 	}, nil, emitter)
 	t.Cleanup(service.Close)
-	inspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles.csv.zst"}
+	inspection := importing.Inspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/puzzles.csv.zst"}
 
 	jobID, err := service.Start(context.Background(), inspection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []puzzles.Progress{
+	want := []importing.Progress{
 		{Phase: puzzles.ImportDetecting, RowsRead: 10, BytesRead: 20},
 		{Phase: puzzles.ImportDetecting, RowsRead: 10, BytesRead: 25},
 		{Phase: puzzles.ImportDetecting, RowsRead: 12, BytesRead: 25},
@@ -188,7 +189,7 @@ func TestResultKeepsMonotonicProgress(t *testing.T) {
 func TestImportProgressPhaseAndTotalsRemainMonotonic(t *testing.T) {
 	emitter := newRecordingEmitter()
 	service := NewService(scriptedImporter{
-		progress: []puzzles.Progress{
+		progress: []importing.Progress{
 			{Phase: puzzles.ImportDetecting, RowsRead: 1, BytesRead: 2, TotalBytes: 100},
 			{Phase: puzzles.ImportSealing, RowsRead: 10, BytesRead: 90, TotalBytes: 100},
 			{Phase: puzzles.ImportParsing, RowsRead: 12, BytesRead: 80, TotalBytes: 50},
@@ -197,13 +198,13 @@ func TestImportProgressPhaseAndTotalsRemainMonotonic(t *testing.T) {
 	}, nil, emitter)
 	t.Cleanup(service.Close)
 
-	jobID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	jobID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatCanonicalJSON, SourceID: "club", Path: "/club.json",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []puzzles.Progress{
+	want := []importing.Progress{
 		{Phase: puzzles.ImportDetecting, RowsRead: 1, BytesRead: 2, TotalBytes: 100},
 		{Phase: puzzles.ImportSealing, RowsRead: 10, BytesRead: 90, TotalBytes: 100},
 		{Phase: puzzles.ImportSealing, RowsRead: 12, BytesRead: 90, TotalBytes: 100},
@@ -244,18 +245,18 @@ func TestCompletedResultRemainsQueryableAfterLaterJob(t *testing.T) {
 	service := NewService(importer, nil, emitter)
 	t.Cleanup(service.Close)
 
-	firstInspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "first", Path: "/first"}
+	firstInspection := importing.Inspection{Format: puzzles.FormatLichess, SourceID: "first", Path: "/first"}
 	firstID, err := service.Start(context.Background(), firstInspection)
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstCall := receive(t, importer.started)
-	firstCall.progress(puzzles.Progress{RowsRead: 7, BytesRead: 11})
+	firstCall.progress(importing.Progress{RowsRead: 7, BytesRead: 11})
 	firstCall.finish <- importOutcome{report: puzzles.ImportReport{Accepted: 1}}
 	_ = receive(t, emitter.progress)
 	_ = receive(t, emitter.finished)
 
-	secondInspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "second", Path: "/second"}
+	secondInspection := importing.Inspection{Format: puzzles.FormatLichess, SourceID: "second", Path: "/second"}
 	secondID, err := service.Start(context.Background(), secondInspection)
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +272,7 @@ func TestCompletedResultRemainsQueryableAfterLaterJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != Succeeded || result.Progress != (puzzles.Progress{
+	if result.Status != Succeeded || result.Progress != (importing.Progress{
 		Phase: puzzles.ImportDetecting, RowsRead: 7, BytesRead: 11,
 	}) || result.Report.Accepted != 1 {
 		t.Fatalf("first result after later job = %+v", result)
@@ -282,7 +283,7 @@ func TestJobReachesExactlyOneTerminalState(t *testing.T) {
 	importer := newBlockingImporter()
 	emitter := newRecordingEmitter()
 	service := NewService(importer, nil, emitter)
-	inspection := puzzles.ImportInspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/cancel"}
+	inspection := importing.Inspection{Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/cancel"}
 
 	jobID, err := service.Start(context.Background(), inspection)
 	if err != nil {
@@ -318,7 +319,7 @@ func TestSuccessfulImportRemainsSucceededWhenContextCancelledAfterActivation(t *
 	t.Cleanup(service.Close)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	jobID, err := service.Start(ctx, puzzles.ImportInspection{
+	jobID, err := service.Start(ctx, importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "lichess", Path: "/activated",
 	})
 	if err != nil {
@@ -340,7 +341,7 @@ func TestTerminalJobAllowsNextImport(t *testing.T) {
 	service := NewService(importer, nil, emitter)
 	t.Cleanup(service.Close)
 
-	firstID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	firstID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "first", Path: "/first",
 	})
 	if err != nil {
@@ -353,7 +354,7 @@ func TestTerminalJobAllowsNextImport(t *testing.T) {
 		t.Fatalf("first result = %+v", firstResult)
 	}
 
-	secondID, err := service.Start(context.Background(), puzzles.ImportInspection{
+	secondID, err := service.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "second", Path: "/second",
 	})
 	if err != nil {

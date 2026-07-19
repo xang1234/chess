@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/puzzles"
 )
 
@@ -20,9 +21,9 @@ type importOutcome struct {
 }
 
 type startedImport struct {
-	inspection puzzles.ImportInspection
+	inspection importing.Inspection
 	ctx        context.Context
-	progress   puzzles.ProgressSink
+	progress   importing.ProgressSink
 	finish     chan importOutcome
 }
 
@@ -54,8 +55,8 @@ func (*blockingImporter) Supports(format puzzles.ImportFormat) bool {
 
 func (i *blockingImporter) Import(
 	ctx context.Context,
-	inspection puzzles.ImportInspection,
-	progress puzzles.ProgressSink,
+	inspection importing.Inspection,
+	progress importing.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	call := startedImport{
 		inspection: inspection,
@@ -76,12 +77,12 @@ func (i *blockingImporter) Import(
 }
 
 type scriptedImporter struct {
-	progress []puzzles.Progress
+	progress []importing.Progress
 	report   puzzles.ImportReport
 }
 
 type confirmedInspectionImporter struct {
-	received chan puzzles.ImportInspection
+	received chan importing.Inspection
 }
 
 func (confirmedInspectionImporter) Supports(format puzzles.ImportFormat) bool {
@@ -90,8 +91,8 @@ func (confirmedInspectionImporter) Supports(format puzzles.ImportFormat) bool {
 
 func (i confirmedInspectionImporter) Import(
 	_ context.Context,
-	inspection puzzles.ImportInspection,
-	_ puzzles.ProgressSink,
+	inspection importing.Inspection,
+	_ importing.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	i.received <- inspection
 	return puzzles.ImportReport{}, nil
@@ -103,8 +104,8 @@ func (scriptedImporter) Supports(format puzzles.ImportFormat) bool {
 
 func (i scriptedImporter) Import(
 	_ context.Context,
-	_ puzzles.ImportInspection,
-	progress puzzles.ProgressSink,
+	_ importing.Inspection,
+	progress importing.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	for _, snapshot := range i.progress {
 		progress(snapshot)
@@ -123,8 +124,8 @@ func (activatedThenNilImporter) Supports(format puzzles.ImportFormat) bool {
 
 func (i activatedThenNilImporter) Import(
 	context.Context,
-	puzzles.ImportInspection,
-	puzzles.ProgressSink,
+	importing.Inspection,
+	importing.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	close(i.activated)
 	<-i.release
@@ -167,7 +168,7 @@ func (m *blockingMaintenance) CleanupBatch(ctx context.Context, limit int) (bool
 
 type emittedProgress struct {
 	jobID    string
-	snapshot puzzles.Progress
+	snapshot importing.Progress
 }
 
 type recordingEmitter struct {
@@ -183,7 +184,7 @@ type blockingFirstProgressEmitter struct {
 	finished  chan Result
 }
 
-func (e *blockingFirstProgressEmitter) Progress(jobID string, progress puzzles.Progress) {
+func (e *blockingFirstProgressEmitter) Progress(jobID string, progress importing.Progress) {
 	event := emittedProgress{jobID: jobID, snapshot: progress}
 	blocked := false
 	e.blockOnce.Do(func() { blocked = true })
@@ -216,7 +217,7 @@ type staleCleanupOrderingEmitter struct {
 	terminalCount   int
 	service         *Service
 	importer        *blockingImporter
-	nextInspection  puzzles.ImportInspection
+	nextInspection  importing.Inspection
 	nextJob         chan startedNextJob
 	nextImport      chan startedImport
 	terminalStarted chan Result
@@ -224,7 +225,7 @@ type staleCleanupOrderingEmitter struct {
 	finished        chan Result
 }
 
-func (e *staleCleanupOrderingEmitter) Progress(string, puzzles.Progress) {}
+func (e *staleCleanupOrderingEmitter) Progress(string, importing.Progress) {}
 
 func (e *staleCleanupOrderingEmitter) Finished(result Result) {
 	e.mu.Lock()
@@ -246,7 +247,7 @@ func (e *staleCleanupOrderingEmitter) Finished(result Result) {
 	e.finished <- result
 }
 
-func (e *blockingFirstTerminalEmitter) Progress(jobID string, progress puzzles.Progress) {
+func (e *blockingFirstTerminalEmitter) Progress(jobID string, progress importing.Progress) {
 	e.progress <- emittedProgress{jobID: jobID, snapshot: progress}
 }
 
@@ -267,7 +268,7 @@ func newRecordingEmitter() *recordingEmitter {
 	}
 }
 
-func (e *recordingEmitter) Progress(jobID string, progress puzzles.Progress) {
+func (e *recordingEmitter) Progress(jobID string, progress importing.Progress) {
 	e.progress <- emittedProgress{jobID: jobID, snapshot: progress}
 }
 

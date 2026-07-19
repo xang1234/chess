@@ -473,7 +473,7 @@ func TestCanonicalJSONDecoderTreatsBrokenFramingAsFatal(t *testing.T) {
 }`
 	decoder, err := NewCanonicalJSONAdapter(chessrules.Rules{}).NewDecoder(
 		strings.NewReader(contents),
-		ImportInspection{
+		puzzleInspection{
 			SourceID:       "club-json",
 			SourceIDOrigin: SourceIDEmbedded,
 			SourceName:     "Club JSON",
@@ -502,7 +502,7 @@ func TestCanonicalJSONDecoderTreatsInvalidRecordDelimiterAsFatal(t *testing.T) {
 }`
 	decoder, err := NewCanonicalJSONAdapter(chessrules.Rules{}).NewDecoder(
 		strings.NewReader(contents),
-		ImportInspection{
+		puzzleInspection{
 			SourceID:       "club-json",
 			SourceIDOrigin: SourceIDEmbedded,
 			SourceName:     "Club JSON",
@@ -527,19 +527,19 @@ func TestCanonicalJSONDecoderFatallyRevalidatesInspectionIdentity(t *testing.T) 
 	tests := []struct {
 		name       string
 		contents   string
-		inspection ImportInspection
+		inspection puzzleInspection
 		want       string
 	}{
 		{
 			name:       "schema changed",
 			contents:   `{"schema":"chess-trainer-puzzles/v2","source":{"id":"club-json"},"puzzles":[]}`,
-			inspection: ImportInspection{SourceID: "club-json", SourceIDOrigin: SourceIDEmbedded},
+			inspection: puzzleInspection{SourceID: "club-json", SourceIDOrigin: SourceIDEmbedded},
 			want:       "schema",
 		},
 		{
 			name:       "source changed",
 			contents:   `{"schema":"chess-trainer-puzzles/v1","source":{"id":"other-json"},"puzzles":[]}`,
-			inspection: ImportInspection{SourceID: "club-json", SourceIDOrigin: SourceIDEmbedded},
+			inspection: puzzleInspection{SourceID: "club-json", SourceIDOrigin: SourceIDEmbedded},
 			want:       "source",
 		},
 	}
@@ -557,7 +557,7 @@ func TestCanonicalJSONDecoderFatallyRevalidatesInspectionIdentity(t *testing.T) 
 	}
 }
 
-func inspectCanonicalJSON(t *testing.T, contents string) (PuzzleAdapter, string, ImportInspection) {
+func inspectCanonicalJSON(t *testing.T, contents string) (PuzzleAdapter, string, puzzleInspection) {
 	t.Helper()
 	path := writeCanonicalJSON(t, contents)
 	adapter := NewCanonicalJSONAdapter(chessrules.Rules{})
@@ -581,7 +581,7 @@ func decodeCanonicalJSONFile(
 	t *testing.T,
 	adapter PuzzleAdapter,
 	path string,
-	inspection ImportInspection,
+	inspection puzzleInspection,
 ) []DecodedRecord {
 	t.Helper()
 	file, err := os.Open(path)

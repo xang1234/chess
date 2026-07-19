@@ -96,7 +96,7 @@ func TestLucasFNSDecoderIgnoresBlankCommentsAndRecoversAfterRejectedLines(t *tes
 		validFEN + "|bad SAN|1. e5 *\n" +
 		validFEN + "|empty movetext|   \n" +
 		validFEN + "|recovered|1. e4 *"
-	decoder := newLucasFNSTestDecoder(t, contents, ImportInspection{
+	decoder := newLucasFNSTestDecoder(t, contents, puzzleInspection{
 		SourceID:       "/collections/recovery.fns",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "recovery.fns",
@@ -140,7 +140,7 @@ func TestLucasFNSDecoderRejectsMeaningfulMovetextAfterFirstResult(t *testing.T) 
 			decoder := newLucasFNSTestDecoder(
 				t,
 				fen+"|trailing content|"+test.movetext,
-				ImportInspection{
+				puzzleInspection{
 					SourceID:       "/collections/trailing.fns",
 					SourceIDOrigin: SourceIDPath,
 					Filename:       "trailing.fns",
@@ -162,7 +162,7 @@ func TestLucasFNSDecoderRejectsMeaningfulMovetextAfterFirstResult(t *testing.T) 
 func TestLucasFNSDecoderAcceptsCommentsNAGsAndVariationsBeforeResult(t *testing.T) {
 	contents := "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1|annotated|" +
 		"1. e4 $1 {solver note} Kf7 (1... Kd7 $2 {variation note}) *"
-	decoder := newLucasFNSTestDecoder(t, contents, ImportInspection{
+	decoder := newLucasFNSTestDecoder(t, contents, puzzleInspection{
 		SourceID:       "/collections/annotated.fns",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "annotated.fns",
@@ -193,7 +193,7 @@ func TestLucasFNSDecoderHonorsLineContractForLargeValidPGNComments(t *testing.T)
 			if len(line) != targetBytes {
 				t.Fatalf("fixture is %d bytes, want %d", len(line), targetBytes)
 			}
-			decoder := newLucasFNSTestDecoder(t, line, ImportInspection{
+			decoder := newLucasFNSTestDecoder(t, line, puzzleInspection{
 				SourceID:       "/collections/comment-heavy.fns",
 				SourceIDOrigin: SourceIDPath,
 				Filename:       "comment-heavy.fns",
@@ -226,7 +226,7 @@ func TestLucasFNSDecoderHonorsLineContractForLargeValidPGNComments(t *testing.T)
 }
 
 func TestLucasFNSDecoderTreatsOverlongLineAsFatalFramingError(t *testing.T) {
-	decoder := newLucasFNSTestDecoder(t, strings.Repeat("x", (1<<20)+1), ImportInspection{
+	decoder := newLucasFNSTestDecoder(t, strings.Repeat("x", (1<<20)+1), puzzleInspection{
 		SourceID:       "/collections/oversized.fns",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "oversized.fns",
@@ -253,7 +253,7 @@ func TestLucasFNSDecoderRejectsOversizedMetadataAndRecoversNextLine(t *testing.T
 	}
 	contents := fen + "|" + description + "|1. e4 *\n" +
 		fen + "|recovered|1. e4 *"
-	decoder := newLucasFNSTestDecoder(t, contents, ImportInspection{
+	decoder := newLucasFNSTestDecoder(t, contents, puzzleInspection{
 		SourceID:       "/collections/metadata.fns",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "metadata.fns",
@@ -315,7 +315,7 @@ func TestLucasFNSAdapterNormalizesFilenameThemeAndExcludesGenericStems(t *testin
 }
 
 func TestLucasFNSDecoderHonorsCancellationAndClose(t *testing.T) {
-	decoder := newLucasFNSTestDecoder(t, lucasFNSBranchedPuzzle, ImportInspection{
+	decoder := newLucasFNSTestDecoder(t, lucasFNSBranchedPuzzle, puzzleInspection{
 		SourceID:       "/collections/lifecycle.fns",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "lifecycle.fns",
@@ -340,7 +340,7 @@ func inspectLucasFNS(
 	t *testing.T,
 	filename string,
 	contents string,
-) (PuzzleAdapter, string, ImportInspection) {
+) (PuzzleAdapter, string, puzzleInspection) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), filename)
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -360,7 +360,7 @@ func inspectLucasFNS(
 func newLucasFNSTestDecoder(
 	t *testing.T,
 	contents string,
-	inspection ImportInspection,
+	inspection puzzleInspection,
 ) PuzzleDecoder {
 	t.Helper()
 	decoder, err := NewLucasFNSAdapter(chessrules.Rules{}).NewDecoder(

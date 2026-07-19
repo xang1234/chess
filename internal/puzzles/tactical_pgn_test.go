@@ -524,7 +524,7 @@ func TestTacticalPGNAdapterDoesNotMatchPGNWithoutTacticalFEN(t *testing.T) {
 	}
 }
 
-func inspectTacticalPGN(t *testing.T, contents string) (PuzzleAdapter, string, ImportInspection) {
+func inspectTacticalPGN(t *testing.T, contents string) (PuzzleAdapter, string, puzzleInspection) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "collection.pgn")
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -550,7 +550,7 @@ func newTacticalPGNTestDecoder(t *testing.T, contents, sourceID string) PuzzleDe
 	}
 	decoder, err := NewTacticalPGNAdapter(chessrules.Rules{}).NewDecoder(
 		strings.NewReader(contents),
-		ImportInspection{SourceID: sourceID, SourceIDOrigin: origin},
+		puzzleInspection{SourceID: sourceID, SourceIDOrigin: origin},
 	)
 	if err != nil {
 		t.Fatal(err)

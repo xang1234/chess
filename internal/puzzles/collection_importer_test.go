@@ -21,7 +21,7 @@ type fakePuzzleAdapter struct {
 	descriptor ImportFormatDescriptor
 	format     ImportFormat
 	signature  string
-	inspection ImportInspection
+	inspection puzzleInspection
 	inspected  *[]string
 	decoder    func() PuzzleDecoder
 	preInspect func()
@@ -63,7 +63,7 @@ func (a fakePuzzleAdapter) Descriptor() ImportFormatDescriptor {
 	}
 }
 
-func (a fakePuzzleAdapter) Inspect(_ context.Context, path string) (ImportInspection, bool, error) {
+func (a fakePuzzleAdapter) Inspect(_ context.Context, path string) (puzzleInspection, bool, error) {
 	if a.inspected != nil {
 		*a.inspected = append(*a.inspected, path)
 	}
@@ -71,14 +71,14 @@ func (a fakePuzzleAdapter) Inspect(_ context.Context, path string) (ImportInspec
 		a.preInspect()
 	}
 	if a.inspectErr != nil {
-		return ImportInspection{}, false, a.inspectErr
+		return puzzleInspection{}, false, a.inspectErr
 	}
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	if string(contents) != a.signature {
-		return ImportInspection{}, false, nil
+		return puzzleInspection{}, false, nil
 	}
 	inspection := a.inspection
 	inspection.Format = a.format
@@ -88,7 +88,7 @@ func (a fakePuzzleAdapter) Inspect(_ context.Context, path string) (ImportInspec
 	return inspection, true, nil
 }
 
-func (a fakePuzzleAdapter) NewDecoder(io.Reader, ImportInspection) (PuzzleDecoder, error) {
+func (a fakePuzzleAdapter) NewDecoder(io.Reader, puzzleInspection) (PuzzleDecoder, error) {
 	if a.decoder == nil {
 		return nil, errors.New("fake decoder is not configured")
 	}
@@ -386,7 +386,7 @@ func TestCollectionImporterInspectMarksExistingSource(t *testing.T) {
 		Adapters: []PuzzleAdapter{fakePuzzleAdapter{
 			format:    FormatCanonicalJSON,
 			signature: "json-signature",
-			inspection: ImportInspection{
+			inspection: puzzleInspection{
 				SourceID: "club", SourceIDOrigin: SourceIDEmbedded,
 			},
 		}},
@@ -489,7 +489,7 @@ func mustInspectCollection(
 	t *testing.T,
 	importer CollectionImporter,
 	path string,
-) ImportInspection {
+) puzzleInspection {
 	t.Helper()
 	inspection, err := importer.Inspect(context.Background(), path)
 	if err != nil {
@@ -511,10 +511,10 @@ func TestCollectionImporterImportSealsChecksumAndActivatesInOrder(t *testing.T) 
 		}}
 		return decoder
 	})
-	var progress []Progress
+	var progress []puzzleProgress
 
 	inspection := mustInspectCollection(t, importer, path)
-	report, err := importer.Import(context.Background(), inspection, func(got Progress) {
+	report, err := importer.Import(context.Background(), inspection, func(got puzzleProgress) {
 		progress = append(progress, got)
 	})
 	if err != nil {
@@ -578,7 +578,7 @@ func TestCollectionImporterImportRevalidatesOnlyConfirmedAdapter(t *testing.T) {
 			},
 		},
 	}
-	expected := ImportInspection{
+	expected := puzzleInspection{
 		Path: path, Filename: filepath.Base(path), Format: FormatLinearFENUCI,
 		SourceID: path, SourceIDOrigin: SourceIDPath, ReplacesExisting: true,
 	}
@@ -808,10 +808,10 @@ func TestCollectionImporterImportCancelsUnreadRawDrain(t *testing.T) {
 			onClose: cancel,
 		}
 	})
-	var progress []Progress
+	var progress []puzzleProgress
 
 	inspection := mustInspectCollection(t, importer, path)
-	_, err := importer.Import(ctx, inspection, func(got Progress) {
+	_, err := importer.Import(ctx, inspection, func(got puzzleProgress) {
 		progress = append(progress, got)
 	})
 	if !errors.Is(err, context.Canceled) {

@@ -95,7 +95,7 @@ func TestLinearFENDecoderRejectsMalformedRecordsAndRecovers(t *testing.T) {
 		fen + " e2e4 # inline comments are data\n" +
 		fen + " e2e4 Rating 1375\n" +
 		fen + " e2e4\n"
-	decoder := newLinearFENTestDecoder(t, contents, ImportInspection{
+	decoder := newLinearFENTestDecoder(t, contents, puzzleInspection{
 		SourceID:       "/collections/recovery.txt",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "recovery.txt",
@@ -129,7 +129,7 @@ func TestLinearFENDecoderRejectsMalformedRecordsAndRecovers(t *testing.T) {
 func TestLinearFENDecoderRejectsOverDepthBeforeMoveValidation(t *testing.T) {
 	line := standardStartingFEN + " " +
 		strings.TrimSpace(strings.Repeat("not-a-move ", maxSolutionDepth+1))
-	decoder := newLinearFENTestDecoder(t, line, ImportInspection{
+	decoder := newLinearFENTestDecoder(t, line, puzzleInspection{
 		SourceID:       "/collections/over-depth.txt",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "over-depth.txt",
@@ -180,7 +180,7 @@ func TestLinearFENInspectionAllowsMalformedLeadingRecord(t *testing.T) {
 }
 
 func TestLinearFENDecoderTreatsOverlongLineAsFatalFramingError(t *testing.T) {
-	decoder := newLinearFENTestDecoder(t, strings.Repeat("x", (1<<20)+1), ImportInspection{
+	decoder := newLinearFENTestDecoder(t, strings.Repeat("x", (1<<20)+1), puzzleInspection{
 		SourceID:       "/collections/oversized.txt",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "oversized.txt",
@@ -205,7 +205,7 @@ func TestLinearFENInspectionReportsOverlongFirstMeaningfulLine(t *testing.T) {
 }
 
 func TestLinearFENDecoderHonorsCancellationAndClose(t *testing.T) {
-	decoder := newLinearFENTestDecoder(t, linearFixture, ImportInspection{
+	decoder := newLinearFENTestDecoder(t, linearFixture, puzzleInspection{
 		SourceID:       "/collections/lifecycle.txt",
 		SourceIDOrigin: SourceIDPath,
 		Filename:       "lifecycle.txt",
@@ -230,7 +230,7 @@ func inspectLinearFEN(
 	t *testing.T,
 	filename string,
 	contents string,
-) (PuzzleAdapter, string, ImportInspection) {
+) (PuzzleAdapter, string, puzzleInspection) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), filename)
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -249,7 +249,7 @@ func inspectLinearFEN(
 func newLinearFENTestDecoder(
 	t *testing.T,
 	contents string,
-	inspection ImportInspection,
+	inspection puzzleInspection,
 ) PuzzleDecoder {
 	t.Helper()
 	decoder, err := NewLinearFENAdapter(chessrules.Rules{}).NewDecoder(
@@ -270,7 +270,7 @@ func decodeLinearFENFile(
 	t *testing.T,
 	adapter PuzzleAdapter,
 	path string,
-	inspection ImportInspection,
+	inspection puzzleInspection,
 ) []DecodedRecord {
 	t.Helper()
 	file, err := os.Open(path)

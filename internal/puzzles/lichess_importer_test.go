@@ -108,7 +108,7 @@ func inspectAndImportLichess(
 	ctx context.Context,
 	importer CollectionImporter,
 	path string,
-	progress ProgressSink,
+	progress puzzleProgressSink,
 ) (ImportReport, error) {
 	inspection, err := importer.Inspect(ctx, path)
 	if err != nil {
@@ -180,9 +180,9 @@ bad,not-a-fen,a1a2,1500,60,10,2,short,,
 	generation := &captureGenerationImport{}
 	catalog := &captureCatalog{generation: generation}
 	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
-	var progress []Progress
+	var progress []puzzleProgress
 
-	report, err := inspectAndImportLichess(context.Background(), importer, path, func(snapshot Progress) {
+	report, err := inspectAndImportLichess(context.Background(), importer, path, func(snapshot puzzleProgress) {
 		progress = append(progress, snapshot)
 	})
 	if err != nil {
@@ -292,7 +292,7 @@ func TestCollectionImporterCancellationAbortsLichessStaging(t *testing.T) {
 	importer := newLichessCollectionImporter(catalog, filepath.Dir(path))
 	ctx, cancel := context.WithCancel(context.Background())
 
-	_, err := inspectAndImportLichess(ctx, importer, path, func(progress Progress) {
+	_, err := inspectAndImportLichess(ctx, importer, path, func(progress puzzleProgress) {
 		if progress.RowsRead >= 10_000 {
 			cancel()
 		}

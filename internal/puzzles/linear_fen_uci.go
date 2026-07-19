@@ -33,13 +33,13 @@ func (linearFENAdapter) Descriptor() ImportFormatDescriptor {
 func (a linearFENAdapter) Inspect(
 	ctx context.Context,
 	path string,
-) (ImportInspection, bool, error) {
+) (puzzleInspection, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return ImportInspection{}, false, err
+		return puzzleInspection{}, false, err
 	}
 	defer file.Close()
 
@@ -48,7 +48,7 @@ func (a linearFENAdapter) Inspect(
 	for scanner.Scan() {
 		lineNumber++
 		if err := ctx.Err(); err != nil {
-			return ImportInspection{}, false, err
+			return puzzleInspection{}, false, err
 		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -57,19 +57,19 @@ func (a linearFENAdapter) Inspect(
 		if !looksLikeLinearFENRecord(line) {
 			continue
 		}
-		return ImportInspection{
+		return puzzleInspection{
 			SourceID:       path,
 			SourceIDOrigin: SourceIDPath,
 		}, true, nil
 	}
 	if err := scanner.Err(); err != nil {
-		return ImportInspection{}, false, fmt.Errorf(
+		return puzzleInspection{}, false, fmt.Errorf(
 			"inspect linear FEN/UCI line %d: %w",
 			lineNumber+1,
 			err,
 		)
 	}
-	return ImportInspection{}, false, nil
+	return puzzleInspection{}, false, nil
 }
 
 func looksLikeLinearFENRecord(line string) bool {
@@ -151,7 +151,7 @@ func looksLikeUCIMove(move string) bool {
 
 func (a linearFENAdapter) NewDecoder(
 	reader io.Reader,
-	_ ImportInspection,
+	_ puzzleInspection,
 ) (PuzzleDecoder, error) {
 	if reader == nil {
 		return nil, errors.New("linear FEN/UCI reader is required")

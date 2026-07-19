@@ -6,10 +6,10 @@ import (
 
 	appservices "chess-trainer/internal/app"
 	"chess-trainer/internal/domain"
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/importjob"
 	"chess-trainer/internal/openings"
 	"chess-trainer/internal/profile"
-	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/training"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -95,20 +95,20 @@ func (c *NormalController) ChooseOpeningCourseFile() (string, error) {
 	})
 }
 
-func (c *NormalController) InspectPuzzleImport(path string) (puzzles.ImportInspection, error) {
-	return runNormalOperation(c, func() (puzzles.ImportInspection, error) {
+func (c *NormalController) InspectPuzzleImport(path string) (importing.Inspection, error) {
+	return runNormalOperation(c, func() (importing.Inspection, error) {
 		return c.services.Importer.Inspect(c.actions.ctx, path)
 	})
 }
 
-func (c *NormalController) StartPuzzleImport(inspection puzzles.ImportInspection) (string, error) {
+func (c *NormalController) StartPuzzleImport(inspection importing.Inspection) (string, error) {
 	return c.startImport(inspection)
 }
 
-func (c *NormalController) InspectOpeningCourseImport(path string) (puzzles.ImportInspection, error) {
-	return runNormalOperation(c, func() (puzzles.ImportInspection, error) {
+func (c *NormalController) InspectOpeningCourseImport(path string) (importing.Inspection, error) {
+	return runNormalOperation(c, func() (importing.Inspection, error) {
 		if c.services.CourseImporter == nil {
-			return puzzles.ImportInspection{}, fmt.Errorf(
+			return importing.Inspection{}, fmt.Errorf(
 				"opening course imports are unavailable: %s",
 				c.services.CourseNotice.Detail,
 			)
@@ -118,12 +118,12 @@ func (c *NormalController) InspectOpeningCourseImport(path string) (puzzles.Impo
 }
 
 func (c *NormalController) StartOpeningCourseImport(
-	inspection puzzles.ImportInspection,
+	inspection importing.Inspection,
 ) (string, error) {
 	return c.startImport(inspection)
 }
 
-func (c *NormalController) startImport(inspection puzzles.ImportInspection) (string, error) {
+func (c *NormalController) startImport(inspection importing.Inspection) (string, error) {
 	return runNormalOperation(c, func() (string, error) {
 		return c.services.ImportJobs.Start(c.actions.ctx, inspection)
 	})
@@ -378,10 +378,10 @@ type wailsEmitter struct {
 	ctx context.Context
 }
 
-func (e wailsEmitter) Progress(jobID string, progress puzzles.Progress) {
+func (e wailsEmitter) Progress(jobID string, progress importing.Progress) {
 	runtime.EventsEmit(e.ctx, "import:progress", struct {
 		JobID string `json:"jobId"`
-		puzzles.Progress
+		importing.Progress
 	}{JobID: jobID, Progress: progress})
 }
 

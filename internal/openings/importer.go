@@ -39,7 +39,7 @@ func ValidateCoursePackFile(
 	path string,
 	rules RulesPort,
 ) (CompiledCourse, error) {
-	normalizedPath, err := normalizeCourseImportPath(path)
+	normalizedPath, err := importing.NormalizePath(path, "course import")
 	if err != nil {
 		return CompiledCourse{}, err
 	}
@@ -52,7 +52,7 @@ func (i *Importer) Supports(format importing.Format) bool {
 }
 
 func (i *Importer) Inspect(ctx context.Context, path string) (importing.Inspection, error) {
-	normalizedPath, err := normalizeCourseImportPath(path)
+	normalizedPath, err := importing.NormalizePath(path, "course import")
 	if err != nil {
 		return importing.Inspection{}, err
 	}
@@ -81,12 +81,14 @@ func (i *Importer) Import(
 	if i == nil || i.Catalog == nil {
 		return importing.Report{}, errors.New("course importer catalog is required")
 	}
-	normalizedPath, err := normalizeCourseImportPath(expected.Path)
+	normalizedPath, err := importing.NormalizePath(expected.Path, "course import")
 	if err != nil {
 		return importing.Report{}, err
 	}
 	if normalizedPath != expected.Path {
-		return importing.Report{}, courseInspectionChanged("path", normalizedPath, expected.Path)
+		current := expected
+		current.Path = normalizedPath
+		return importing.Report{}, importing.CompareInspection(current, expected, "course import")
 	}
 	info, err := os.Stat(normalizedPath)
 	if err != nil {
@@ -99,7 +101,7 @@ func (i *Importer) Import(
 		return importing.Report{}, err
 	}
 	current := courseInspection(normalizedPath, compiled.Pack)
-	if err := compareCourseInspection(current, expected); err != nil {
+	if err := importing.CompareInspection(current, expected, "course import"); err != nil {
 		return importing.Report{}, err
 	}
 
@@ -209,53 +211,6 @@ func courseInspection(path string, pack CoursePack) importing.Inspection {
 		SourceName:     pack.Title,
 		Attribution:    strings.TrimSpace(pack.Source.Title + ", " + pack.Source.Edition),
 	}
-}
-
-func compareCourseInspection(current, expected importing.Inspection) error {
-	fields := []struct {
-		name          string
-		current, want string
-	}{
-		{name: "path", current: current.Path, want: expected.Path},
-		{name: "filename", current: current.Filename, want: expected.Filename},
-		{name: "format", current: string(current.Format), want: string(expected.Format)},
-		{name: "source ID", current: current.SourceID, want: expected.SourceID},
-		{name: "source ID origin", current: string(current.SourceIDOrigin), want: string(expected.SourceIDOrigin)},
-		{name: "source name", current: current.SourceName, want: expected.SourceName},
-		{name: "source URL", current: current.URL, want: expected.URL},
-		{name: "source attribution", current: current.Attribution, want: expected.Attribution},
-	}
-	for _, field := range fields {
-		if field.current != field.want {
-			return courseInspectionChanged(field.name, field.current, field.want)
-		}
-	}
-	return nil
-}
-
-func courseInspectionChanged(field, current, expected string) error {
-	return fmt.Errorf(
-		"course import %s changed after inspection: got %q, want %q",
-		field,
-		current,
-		expected,
-	)
-}
-
-func normalizeCourseImportPath(path string) (string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "", errors.New("course import path is required")
-	}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	normalized := filepath.Clean(absolute)
-	if resolved, err := filepath.EvalSymlinks(normalized); err == nil {
-		normalized = filepath.Clean(resolved)
-	}
-	return normalized, nil
 }
 
 func emitCourseProgress(

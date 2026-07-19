@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"chess-trainer/internal/importing"
 	"chess-trainer/internal/importjob"
 	"chess-trainer/internal/puzzles"
 	"chess-trainer/internal/storage"
@@ -458,8 +459,8 @@ func (task5CloseBlockingImporter) Supports(format puzzles.ImportFormat) bool {
 
 func (i task5CloseBlockingImporter) Import(
 	ctx context.Context,
-	_ puzzles.ImportInspection,
-	_ puzzles.ProgressSink,
+	_ importing.Inspection,
+	_ importing.ProgressSink,
 ) (puzzles.ImportReport, error) {
 	i.started <- ctx
 	<-ctx.Done()
@@ -480,7 +481,7 @@ func TestServicesCloseWaitsBeforeClosingPuzzleHandles(t *testing.T) {
 	t.Cleanup(releaseImport)
 	importer := task5CloseBlockingImporter{started: make(chan context.Context, 1), release: release}
 	services.ImportJobs = importjob.NewService(importer, nil, nil)
-	if _, err := services.ImportJobs.Start(context.Background(), puzzles.ImportInspection{
+	if _, err := services.ImportJobs.Start(context.Background(), importing.Inspection{
 		Format: puzzles.FormatLichess, SourceID: "blocking", Path: "/blocking",
 	}); err != nil {
 		t.Fatal(err)
