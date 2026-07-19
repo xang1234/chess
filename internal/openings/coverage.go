@@ -12,7 +12,12 @@ type coverageGroup struct {
 }
 
 func compileCoverage(pack CoursePack, diagnostics []Diagnostic) (CoverageReport, []Diagnostic) {
-	report := CoverageReport{Expected: append([]string(nil), pack.SourceCoverage.ExpectedReferences...)}
+	report := CoverageReport{
+		Expected:   append([]string{}, pack.SourceCoverage.ExpectedReferences...),
+		Captured:   []CoverageItem{},
+		Missing:    []string{},
+		Unexpected: []string{},
+	}
 	pages := make(map[int]struct{}, len(pack.SourceCoverage.PrintedPages))
 	for index, page := range pack.SourceCoverage.PrintedPages {
 		path := fmt.Sprintf("sourceCoverage.printedPages[%d]", index)
