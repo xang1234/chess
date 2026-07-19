@@ -89,7 +89,7 @@ test('emits only complete legal UCI routes and reports rejected adapter routes',
   creations[0].callbacks.onRoute('e2', 'e5')
 
   expect(moves).toEqual(['e2e4'])
-  expect(errors[0]).toMatch(/e2e5.*not legal/i)
+  expect(errors[0]).toMatch(/e2e5.*not legal.*current position/i)
   expect(adapter.setPosition).toHaveBeenCalledWith(initialFen, undefined, false)
 })
 

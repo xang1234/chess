@@ -15,6 +15,7 @@
   import ImportPanel from '../import/ImportPanel.svelte'
   import AboutLegal from '../legal/AboutLegal.svelte'
   import OpeningHub from '../openings/OpeningHub.svelte'
+  import OpeningLessonScreen from '../openings/OpeningLessonScreen.svelte'
   import InitialSetup from '../parent/InitialSetup.svelte'
   import ParentDashboard from '../parent/ParentDashboard.svelte'
   import FreePractice from '../practice/FreePractice.svelte'
@@ -29,6 +30,7 @@
   let deferredSession: SessionView | null = null
   let openingHome: OpeningHomeView = { courses: [] }
   let activeOpeningSession: OpeningSessionView | null = null
+  let deferredOpeningSession: OpeningSessionView | null = null
   let explorerCourseId = ''
   let explorerPositionId = ''
   let error = ''
@@ -115,12 +117,46 @@
     deferredSession = event.detail
   }
 
+  function adoptVisibleOpeningSession(event: CustomEvent<OpeningSessionView>): void {
+    activeOpeningSession = event.detail
+    deferredOpeningSession = null
+    syncOpeningResume(event.detail)
+  }
+
+  function rememberPersistedOpeningSession(event: CustomEvent<OpeningSessionView>): void {
+    deferredOpeningSession = event.detail
+    syncOpeningResume(event.detail)
+  }
+
+  function syncOpeningResume(session: OpeningSessionView): void {
+    openingHome = {
+      ...openingHome,
+      courses: openingHome.courses.map((course) => course.courseId === session.courseId
+        ? {
+          ...course,
+          hasResumable: session.status !== 'completed',
+          ...(session.status !== 'completed' ? { nextLessonId: session.lessonId } : {})
+        }
+        : course)
+    }
+  }
+
   function goHome(): void {
     if (deferredSession) {
       activeSession = deferredSession.status !== 'completed' && deferredSession.current
         ? deferredSession
         : null
       deferredSession = null
+    }
+    if (deferredOpeningSession) {
+      activeOpeningSession = deferredOpeningSession.status === 'completed'
+        ? null
+        : deferredOpeningSession
+      syncOpeningResume(deferredOpeningSession)
+      deferredOpeningSession = null
+    } else if (activeOpeningSession) {
+      syncOpeningResume(activeOpeningSession)
+      if (activeOpeningSession.status === 'completed') activeOpeningSession = null
     }
     screen.set('home')
   }
@@ -138,6 +174,17 @@
   function startPractice(event: CustomEvent<SessionView>): void {
     activeSession = event.detail
     screen.set('puzzle')
+  }
+
+  function leaveOpeningLesson(event: CustomEvent<{ completed: boolean }>): void {
+    if (event.detail.completed) {
+      if (activeOpeningSession) syncOpeningResume(activeOpeningSession)
+      activeOpeningSession = null
+      deferredOpeningSession = null
+      screen.set('home')
+      return
+    }
+    goHome()
   }
 
   async function changeOpeningDepth(
@@ -159,6 +206,8 @@
         event.detail.courseId,
         event.detail.lessonId
       )
+      deferredOpeningSession = null
+      syncOpeningResume(activeOpeningSession)
       screen.set('opening-lesson')
     } catch (cause) {
       showOpeningError(cause)
@@ -169,6 +218,8 @@
     try {
       activeOpeningSession = await api.resumeOpeningSession()
       if (!activeOpeningSession) throw new Error('No opening lesson is ready to continue.')
+      deferredOpeningSession = null
+      syncOpeningResume(activeOpeningSession)
       screen.set('opening-lesson')
     } catch (cause) {
       showOpeningError(cause)
@@ -178,6 +229,8 @@
   async function startOpeningReview(event: CustomEvent<string>): Promise<void> {
     try {
       activeOpeningSession = await api.startOpeningReview(event.detail)
+      deferredOpeningSession = null
+      syncOpeningResume(activeOpeningSession)
       screen.set('opening-lesson')
     } catch (cause) {
       showOpeningError(cause)
@@ -193,7 +246,7 @@
   }
 </script>
 
-<div class="app-shell" class:puzzle-active={$screen === 'puzzle'}>
+<div class="app-shell" class:board-active={$screen === 'puzzle' || $screen === 'opening-lesson'}>
   <header class="app-header">
     <button class="brand" type="button" on:click={goHome} aria-label="Chess Trainer home">
       <span class="brand-mark" aria-hidden="true">♞</span>
@@ -236,14 +289,12 @@
         on:explore={exploreOpening}
       />
     {:else if $screen === 'opening-lesson' && activeOpeningSession}
-      <section class="panel placeholder-panel">
-        <p class="eyebrow">Opening course</p>
-        <h2>Opening lesson</h2>
-        <p>{activeOpeningSession.status === 'active'
-          ? activeOpeningSession.current.title
-          : activeOpeningSession.notice || 'Lesson complete'}</p>
-        <button class="secondary" type="button" on:click={() => screen.set('openings')}>Back to course</button>
-      </section>
+      <OpeningLessonScreen
+        session={activeOpeningSession}
+        on:change={adoptVisibleOpeningSession}
+        on:persisted={rememberPersistedOpeningSession}
+        on:home={leaveOpeningLesson}
+      />
     {:else if $screen === 'opening-explorer'}
       <section class="panel placeholder-panel">
         <p class="eyebrow">Opening course</p>

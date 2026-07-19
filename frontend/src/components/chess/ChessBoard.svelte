@@ -200,7 +200,7 @@
     adapter?.setPosition(fen, lastMove, false)
     adapter?.selectSquare(null)
     dispatch('error', {
-      message: `Move ${uci} is not legal in the current puzzle. The board was restored.`
+      message: `Move ${uci} is not legal in the current position. The board was restored.`
     })
   }
 

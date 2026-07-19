@@ -3,6 +3,8 @@ import { vi } from 'vitest'
 import App from './App.svelte'
 import type {
   ActiveSessionView,
+  ActiveOpeningSessionView,
+  CompletedOpeningSessionView,
   CompletedSessionView,
   ImportProgress,
   ImportResult,
@@ -171,8 +173,104 @@ test('opens the course hub and starts a visible opening lesson', async () => {
 
   await fireEvent.click(screen.getByRole('button', { name: 'Start Giuoco Piano' }))
   expect(startOpeningLesson).toHaveBeenCalledWith('synthetic-italian', 'giuoco-c3')
-  expect(await screen.findByRole('heading', { name: 'Opening lesson' })).toBeInTheDocument()
-  expect(screen.getByText('The central plan')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'The central plan' })).toBeInTheDocument()
+  expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
+})
+
+function interactiveOpening(): ActiveOpeningSessionView {
+  return {
+    ...fakeOpeningSession,
+    current: {
+      ...fakeOpeningSession.current,
+      kind: 'recall',
+      title: 'Recall the quiet setup',
+      legalMoves: ['c2c3'],
+      canReveal: true,
+      hintLevel: 3
+    }
+  }
+}
+
+function nextOpening(): ActiveOpeningSessionView {
+  return {
+    ...fakeOpeningSession,
+    current: {
+      ...fakeOpeningSession.current,
+      stepId: 'watch-reply',
+      kind: 'watch',
+      title: 'Watch Black’s reply',
+      stepNumber: 2,
+      legalMoves: []
+    }
+  }
+}
+
+function completedOpening(): CompletedOpeningSessionView {
+  return {
+    sessionId: fakeOpeningSession.sessionId,
+    mode: 'lesson',
+    status: 'completed',
+    courseId: fakeOpeningSession.courseId,
+    generationId: fakeOpeningSession.generationId,
+    lessonId: fakeOpeningSession.lessonId,
+    depth: fakeOpeningSession.depth,
+    summary: {
+      totalPrompts: 1,
+      positionsRecalled: 1,
+      branchesRecognized: 0,
+      retried: 0,
+      usedHint: 0,
+      revealed: 1
+    }
+  }
+}
+
+async function openAndRevealOpening(
+  pending: ActiveOpeningSessionView | CompletedOpeningSessionView,
+  puzzle: SessionView | null = null
+): Promise<void> {
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    resumeSession: async () => puzzle,
+    getOpeningHome: async () => fakeOpeningHome,
+    startOpeningLesson: async () => interactiveOpening(),
+    revealOpeningMove: async () => ({
+      session: pending,
+      stepCompleted: true,
+      feedback: 'expected',
+      message: 'Course move shown.',
+      appliedMoves: [{
+        uci: 'c2c3',
+        resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+      }],
+      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+    })
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+  await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Start Giuoco Piano' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
+}
+
+test('keeps the persisted next opening step resumable when Home leaves its solved board', async () => {
+  await openAndRevealOpening(nextOpening())
+  expect(await screen.findByText('Course move shown.')).toBeInTheDocument()
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
+
+  expect(await screen.findByRole('button', { name: 'Learn Openings' }))
+    .toHaveTextContent('Continue your Italian lesson')
+})
+
+test('finishing an opening lesson does not clear an active puzzle session', async () => {
+  await openAndRevealOpening(completedOpening(), guidedPuzzle())
+  expect(await screen.findByRole('button', { name: 'Continue' })).toBeInTheDocument()
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
+
+  expect(await screen.findByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Learn Openings' }))
+    .not.toHaveTextContent('Continue your Italian lesson')
 })
 
 test('uses catalogued learner bounds on the parent settings screen', async () => {
