@@ -1,7 +1,7 @@
 # Italian Opening Quality Remediation Design
 
 **Date:** 2026-07-19
-**Status:** Approved direction; detailed design pending user review
+**Status:** Approved
 **Branch:** `codex/italian-opening-course`
 
 ## Context
