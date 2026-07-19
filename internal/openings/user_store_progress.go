@@ -10,21 +10,19 @@ import (
 	"time"
 )
 
-func (s *UserStore) CompleteLesson(
+func upsertLessonProgress(
 	ctx context.Context,
+	tx *sql.Tx,
 	courseID string,
 	lessonID string,
 	completedStepIDs []string,
 	now time.Time,
 ) error {
-	if err := validateLessonCompletion(courseID, lessonID, completedStepIDs, now); err != nil {
-		return err
-	}
 	encoded, err := json.Marshal(completedStepIDs)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(
+	_, err = tx.ExecContext(
 		ctx,
 		`INSERT INTO opening_lesson_progress(
 		   course_id, lesson_id, completed_step_ids_json, completed_steps,
@@ -44,7 +42,10 @@ func (s *UserStore) CompleteLesson(
 		now.UnixMilli(),
 		now.UnixMilli(),
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("complete opening lesson: %w", err)
+	}
+	return nil
 }
 
 func (s *UserStore) LessonProgress(
@@ -93,24 +94,6 @@ func (s *UserStore) LessonProgress(
 	result.Completed = completedAt.Valid && cachedTotal == result.TotalSteps &&
 		result.CompletedSteps == result.TotalSteps
 	return result, nil
-}
-
-func validateLessonCompletion(
-	courseID string,
-	lessonID string,
-	stepIDs []string,
-	now time.Time,
-) error {
-	if err := validateCourseKey(courseID); err != nil {
-		return err
-	}
-	if strings.TrimSpace(lessonID) == "" {
-		return errors.New("opening lesson ID is required")
-	}
-	if now.IsZero() {
-		return errors.New("opening lesson completion time is required")
-	}
-	return validateStepIDs(stepIDs)
 }
 
 func validateStepIDs(stepIDs []string) error {

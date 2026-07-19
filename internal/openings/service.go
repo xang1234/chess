@@ -228,7 +228,7 @@ func (s *Service) StartLesson(
 	}
 	now := s.now().UTC()
 	state, err := s.stateForLessonStep(course, lesson.Steps[0], SessionState{
-		PlayedMoveIDs: []string{},
+		Position: PositionState{PlayedMoveIDs: []string{}},
 	}, now)
 	if err != nil {
 		return OpeningSessionView{}, err
@@ -293,8 +293,8 @@ func (s *Service) StartReview(ctx context.Context, courseID string) (OpeningSess
 	}
 	now := s.now().UTC()
 	state, err := s.stateForReviewPrompt(course, promptIDs[0], SessionState{
-		PlayedMoveIDs:   []string{},
-		ReviewPromptIDs: promptIDs,
+		Position: PositionState{PlayedMoveIDs: []string{}},
+		Review:   &ReviewCursor{PromptIDs: promptIDs},
 	}, now)
 	if err != nil {
 		return OpeningSessionView{}, err

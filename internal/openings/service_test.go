@@ -164,7 +164,8 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 		t.Fatalf("alternative message = %q", alternative.Message)
 	}
 	stored, err := fixture.store.LoadSession(ctx, started.SessionID)
-	if err != nil || stored.State.AlternativesTried != 1 || stored.State.IncorrectMoves != 0 {
+	if err != nil || stored.State.Attempt == nil ||
+		stored.State.Attempt.AlternativesTried != 1 || stored.State.Attempt.IncorrectMoves != 0 {
 		t.Fatalf("alternative state = %+v err=%v", stored.State, err)
 	}
 
@@ -234,8 +235,9 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 		t.Fatalf("completed attempt metrics = %d %d %d %d", attemptIncorrect, attemptAlternatives, attemptHints, attemptRevealed)
 	}
 	nextState, err := fixture.store.LoadSession(ctx, started.SessionID)
-	if err != nil || nextState.State.IncorrectMoves != 0 || nextState.State.AlternativesTried != 0 ||
-		nextState.State.HintsUsed != 0 || nextState.State.Revealed {
+	if err != nil || nextState.State.Attempt == nil ||
+		nextState.State.Attempt.IncorrectMoves != 0 || nextState.State.Attempt.AlternativesTried != 0 ||
+		nextState.State.Attempt.HintsUsed != 0 || nextState.State.Attempt.Revealed {
 		t.Fatalf("next attempt state = %+v err=%v", nextState.State, err)
 	}
 
@@ -305,8 +307,9 @@ func TestOpeningServiceStartReviewPersistsOrderedQueue(t *testing.T) {
 		t.Fatalf("review start = %+v", review)
 	}
 	stored, err := fixture.store.LoadSession(ctx, review.SessionID)
-	if err != nil || !slices.Equal(stored.State.ReviewPromptIDs, []string{"recall-c3", "recall-d3"}) {
-		t.Fatalf("review queue = %+v err=%v", stored.State.ReviewPromptIDs, err)
+	if err != nil || stored.State.Review == nil ||
+		!slices.Equal(stored.State.Review.PromptIDs, []string{"recall-c3", "recall-d3"}) {
+		t.Fatalf("review queue = %+v err=%v", stored.State.Review, err)
 	}
 
 	first, err := fixture.service.PlayMove(ctx, review.SessionID, "c2c3")

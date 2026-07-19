@@ -3,7 +3,6 @@ package openings
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,7 +29,7 @@ func (s *UserStore) CompletePrompt(
 	}
 	defer tx.Rollback()
 
-	attempt := promptCompletionAttempt(completion)
+	attempt := completion.Attempt
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO opening_attempts(
@@ -74,31 +73,11 @@ func (s *UserStore) CompletePrompt(
 		return err
 	}
 	if len(completion.CompletedStepIDs) != 0 {
-		encodedSteps, err := json.Marshal(completion.CompletedStepIDs)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(
-			ctx,
-			`INSERT INTO opening_lesson_progress(
-			   course_id, lesson_id, completed_step_ids_json, completed_steps,
-			   total_steps, completed_at, updated_at
-			 ) VALUES (?, ?, ?, ?, ?, ?, ?)
-			 ON CONFLICT(course_id, lesson_id) DO UPDATE SET
-			   completed_step_ids_json = excluded.completed_step_ids_json,
-			   completed_steps = excluded.completed_steps,
-			   total_steps = excluded.total_steps,
-			   completed_at = excluded.completed_at,
-			   updated_at = excluded.updated_at`,
-			completion.Session.CourseID,
-			completion.Session.LessonID,
-			string(encodedSteps),
-			len(completion.CompletedStepIDs),
-			len(completion.CompletedStepIDs),
-			now.UnixMilli(),
-			now.UnixMilli(),
+		if err := upsertLessonProgress(
+			ctx, tx, completion.Session.CourseID, completion.Session.LessonID,
+			completion.CompletedStepIDs, now,
 		); err != nil {
-			return fmt.Errorf("complete opening lesson: %w", err)
+			return err
 		}
 	}
 	result, err := tx.ExecContext(
@@ -140,7 +119,7 @@ func upsertOpeningReview(
 		`SELECT semantic_fingerprint, interval_index, successful_reviews
 		 FROM opening_review_state WHERE course_id = ? AND prompt_id = ?`,
 		completion.Session.CourseID,
-		promptCompletionAttempt(completion).PromptID,
+		completion.Attempt.PromptID,
 	).Scan(&storedFingerprint, &state.IntervalIndex, &state.SuccessfulReviews)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read opening review: %w", err)
@@ -163,7 +142,7 @@ func upsertOpeningReview(
 		   last_outcome = excluded.last_outcome,
 		   status = 'active'`,
 		completion.Session.CourseID,
-		promptCompletionAttempt(completion).PromptID,
+		completion.Attempt.PromptID,
 		completion.SemanticFingerprint,
 		scheduled.DueAt.UnixMilli(),
 		scheduled.State.IntervalIndex,
@@ -277,7 +256,7 @@ func validatePromptCompletion(completion PromptCompletion, now time.Time) error 
 	if err := validateStoredSession(completion.Session); err != nil {
 		return err
 	}
-	state := promptCompletionAttempt(completion)
+	state := completion.Attempt
 	if strings.TrimSpace(state.AttemptID) == "" {
 		return errors.New("opening attempt ID is required")
 	}
@@ -307,11 +286,4 @@ func validatePromptCompletion(completion PromptCompletion, now time.Time) error 
 		}
 	}
 	return nil
-}
-
-func promptCompletionAttempt(completion PromptCompletion) SessionState {
-	if completion.AttemptState != nil {
-		return *completion.AttemptState
-	}
-	return completion.Session.State
 }

@@ -32,12 +32,25 @@ func openingSessionSeed(now time.Time) SessionSeed {
 		CourseID: "italian-white", GenerationID: "generation-1", LessonID: "giuoco-c3",
 		Mode: OpeningModeLesson, Depth: DepthReference,
 		State: SessionState{
-			PositionID: "after-bc5", CurrentFEN: "fen-after-bc5",
-			PlayedMoveIDs: []string{"white-e4", "black-e5"}, HintLevel: 1,
-			IncorrectMoves: 0, AlternativesTried: 1, HintsUsed: 0,
-			AttemptID: "attempt-1", PromptID: "recall-c3", StartedAt: now,
+			Position: PositionState{
+				PositionID: "after-bc5", CurrentFEN: "fen-after-bc5",
+				PlayedMoveIDs: []string{"white-e4", "black-e5"},
+			},
+			Attempt: &AttemptState{
+				AttemptID: "attempt-1", PromptID: "recall-c3", StartedAt: now,
+				HintLevel: 1, AlternativesTried: 1,
+			},
 		},
 	}
+}
+
+func mustAttemptRecord(t *testing.T, attempt *AttemptState) AttemptRecord {
+	t.Helper()
+	record, err := attemptRecord(attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 
 func TestUserStoreDepthAndSessionRoundTrip(t *testing.T) {
@@ -62,10 +75,8 @@ func TestUserStoreDepthAndSessionRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	session.StepIndex = 3
-	session.State.CurrentFEN = "fen-after-c3"
-	session.State.PlayedMoveIDs = append(session.State.PlayedMoveIDs, "white-c3")
-	session.State.ReviewPromptIDs = []string{"recall-c3", "recall-d3"}
-	session.State.ReviewIndex = 1
+	session.State.Position.CurrentFEN = "fen-after-c3"
+	session.State.Position.PlayedMoveIDs = append(session.State.Position.PlayedMoveIDs, "white-c3")
 	if err := store.SaveSession(ctx, session, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -80,9 +91,7 @@ func TestUserStoreDepthAndSessionRoundTrip(t *testing.T) {
 	if err != nil || resumable == nil || resumable.ID != session.ID {
 		t.Fatalf("resumable = %#v err=%v", resumable, err)
 	}
-	for _, status := range []OpeningSessionStatus{
-		OpeningStatusActive, OpeningStatusPaused, OpeningStatusRestartRequired,
-	} {
+	for _, status := range []OpeningSessionStatus{OpeningStatusActive, OpeningStatusPaused} {
 		if err := store.SetSessionStatus(ctx, session.ID, status, now.Add(2*time.Minute)); err != nil {
 			t.Fatal(err)
 		}
@@ -103,8 +112,9 @@ func TestUserStoreDepthAndSessionRoundTrip(t *testing.T) {
 	reviewSeed := openingSessionSeed(now)
 	reviewSeed.Mode = OpeningModeReview
 	reviewSeed.LessonID = "review"
-	reviewSeed.State.ReviewPromptIDs = []string{"recall-c3", "recall-d3"}
-	reviewSeed.State.ReviewIndex = 1
+	reviewSeed.State.Review = &ReviewCursor{
+		PromptIDs: []string{"recall-c3", "recall-d3"}, Index: 1,
+	}
 	reviewSession, err := store.CreateSession(ctx, reviewSeed, now.Add(6*time.Minute))
 	if err != nil || reviewSession.LessonID != "review" || reviewSession.Mode != OpeningModeReview {
 		t.Fatalf("review session = %+v err=%v", reviewSession, err)
@@ -119,13 +129,13 @@ func TestUserStoreRebasesSessionGenerationAndCheckpointExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkpoint := 1
 	previousGenerationID := session.GenerationID
 	session.GenerationID = "generation-2"
 	session.LessonID = "replacement-lesson"
 	session.Status = OpeningStatusRestartRequired
 	session.StepIndex = 2
-	session.State.RestartStepIndex = &checkpoint
+	session.State.Attempt = nil
+	session.State.Restart = &RestartCheckpoint{StepIndex: 1}
 	if err := store.ApplyCourseRevision(ctx, CourseRevision{
 		CourseID: session.CourseID, PromptFingerprints: map[string]string{},
 		SessionRebase: &SessionRebase{
@@ -248,8 +258,18 @@ func TestOpeningLessonProgressProjectsStableStepIDs(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
 	store := NewUserStore(openOpeningUserTestDB(t))
+	session, err := store.CreateSession(ctx, openingSessionSeed(now), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := mustAttemptRecord(t, session.State.Attempt)
+	session.Status = OpeningStatusCompleted
+	session.State.Attempt = nil
 	completed := []string{"explain", "watch", "try", "branch", "recall"}
-	if err := store.CompleteLesson(ctx, "italian-white", "giuoco-c3", completed, now); err != nil {
+	if err := store.CompletePrompt(ctx, PromptCompletion{
+		Session: session, Attempt: attempt, SemanticFingerprint: "semantic-v1",
+		Outcome: ReviewClean, CompletedStepIDs: completed,
+	}, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -280,9 +300,12 @@ func TestOpeningCompletePromptUpdatesAttemptReviewProgressAndSessionAtomically(t
 	}
 	session.StepIndex = 5
 	session.Status = OpeningStatusCompleted
+	attempt := mustAttemptRecord(t, session.State.Attempt)
+	session.State.Attempt = nil
 	completedSteps := []string{"explain", "watch", "try", "branch", "recall"}
 	if err := store.CompletePrompt(ctx, PromptCompletion{
-		Session: session, SemanticFingerprint: "semantic-v1", Outcome: ReviewClean,
+		Session: session, Attempt: attempt,
+		SemanticFingerprint: "semantic-v1", Outcome: ReviewClean,
 		CompletedStepIDs: completedSteps,
 	}, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
@@ -304,14 +327,14 @@ func TestOpeningCompletePromptUpdatesAttemptReviewProgressAndSessionAtomically(t
 		`SELECT semantic_fingerprint, last_outcome FROM opening_prompt_progress
 		 WHERE course_id = ? AND prompt_id = ?`,
 		session.CourseID,
-		session.State.PromptID,
+		attempt.PromptID,
 	).Scan(&promptFingerprint, &promptOutcome); err != nil {
 		t.Fatal(err)
 	}
 	if promptFingerprint != "semantic-v1" || promptOutcome != ReviewClean {
 		t.Fatalf("prompt progress = fingerprint %q outcome %q", promptFingerprint, promptOutcome)
 	}
-	review, err := store.Review(ctx, session.CourseID, session.State.PromptID)
+	review, err := store.Review(ctx, session.CourseID, attempt.PromptID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,33 +353,35 @@ func TestOpeningCompletePromptUpdatesAttemptReviewProgressAndSessionAtomically(t
 
 	for index, days := range []int{3, 7, 21, 60} {
 		nextNow := review.DueAt
-		session.State.AttemptID = "attempt-clean-" + string(rune('a'+index))
-		session.State.StartedAt = nextNow.Add(-time.Minute)
+		attempt.AttemptID = "attempt-clean-" + string(rune('a'+index))
+		attempt.StartedAt = nextNow.Add(-time.Minute)
 		if err := store.CompletePrompt(ctx, PromptCompletion{
-			Session: session, SemanticFingerprint: "semantic-v1", Outcome: ReviewClean,
+			Session: session, Attempt: attempt,
+			SemanticFingerprint: "semantic-v1", Outcome: ReviewClean,
 		}, nextNow); err != nil {
 			t.Fatal(err)
 		}
-		review, err = store.Review(ctx, session.CourseID, session.State.PromptID)
+		review, err = store.Review(ctx, session.CourseID, attempt.PromptID)
 		if err != nil || review.DueAt.Sub(nextNow) != time.Duration(days)*24*time.Hour {
 			t.Fatalf("clean review %d = %+v err=%v", index, review, err)
 		}
 	}
-	session.State.AttemptID = "attempt-hinted"
-	session.State.StartedAt = review.DueAt.Add(-time.Minute)
-	session.State.HintsUsed = 1
+	attempt.AttemptID = "attempt-hinted"
+	attempt.StartedAt = review.DueAt.Add(-time.Minute)
+	attempt.HintsUsed = 1
 	if err := store.CompletePrompt(ctx, PromptCompletion{
-		Session: session, SemanticFingerprint: "semantic-v1", Outcome: ReviewHinted,
+		Session: session, Attempt: attempt,
+		SemanticFingerprint: "semantic-v1", Outcome: ReviewHinted,
 	}, review.DueAt); err != nil {
 		t.Fatal(err)
 	}
-	reset, err := store.Review(ctx, session.CourseID, session.State.PromptID)
+	reset, err := store.Review(ctx, session.CourseID, attempt.PromptID)
 	if err != nil || reset.IntervalIndex != 0 || reset.SuccessfulReviews != 0 ||
 		reset.DueAt.Sub(review.DueAt) != 24*time.Hour {
 		t.Fatalf("hinted reset = %+v err=%v", reset, err)
 	}
 	due, err := store.DueReviews(ctx, session.CourseID, reset.DueAt, 10)
-	if err != nil || len(due) != 1 || due[0].PromptID != session.State.PromptID {
+	if err != nil || len(due) != 1 || due[0].PromptID != attempt.PromptID {
 		t.Fatalf("due reviews = %+v err=%v", due, err)
 	}
 }
@@ -373,7 +398,8 @@ func TestOpeningCompletePromptRollsBackWhenSessionIsMissing(t *testing.T) {
 		Depth: seed.Depth, State: seed.State,
 	}
 	err := store.CompletePrompt(ctx, PromptCompletion{
-		Session: missing, SemanticFingerprint: "semantic-v1", Outcome: ReviewClean,
+		Session: missing, Attempt: mustAttemptRecord(t, seed.State.Attempt),
+		SemanticFingerprint: "semantic-v1", Outcome: ReviewClean,
 	}, now)
 	if err == nil {
 		t.Fatal("CompletePrompt() unexpectedly succeeded")
@@ -403,11 +429,20 @@ func TestOpeningProtectedGenerationIDsTracksOnlyResumableSessions(t *testing.T) 
 	if err != nil || !reflect.DeepEqual(protected, map[string]struct{}{session.GenerationID: {}}) {
 		t.Fatalf("protected IDs = %#v err=%v", protected, err)
 	}
-	for _, status := range []OpeningSessionStatus{
-		OpeningStatusPaused, OpeningStatusRestartRequired,
-	} {
-		if err := store.SetSessionStatus(ctx, session.ID, status, now.Add(time.Minute)); err != nil {
-			t.Fatal(err)
+	if err := store.SetSessionStatus(ctx, session.ID, OpeningStatusPaused, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []OpeningSessionStatus{OpeningStatusPaused, OpeningStatusRestartRequired} {
+		if status == OpeningStatusRestartRequired {
+			session, err = store.LoadSession(ctx, session.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			session.Status = status
+			session.State.Attempt = nil
+			if err := store.SaveSession(ctx, session, now.Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
 		}
 		protected, err = store.ProtectedGenerationIDs(ctx)
 		if err != nil {

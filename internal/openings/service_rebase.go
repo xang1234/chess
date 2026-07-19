@@ -129,15 +129,15 @@ func (s *Service) rebaseLesson(
 		if newIndex, newStep, exists := lessonStepByID(newLesson, oldStep.StepID); exists &&
 			oldStep.Kind == newStep.Kind &&
 			sameStepPosition(oldCourse, oldStep, newCourse, newStep) &&
-			playedMovesCompatible(oldCourse, newCourse, session.State.PlayedMoveIDs) &&
+			playedMovesCompatible(oldCourse, newCourse, session.State.Position.PlayedMoveIDs) &&
 			promptStepCompatible(oldCourse, oldStep, newCourse, newStep) {
 			previousGenerationID := session.GenerationID
 			session.GenerationID = activeGenerationID
 			session.Status = OpeningStatusActive
 			session.StepIndex = newIndex
-			session.State.PositionID = newStep.PositionID
-			session.State.CurrentFEN = newCourse.Positions[newStep.PositionID].FEN
-			session.State.RestartStepIndex = nil
+			session.State.Position.PositionID = newStep.PositionID
+			session.State.Position.CurrentFEN = newCourse.Positions[newStep.PositionID].FEN
+			session.State.Restart = nil
 			if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
 				PreviousGenerationID: previousGenerationID,
 				Session:              session,
@@ -150,7 +150,8 @@ func (s *Service) rebaseLesson(
 	}
 
 	session.Status = OpeningStatusRestartRequired
-	session.State.RestartStepIndex = compatibleCheckpoint(
+	session.State.Attempt = nil
+	session.State.Restart = compatibleCheckpoint(
 		oldCourse, oldLesson, newCourse, newLesson, session.StepIndex,
 	)
 	if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
@@ -174,8 +175,11 @@ func (s *Service) rebaseReview(
 	newCourse CompiledCourse,
 	activeGenerationID string,
 ) (*OpeningSessionView, error) {
-	oldQueue := append([]string{}, session.State.ReviewPromptIDs...)
-	start := session.State.ReviewIndex
+	if session.State.Review == nil {
+		return nil, errors.New("review session requires a review cursor")
+	}
+	oldQueue := append([]string{}, session.State.Review.PromptIDs...)
+	start := session.State.Review.Index
 	if start < 0 {
 		start = 0
 	}
@@ -192,10 +196,10 @@ func (s *Service) rebaseReview(
 	}
 	previousGenerationID := session.GenerationID
 	session.GenerationID = activeGenerationID
-	session.State.ReviewPromptIDs = pending
-	session.State.ReviewIndex = 0
+	session.State.Review.PromptIDs = pending
+	session.State.Review.Index = 0
 	session.StepIndex = 0
-	session.State.RestartStepIndex = nil
+	session.State.Restart = nil
 	if len(pending) == 0 {
 		session.Status = OpeningStatusCompleted
 		session.State = resetAttemptState(session.State)
@@ -212,8 +216,8 @@ func (s *Service) rebaseReview(
 	preserveAttempt := start < len(oldQueue) && oldQueue[start] == pending[0]
 	if preserveAttempt {
 		prompt := newCourse.Prompts[pending[0]]
-		session.State.PositionID = prompt.PositionID
-		session.State.CurrentFEN = newCourse.Positions[prompt.PositionID].FEN
+		session.State.Position.PositionID = prompt.PositionID
+		session.State.Position.CurrentFEN = newCourse.Positions[prompt.PositionID].FEN
 	} else {
 		var err error
 		session.State, err = s.stateForReviewPrompt(newCourse, pending[0], session.State, s.now().UTC())
@@ -258,14 +262,14 @@ func (s *Service) Restart(ctx context.Context, sessionID string) (OpeningSession
 			return OpeningSessionView{}, errors.New("the updated private course has no lesson at the selected depth")
 		}
 		session.LessonID = lesson.LessonID
-		session.State.RestartStepIndex = nil
+		session.State.Restart = nil
 	}
 	stepIndex := 0
-	if session.State.RestartStepIndex != nil && *session.State.RestartStepIndex < len(lesson.Steps) {
-		stepIndex = *session.State.RestartStepIndex
+	if session.State.Restart != nil && session.State.Restart.StepIndex < len(lesson.Steps) {
+		stepIndex = session.State.Restart.StepIndex
 	}
 	state, err := s.stateForLessonStep(course, lesson.Steps[stepIndex], SessionState{
-		PlayedMoveIDs: []string{},
+		Position: PositionState{PlayedMoveIDs: []string{}},
 	}, s.now().UTC())
 	if err != nil {
 		return OpeningSessionView{}, err
@@ -306,7 +310,8 @@ func (s *Service) restartReview(
 		return OpeningSessionView{}, errors.New("the updated private course has no due review positions")
 	}
 	state, err := s.stateForReviewPrompt(course, queue[0], SessionState{
-		PlayedMoveIDs: []string{}, ReviewPromptIDs: queue,
+		Position: PositionState{PlayedMoveIDs: []string{}},
+		Review:   &ReviewCursor{PromptIDs: queue},
 	}, s.now().UTC())
 	if err != nil {
 		return OpeningSessionView{}, err
@@ -329,6 +334,7 @@ func (s *Service) requirePrivateReimport(
 	session StoredSession,
 ) (*OpeningSessionView, error) {
 	session.Status = OpeningStatusRestartRequired
+	session.State.Attempt = nil
 	if err := s.store.SaveSession(ctx, session, s.now().UTC()); err != nil {
 		return nil, err
 	}
@@ -413,7 +419,7 @@ func compatibleCheckpoint(
 	newCourse CompiledCourse,
 	newLesson Lesson,
 	currentIndex int,
-) *int {
+) *RestartCheckpoint {
 	if strings.TrimSpace(oldLesson.LessonID) == "" || strings.TrimSpace(newLesson.LessonID) == "" {
 		return nil
 	}
@@ -427,8 +433,7 @@ func compatibleCheckpoint(
 		}
 		newIndex, newStep, exists := lessonStepByID(newLesson, oldStep.StepID)
 		if exists && newStep.Kind == oldStep.Kind && sameStepPosition(oldCourse, oldStep, newCourse, newStep) {
-			checkpoint := newIndex
-			return &checkpoint
+			return &RestartCheckpoint{StepIndex: newIndex}
 		}
 	}
 	return nil

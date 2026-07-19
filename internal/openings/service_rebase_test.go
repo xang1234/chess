@@ -93,8 +93,8 @@ func TestOpeningLessonChangedPromptRequiresCheckpointRestart(t *testing.T) {
 		t.Fatalf("restart-required view = %+v", resumed)
 	}
 	stored, err := fixture.store.LoadSession(ctx, paused.SessionID)
-	if err != nil || stored.GenerationID == v2.GenerationID || stored.State.RestartStepIndex == nil ||
-		*stored.State.RestartStepIndex != 1 {
+	if err != nil || stored.GenerationID == v2.GenerationID || stored.State.Restart == nil ||
+		stored.State.Restart.StepIndex != 1 {
 		t.Fatalf("restart checkpoint = %+v err=%v", stored, err)
 	}
 	var attemptsBefore int
@@ -199,7 +199,8 @@ func TestOpeningReviewRebaseKeepsOnlyUnchangedQueuedPrompts(t *testing.T) {
 		t.Fatalf("rebased review = %+v", resumed)
 	}
 	stored, err := fixture.store.LoadSession(ctx, review.SessionID)
-	if err != nil || !slices.Equal(stored.State.ReviewPromptIDs, []string{"recall-d3"}) || stored.State.ReviewIndex != 0 {
+	if err != nil || stored.State.Review == nil ||
+		!slices.Equal(stored.State.Review.PromptIDs, []string{"recall-d3"}) || stored.State.Review.Index != 0 {
 		t.Fatalf("rebased review queue = %+v err=%v", stored.State, err)
 	}
 	var status string

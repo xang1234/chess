@@ -29,27 +29,47 @@ const (
 	OpeningStatusRestartRequired OpeningSessionStatus = "restart_required"
 )
 
+type PositionState struct {
+	PositionID    string   `json:"positionId"`
+	CurrentFEN    string   `json:"currentFen"`
+	PlayedMoveIDs []string `json:"playedMoveIds"`
+}
+
+type AttemptState struct {
+	AttemptID         string    `json:"attemptId"`
+	PromptID          string    `json:"promptId"`
+	StartedAt         time.Time `json:"startedAt"`
+	HintLevel         int       `json:"hintLevel"`
+	IncorrectMoves    int       `json:"incorrectMoves"`
+	AlternativesTried int       `json:"alternativesTried"`
+	HintsUsed         int       `json:"hintsUsed"`
+	Revealed          bool      `json:"revealed"`
+}
+
+type ReviewCursor struct {
+	PromptIDs []string `json:"promptIds"`
+	Index     int      `json:"index"`
+}
+
+type SessionSummary struct {
+	CompletedPrompts   int `json:"completedPrompts"`
+	PositionsRecalled  int `json:"positionsRecalled"`
+	BranchesRecognized int `json:"branchesRecognized"`
+	Retried            int `json:"retried"`
+	UsedHint           int `json:"usedHint"`
+	Revealed           int `json:"revealed"`
+}
+
+type RestartCheckpoint struct {
+	StepIndex int `json:"stepIndex"`
+}
+
 type SessionState struct {
-	PositionID         string    `json:"positionId"`
-	CurrentFEN         string    `json:"currentFen"`
-	PlayedMoveIDs      []string  `json:"playedMoveIds"`
-	ReviewPromptIDs    []string  `json:"reviewPromptIds,omitempty"`
-	ReviewIndex        int       `json:"reviewIndex,omitempty"`
-	HintLevel          int       `json:"hintLevel"`
-	IncorrectMoves     int       `json:"incorrectMoves"`
-	AlternativesTried  int       `json:"alternativesTried"`
-	HintsUsed          int       `json:"hintsUsed"`
-	Revealed           bool      `json:"revealed"`
-	AttemptID          string    `json:"attemptId"`
-	PromptID           string    `json:"promptId,omitempty"`
-	StartedAt          time.Time `json:"startedAt"`
-	CompletedPrompts   int       `json:"completedPrompts,omitempty"`
-	PositionsRecalled  int       `json:"positionsRecalled,omitempty"`
-	BranchesRecognized int       `json:"branchesRecognized,omitempty"`
-	Retried            int       `json:"retried,omitempty"`
-	UsedHint           int       `json:"usedHint,omitempty"`
-	RevealedCount      int       `json:"revealedCount,omitempty"`
-	RestartStepIndex   *int      `json:"restartStepIndex,omitempty"`
+	Position PositionState      `json:"position"`
+	Attempt  *AttemptState      `json:"attempt,omitempty"`
+	Review   *ReviewCursor      `json:"review,omitempty"`
+	Summary  SessionSummary     `json:"summary"`
+	Restart  *RestartCheckpoint `json:"restart,omitempty"`
 }
 
 type StoredSession struct {
@@ -104,10 +124,35 @@ type ReviewState struct {
 
 type PromptCompletion struct {
 	Session             StoredSession
-	AttemptState        *SessionState
+	Attempt             AttemptRecord
 	SemanticFingerprint string
 	Outcome             ReviewOutcome
 	CompletedStepIDs    []string
+}
+
+type AttemptRecord struct {
+	AttemptID         string
+	PromptID          string
+	StartedAt         time.Time
+	IncorrectMoves    int
+	AlternativesTried int
+	HintsUsed         int
+	Revealed          bool
+}
+
+func attemptRecord(attempt *AttemptState) (AttemptRecord, error) {
+	if attempt == nil {
+		return AttemptRecord{}, errors.New("active opening prompt requires an attempt")
+	}
+	return AttemptRecord{
+		AttemptID:         attempt.AttemptID,
+		PromptID:          attempt.PromptID,
+		StartedAt:         attempt.StartedAt,
+		IncorrectMoves:    attempt.IncorrectMoves,
+		AlternativesTried: attempt.AlternativesTried,
+		HintsUsed:         attempt.HintsUsed,
+		Revealed:          attempt.Revealed,
+	}, nil
 }
 
 type CourseRevision struct {

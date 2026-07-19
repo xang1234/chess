@@ -26,7 +26,7 @@ func (s *Service) Advance(ctx context.Context, sessionID string) (OpeningStepRes
 		}
 		result.AppliedMoves = frames
 		result.FinalFEN = finalFEN
-		session.State.PlayedMoveIDs = append(session.State.PlayedMoveIDs, step.MoveIDs...)
+		session.State.Position.PlayedMoveIDs = append(session.State.Position.PlayedMoveIDs, step.MoveIDs...)
 	}
 	session.StepIndex++
 	if session.StepIndex >= len(lesson.Steps) {
@@ -56,7 +56,7 @@ func (s *Service) PlayMove(
 	if uci == "" {
 		return OpeningStepResult{}, errors.New("opening move is required")
 	}
-	if _, err := s.rules.ApplyUCI(session.State.CurrentFEN, uci); err != nil {
+	if _, err := s.rules.ApplyUCI(session.State.Position.CurrentFEN, uci); err != nil {
 		return OpeningStepResult{}, fmt.Errorf("illegal opening move %q: %w", uci, err)
 	}
 	primary := course.Moves[prompt.PrimaryMoveID]
@@ -66,7 +66,7 @@ func (s *Service) PlayMove(
 	for _, moveID := range prompt.AcceptedAlternativeMoveIDs {
 		move, exists := course.Moves[moveID]
 		if exists && visibleAtDepth(move.MinimumDepth, session.Depth) && move.UCI == uci {
-			session.State.AlternativesTried++
+			session.State.Attempt.AlternativesTried++
 			if err := s.store.SaveSession(ctx, session, s.now().UTC()); err != nil {
 				return OpeningStepResult{}, err
 			}
@@ -77,7 +77,7 @@ func (s *Service) PlayMove(
 			}, err
 		}
 	}
-	session.State.IncorrectMoves++
+	session.State.Attempt.IncorrectMoves++
 	if err := s.store.SaveSession(ctx, session, s.now().UTC()); err != nil {
 		return OpeningStepResult{}, err
 	}
@@ -94,16 +94,16 @@ func (s *Service) UseHint(ctx context.Context, sessionID string) (OpeningHintRes
 	if err != nil {
 		return OpeningHintResult{}, err
 	}
-	if session.State.HintLevel < 4 {
-		session.State.HintLevel++
-		session.State.HintsUsed++
+	if session.State.Attempt.HintLevel < 4 {
+		session.State.Attempt.HintLevel++
+		session.State.Attempt.HintsUsed++
 		if err := s.store.SaveSession(ctx, session, s.now().UTC()); err != nil {
 			return OpeningHintResult{}, err
 		}
 	}
 	primary := course.Moves[prompt.PrimaryMoveID]
-	result := OpeningHintResult{Level: session.State.HintLevel, CanReveal: session.State.HintLevel >= 4}
-	switch session.State.HintLevel {
+	result := OpeningHintResult{Level: session.State.Attempt.HintLevel, CanReveal: session.State.Attempt.HintLevel >= 4}
+	switch session.State.Attempt.HintLevel {
 	case 1:
 		result.Text = s.planHint(course, prompt)
 	case 2:
@@ -127,10 +127,10 @@ func (s *Service) Reveal(ctx context.Context, sessionID string) (OpeningStepResu
 	if err != nil {
 		return OpeningStepResult{}, err
 	}
-	if session.State.HintLevel < 4 {
+	if session.State.Attempt.HintLevel < 4 {
 		return OpeningStepResult{}, errors.New("use all opening hints before revealing the course move")
 	}
-	session.State.Revealed = true
+	session.State.Attempt.Revealed = true
 	return s.completePrimary(ctx, course, session, step, prompt)
 }
 
@@ -144,26 +144,29 @@ func (s *Service) completePrimary(
 	primary := course.Moves[prompt.PrimaryMoveID]
 	moveIDs := append([]string{primary.MoveID}, step.MoveIDs...)
 	finalPositionID := course.Moves[moveIDs[len(moveIDs)-1]].ToPositionID
-	frames, finalFEN, err := s.applyMoveIDs(course, session.State.CurrentFEN, moveIDs)
+	frames, finalFEN, err := s.applyMoveIDs(course, session.State.Position.CurrentFEN, moveIDs)
 	if err != nil {
 		return OpeningStepResult{}, err
 	}
-	attempt := session.State
-	session.State.PlayedMoveIDs = append(session.State.PlayedMoveIDs, moveIDs...)
-	session.State.CompletedPrompts++
+	attempt, err := attemptRecord(session.State.Attempt)
+	if err != nil {
+		return OpeningStepResult{}, err
+	}
+	session.State.Position.PlayedMoveIDs = append(session.State.Position.PlayedMoveIDs, moveIDs...)
+	session.State.Summary.CompletedPrompts++
 	if step.Kind == StepBranch {
-		session.State.BranchesRecognized++
+		session.State.Summary.BranchesRecognized++
 	} else {
-		session.State.PositionsRecalled++
+		session.State.Summary.PositionsRecalled++
 	}
 	if attempt.IncorrectMoves > 0 || attempt.AlternativesTried > 0 {
-		session.State.Retried++
+		session.State.Summary.Retried++
 	}
 	if attempt.HintsUsed > 0 {
-		session.State.UsedHint++
+		session.State.Summary.UsedHint++
 	}
 	if attempt.Revealed {
-		session.State.RevealedCount++
+		session.State.Summary.Revealed++
 	}
 	outcome := promptOutcome(attempt)
 	completedStepIDs := []string(nil)
@@ -172,10 +175,9 @@ func (s *Service) completePrimary(
 		session.StepIndex++
 		if session.StepIndex >= len(lesson.Steps) {
 			session.Status = OpeningStatusCompleted
-			session.State.CurrentFEN = finalFEN
-			session.State.PositionID = finalPositionID
-			session.State.AttemptID = ""
-			session.State.PromptID = ""
+			session.State.Position.CurrentFEN = finalFEN
+			session.State.Position.PositionID = finalPositionID
+			session.State.Attempt = nil
 			completedStepIDs = lessonStepIDs(lesson)
 		} else {
 			session.State, err = s.stateForLessonStep(course, lesson.Steps[session.StepIndex], session.State, s.now().UTC())
@@ -184,16 +186,15 @@ func (s *Service) completePrimary(
 			}
 		}
 	} else {
-		session.State.ReviewIndex++
-		session.StepIndex = session.State.ReviewIndex
-		if session.State.ReviewIndex >= len(session.State.ReviewPromptIDs) {
+		session.State.Review.Index++
+		session.StepIndex = session.State.Review.Index
+		if session.State.Review.Index >= len(session.State.Review.PromptIDs) {
 			session.Status = OpeningStatusCompleted
-			session.State.CurrentFEN = finalFEN
-			session.State.PositionID = finalPositionID
-			session.State.AttemptID = ""
-			session.State.PromptID = ""
+			session.State.Position.CurrentFEN = finalFEN
+			session.State.Position.PositionID = finalPositionID
+			session.State.Attempt = nil
 		} else {
-			nextPromptID := session.State.ReviewPromptIDs[session.State.ReviewIndex]
+			nextPromptID := session.State.Review.PromptIDs[session.State.Review.Index]
 			session.State, err = s.stateForReviewPrompt(course, nextPromptID, session.State, s.now().UTC())
 			if err != nil {
 				return OpeningStepResult{}, err
@@ -201,7 +202,7 @@ func (s *Service) completePrimary(
 		}
 	}
 	if err := s.store.CompletePrompt(ctx, PromptCompletion{
-		Session: session, AttemptState: &attempt,
+		Session: session, Attempt: attempt,
 		SemanticFingerprint: prompt.SemanticFingerprint,
 		Outcome:             outcome, CompletedStepIDs: completedStepIDs,
 	}, s.now().UTC()); err != nil {
@@ -262,10 +263,10 @@ func (s *Service) loadPromptStep(
 		}
 		step = lesson.Steps[session.StepIndex]
 	} else {
-		if session.State.ReviewIndex < 0 || session.State.ReviewIndex >= len(session.State.ReviewPromptIDs) {
+		if session.State.Review == nil || session.State.Review.Index < 0 || session.State.Review.Index >= len(session.State.Review.PromptIDs) {
 			return StoredSession{}, CompiledCourse{}, LessonStep{}, CompiledPrompt{}, errors.New("opening review prompt is unavailable")
 		}
-		step, err = reviewStep(course, session.State.ReviewPromptIDs[session.State.ReviewIndex])
+		step, err = reviewStep(course, session.State.Review.PromptIDs[session.State.Review.Index])
 		if err != nil {
 			return StoredSession{}, CompiledCourse{}, LessonStep{}, CompiledPrompt{}, err
 		}
@@ -276,6 +277,9 @@ func (s *Service) loadPromptStep(
 	prompt, exists := course.Prompts[step.PromptID]
 	if !exists {
 		return StoredSession{}, CompiledCourse{}, LessonStep{}, CompiledPrompt{}, fmt.Errorf("opening prompt %q is unavailable", step.PromptID)
+	}
+	if _, err := attemptRecord(session.State.Attempt); err != nil {
+		return StoredSession{}, CompiledCourse{}, LessonStep{}, CompiledPrompt{}, err
 	}
 	return session, course, step, prompt, nil
 }
@@ -291,12 +295,12 @@ func (s *Service) stateForLessonStep(
 		return SessionState{}, fmt.Errorf("opening position %q is unavailable", step.PositionID)
 	}
 	state := resetAttemptState(previous)
-	state.PositionID = step.PositionID
-	state.CurrentFEN = position.FEN
+	state.Position.PositionID = step.PositionID
+	state.Position.CurrentFEN = position.FEN
 	if step.PromptID != "" {
-		state.PromptID = step.PromptID
-		state.AttemptID = nextAttemptID()
-		state.StartedAt = now
+		state.Attempt = &AttemptState{
+			PromptID: step.PromptID, AttemptID: nextAttemptID(), StartedAt: now,
+		}
 	}
 	return state, nil
 }
@@ -316,27 +320,23 @@ func (s *Service) stateForReviewPrompt(
 		return SessionState{}, fmt.Errorf("opening position %q is unavailable", prompt.PositionID)
 	}
 	state := resetAttemptState(previous)
-	state.PositionID = prompt.PositionID
-	state.CurrentFEN = position.FEN
-	state.PromptID = promptID
-	state.AttemptID = nextAttemptID()
-	state.StartedAt = now
+	if state.Review == nil {
+		return SessionState{}, errors.New("review session requires a review cursor")
+	}
+	state.Position.PositionID = prompt.PositionID
+	state.Position.CurrentFEN = position.FEN
+	state.Attempt = &AttemptState{
+		PromptID: promptID, AttemptID: nextAttemptID(), StartedAt: now,
+	}
 	return state, nil
 }
 
 func resetAttemptState(state SessionState) SessionState {
-	state.HintLevel = 0
-	state.IncorrectMoves = 0
-	state.AlternativesTried = 0
-	state.HintsUsed = 0
-	state.Revealed = false
-	state.AttemptID = ""
-	state.PromptID = ""
-	state.StartedAt = time.Time{}
+	state.Attempt = nil
 	return state
 }
 
-func promptOutcome(state SessionState) ReviewOutcome {
+func promptOutcome(state AttemptRecord) ReviewOutcome {
 	switch {
 	case state.Revealed:
 		return ReviewRevealed
@@ -412,15 +412,15 @@ func (s *Service) reviewStepView(
 	course CompiledCourse,
 	session StoredSession,
 ) (OpeningStepView, error) {
-	if session.State.ReviewIndex < 0 || session.State.ReviewIndex >= len(session.State.ReviewPromptIDs) {
+	if session.State.Review == nil || session.State.Review.Index < 0 || session.State.Review.Index >= len(session.State.Review.PromptIDs) {
 		return OpeningStepView{}, errors.New("opening review prompt is unavailable")
 	}
-	step, err := reviewStep(course, session.State.ReviewPromptIDs[session.State.ReviewIndex])
+	step, err := reviewStep(course, session.State.Review.PromptIDs[session.State.Review.Index])
 	if err != nil {
 		return OpeningStepView{}, err
 	}
 	return s.buildStepView(
-		course, step, session, session.State.ReviewIndex+1, len(session.State.ReviewPromptIDs),
+		course, step, session, session.State.Review.Index+1, len(session.State.Review.PromptIDs),
 	)
 }
 
@@ -451,10 +451,13 @@ func (s *Service) buildStepView(
 	view := OpeningStepView{
 		StepID: step.StepID, Kind: step.Kind, Title: step.Title,
 		Instruction: step.Instruction, PositionID: step.PositionID,
-		CurrentFEN: session.State.CurrentFEN, Orientation: course.Pack.Perspective,
+		CurrentFEN: session.State.Position.CurrentFEN, Orientation: course.Pack.Perspective,
 		LegalMoves: []string{}, NoteTexts: s.noteTexts(course, step),
 		StepNumber: number, StepTotal: total,
-		HintLevel: session.State.HintLevel, CanReveal: session.State.HintLevel >= 4,
+	}
+	if session.State.Attempt != nil {
+		view.HintLevel = session.State.Attempt.HintLevel
+		view.CanReveal = session.State.Attempt.HintLevel >= 4
 	}
 	if view.CurrentFEN == "" {
 		view.CurrentFEN = position.FEN
@@ -507,8 +510,8 @@ func (s *Service) planHint(course CompiledCourse, prompt CompiledPrompt) string 
 
 func openingSummary(state SessionState) *OpeningSummary {
 	return &OpeningSummary{
-		TotalPrompts: state.CompletedPrompts, PositionsRecalled: state.PositionsRecalled,
-		BranchesRecognized: state.BranchesRecognized, Retried: state.Retried,
-		UsedHint: state.UsedHint, Revealed: state.RevealedCount,
+		TotalPrompts: state.Summary.CompletedPrompts, PositionsRecalled: state.Summary.PositionsRecalled,
+		BranchesRecognized: state.Summary.BranchesRecognized, Retried: state.Summary.Retried,
+		UsedHint: state.Summary.UsedHint, Revealed: state.Summary.Revealed,
 	}
 }

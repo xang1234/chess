@@ -50,6 +50,9 @@ func (s *UserStore) CreateSession(
 		LessonID: seed.LessonID, Mode: seed.Mode, Status: OpeningStatusActive,
 		Depth: seed.Depth, State: seed.State,
 	}
+	if err := validateStoredSession(session); err != nil {
+		return StoredSession{}, err
+	}
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO opening_sessions(
@@ -156,6 +159,14 @@ func (s *UserStore) SetSessionStatus(
 	if !validOpeningStatus(status) {
 		return fmt.Errorf("invalid opening session status %q", status)
 	}
+	session, err := s.LoadSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	session.Status = status
+	if err := validateStoredSession(session); err != nil {
+		return err
+	}
 	result, err := s.db.ExecContext(
 		ctx,
 		`UPDATE opening_sessions SET status = ?, updated_at = ? WHERE session_id = ?`,
@@ -191,6 +202,9 @@ func scanOpeningSession(row rowScanner) (StoredSession, error) {
 	}
 	if err := json.Unmarshal([]byte(stateJSON), &session.State); err != nil {
 		return StoredSession{}, fmt.Errorf("decode opening session state: %w", err)
+	}
+	if err := validateStoredSession(session); err != nil {
+		return StoredSession{}, fmt.Errorf("validate opening session state: %w", err)
 	}
 	return session, nil
 }
@@ -238,7 +252,24 @@ func validateStoredSession(session StoredSession) error {
 	if session.StepIndex < 0 {
 		return errors.New("opening session step index cannot be negative")
 	}
-	if session.State.RestartStepIndex != nil && *session.State.RestartStepIndex < 0 {
+	if session.Mode == OpeningModeLesson && session.State.Review != nil {
+		return errors.New("lesson session cannot carry a review cursor")
+	}
+	if session.Mode == OpeningModeReview && session.State.Review == nil {
+		return errors.New("review session requires a review cursor")
+	}
+	if session.Status == OpeningStatusRestartRequired && session.State.Attempt != nil {
+		return errors.New("restart-required session cannot carry an attempt")
+	}
+	if session.State.Review != nil && session.State.Review.Index < 0 {
+		return errors.New("opening review index cannot be negative")
+	}
+	if session.State.Attempt != nil && (session.State.Attempt.HintLevel < 0 ||
+		session.State.Attempt.IncorrectMoves < 0 || session.State.Attempt.AlternativesTried < 0 ||
+		session.State.Attempt.HintsUsed < 0) {
+		return errors.New("opening attempt metrics cannot be negative")
+	}
+	if session.State.Restart != nil && session.State.Restart.StepIndex < 0 {
 		return errors.New("opening restart step index cannot be negative")
 	}
 	return nil
