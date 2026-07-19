@@ -15,6 +15,9 @@ import {
   decodeOpeningSession,
   decodeOpeningStepResult
 } from './api-contract'
+import { decodeOpeningHome as decodeOpeningHomeContract } from './contracts/openings'
+import { decodeImportInspection as decodeImportInspectionContract } from './contracts/imports'
+import { loadPreviewApplicationAPI } from './api/preview'
 
 type HasKey<Value, Key extends PropertyKey> = Key extends keyof Value ? true : false
 type APIModule = typeof import('./api')
@@ -138,6 +141,47 @@ const activeOpeningPayload = {
   current: openingStepPayload
 }
 
+const openingHomePayload = {
+  notice: 'Private course notice',
+  courses: [{
+    courseId: 'italian-white',
+    title: 'Italian Game for White',
+    perspective: 'white',
+    depth: 'reference',
+    rootPositionId: 'initial',
+    completedLessons: 1,
+    totalLessons: 3,
+    dueReviews: 2,
+    nextLessonId: 'giuoco-c3',
+    nextLessonTitle: 'Prepare d4 with c3',
+    hasResumable: true,
+    chapters: [{
+      chapterId: 'giuoco',
+      title: 'Giuoco Piano',
+      lessons: [{
+        lessonId: 'giuoco-c3',
+        title: 'Prepare d4 with c3',
+        completedSteps: 2,
+        totalSteps: 5,
+        completed: false
+      }]
+    }]
+  }]
+}
+
+const importInspectionPayload = {
+  path: '/collections/club.pgn',
+  filename: 'club.pgn',
+  format: 'tactical-pgn',
+  formatLabel: 'Tactical PGN',
+  sourceId: 'club-tactics',
+  sourceIdOrigin: 'embedded',
+  sourceName: 'Club tactics',
+  url: 'https://example.test/club',
+  attribution: 'Club authors',
+  replacesExisting: true
+}
+
 const openingPositionPayload = {
   courseId: 'italian-white',
   positionId: 'after-bc5',
@@ -185,33 +229,7 @@ test.each([
 })
 
 test('strictly decodes the opening home hierarchy', () => {
-  expect(decodeOpeningHome({
-    notice: 'Private course notice',
-    courses: [{
-      courseId: 'italian-white',
-      title: 'Italian Game for White',
-      perspective: 'white',
-      depth: 'reference',
-      rootPositionId: 'initial',
-      completedLessons: 1,
-      totalLessons: 3,
-      dueReviews: 2,
-      nextLessonId: 'giuoco-c3',
-      nextLessonTitle: 'Prepare d4 with c3',
-      hasResumable: true,
-      chapters: [{
-        chapterId: 'giuoco',
-        title: 'Giuoco Piano',
-        lessons: [{
-          lessonId: 'giuoco-c3',
-          title: 'Prepare d4 with c3',
-          completedSteps: 2,
-          totalSteps: 5,
-          completed: false
-        }]
-      }]
-    }]
-  })).toMatchObject({
+  expect(decodeOpeningHome(openingHomePayload)).toMatchObject({
     notice: 'Private course notice',
     courses: [{ depth: 'reference', dueReviews: 2, chapters: [{ lessons: [{ totalSteps: 5 }] }] }]
   })
@@ -633,18 +651,7 @@ test('production parent summary accepts paused recent sessions', async () => {
 })
 
 test('decodes an authoritative puzzle import inspection', () => {
-  expect(decodeImportInspection({
-    path: '/collections/club.pgn',
-    filename: 'club.pgn',
-    format: 'tactical-pgn',
-    formatLabel: 'Tactical PGN',
-    sourceId: 'club-tactics',
-    sourceIdOrigin: 'embedded',
-    sourceName: 'Club tactics',
-    url: 'https://example.test/club',
-    attribution: 'Club authors',
-    replacesExisting: true
-  })).toEqual({
+  expect(decodeImportInspection(importInspectionPayload)).toEqual({
     path: '/collections/club.pgn',
     filename: 'club.pgn',
     format: 'tactical-pgn',
@@ -656,6 +663,12 @@ test('decodes an authoritative puzzle import inspection', () => {
     attribution: 'Club authors',
     replacesExisting: true
   })
+})
+
+test('loads split domain contracts and the preview adapter directly', async () => {
+  expect(decodeOpeningHomeContract(openingHomePayload)).toEqual(openingHomePayload)
+  expect(decodeImportInspectionContract(importInspectionPayload)).toEqual(importInspectionPayload)
+  await expect(loadPreviewApplicationAPI()).resolves.toMatchObject({ mode: 'normal' })
 })
 
 test.each([
