@@ -50,14 +50,16 @@ func TestCourseImporterInspectsAndImportsExactCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCounts := map[string]int64{
-		"chapters":   3,
-		"positions":  11,
-		"moves":      10,
-		"variations": 7,
-		"notes":      1,
-		"lessons":    1,
-		"prompts":    2,
-		"warnings":   0,
+		"chapters":    3,
+		"positions":   11,
+		"moves":       10,
+		"variations":  7,
+		"notes":       1,
+		"lessons":     1,
+		"lessonEdges": 0,
+		"activities":  5,
+		"prompts":     2,
+		"warnings":    0,
 	}
 	if report.Accepted != 1 || !reflect.DeepEqual(report.Counts, wantCounts) {
 		t.Fatalf("report = %#v, want counts %#v", report, wantCounts)

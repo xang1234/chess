@@ -21,6 +21,15 @@ func miniCoursePath(t *testing.T) string {
 	return path
 }
 
+func treeCoursePath(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.Abs("../../internal/openings/testdata/tree.ctcourse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestRunValidateWritesDeterministicCourseSummary(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"validate", miniCoursePath(t)}, &stdout, &stderr)
@@ -41,7 +50,8 @@ func TestRunValidateWritesDeterministicCourseSummary(t *testing.T) {
 	}
 	wantCounts := map[string]int64{
 		"chapters": 3, "positions": 11, "moves": 10, "variations": 7,
-		"notes": 1, "lessons": 1, "prompts": 2, "warnings": 0,
+		"notes": 1, "lessons": 1, "lessonEdges": 0, "activities": 5,
+		"prompts": 2, "warnings": 0,
 	}
 	if !reflect.DeepEqual(result.Counts, wantCounts) {
 		t.Fatalf("counts = %#v, want %#v", result.Counts, wantCounts)
@@ -61,6 +71,21 @@ func TestRunValidateWritesDeterministicCourseSummary(t *testing.T) {
 	}
 	if repeated.String() != stdout.String() {
 		t.Fatalf("validation output changed between runs")
+	}
+}
+
+func TestRunValidateCountsAuthoredTeachingTreeStructure(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"validate", treeCoursePath(t)}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d stderr = %s", code, stderr.String())
+	}
+	var result validationOutput
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode stdout %q: %v", stdout.String(), err)
+	}
+	if result.Counts["lessons"] != 2 || result.Counts["lessonEdges"] != 1 || result.Counts["activities"] != 4 {
+		t.Fatalf("teaching tree counts = %#v", result.Counts)
 	}
 }
 

@@ -188,15 +188,21 @@ func StructuralCounts(compiled CompiledCourse) map[string]int64 {
 			warnings++
 		}
 	}
+	var activities int64
+	for _, lesson := range compiled.Lessons {
+		activities += int64(len(lesson.Activities))
+	}
 	return map[string]int64{
-		"chapters":   int64(len(compiled.Chapters)),
-		"positions":  int64(len(compiled.Positions)),
-		"moves":      int64(len(compiled.Moves)),
-		"variations": int64(len(variations)),
-		"notes":      int64(len(compiled.Notes)),
-		"lessons":    int64(len(compiled.Lessons)),
-		"prompts":    int64(len(compiled.Prompts)),
-		"warnings":   warnings,
+		"chapters":    int64(len(compiled.Chapters)),
+		"positions":   int64(len(compiled.Positions)),
+		"moves":       int64(len(compiled.Moves)),
+		"variations":  int64(len(variations)),
+		"notes":       int64(len(compiled.Notes)),
+		"lessons":     int64(len(compiled.Lessons)),
+		"lessonEdges": int64(len(compiled.Pack.LessonEdges)),
+		"activities":  activities,
+		"prompts":     int64(len(compiled.Prompts)),
+		"warnings":    warnings,
 	}
 }
 

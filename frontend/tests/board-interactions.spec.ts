@@ -12,13 +12,15 @@ import {
 import {
   backendState,
   installTestBackend,
-  observeSemanticFrames,
-  type BoardScenario,
-  type ContinueResponse,
-  type NextResponse,
-  type PuzzleDefinition,
-  type SummaryResponse
+  observeSemanticFrames
 } from './test-backend'
+import type {
+  BoardScenario,
+  ContinueResponse,
+  NextResponse,
+  PuzzleDefinition,
+  SummaryResponse
+} from './test-backend-types'
 
 const startingFen = '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2'
 const afterE4 = '4k3/8/8/4p3/4P3/8/8/4K3 b - - 0 2'
