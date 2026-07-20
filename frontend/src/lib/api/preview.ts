@@ -4,8 +4,8 @@ import type {
   OpeningDepth,
   OpeningHomeView,
   OpeningSessionView,
-  OpeningStepResult,
-  OpeningStepView
+  OpeningActivityResult,
+  OpeningActivityView
 } from '../contracts/openings'
 import type {
   ActiveSessionView,
@@ -136,56 +136,57 @@ let previewOpeningSession: OpeningSessionView | null = null
 let previewOpeningStepIndex = 0
 let previewOpeningHintLevel = 0
 
-function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningStepView {
+function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningActivityView {
   if (mode === 'review') {
     return {
-      stepId: 'review-recall-c3', kind: 'recall', title: 'Review the Giuoco Piano',
+      activityId: 'review-recall-c3', kind: 'decision', title: 'Review the Giuoco Piano',
       instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
+      required: true,
       positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
-      orientation: 'white', legalMoves: ['b2b4', 'c2c3', 'd2d3'], noteTexts: [],
+      orientation: 'white', legalMoves: ['b2b4', 'c2c3', 'd2d3'], teachingNoteTexts: [],
       referenceNoteTexts: ['The quiet c3 move supports a later d4.'],
-      stepNumber: 1, stepTotal: 1, hintLevel: previewOpeningHintLevel,
+      comparison: [], annotations: [], movesToHere: [], completedIdeas: 0, requiredIdeas: 1,
+      referenceSections: [],
+      activityNumber: 1, activityTotal: 1, hintLevel: previewOpeningHintLevel,
       canReveal: previewOpeningHintLevel >= 4
     }
   }
   const common = {
     orientation: 'white' as const,
-    noteTexts: ['Develop quickly and prepare the centre.'],
+    required: true,
+    teachingNoteTexts: ['Develop quickly and prepare the centre.'],
     referenceNoteTexts: ['Reference lines remain available without crowding the lesson.'],
-    stepTotal: 5,
+    comparison: [],
+    annotations: [],
+    movesToHere: [] as [],
+    activityTotal: 3,
+    completedIdeas: index,
+    requiredIdeas: 3,
     hintLevel: previewOpeningHintLevel,
-    canReveal: previewOpeningHintLevel >= 4
+    canReveal: previewOpeningHintLevel >= 4,
+    referenceSections: []
   }
-  const steps: OpeningStepView[] = [
+  const steps: OpeningActivityView[] = [
     {
-      ...common, stepId: 'explain-plan', kind: 'explain', title: 'The central plan',
+      ...common, activityId: 'explain-plan', kind: 'concept', title: 'The central plan',
       instruction: 'White prepares d4 while keeping the position flexible.',
       positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
-      legalMoves: [], stepNumber: 1
+      legalMoves: [], activityNumber: 1,
+      annotations: [{ kind: 'arrow', from: 'c2', to: 'c3', label: 'supports d4' }]
     },
     {
-      ...common, stepId: 'watch-setup', kind: 'watch', title: 'Reach the Italian',
+      ...common, activityId: 'watch-setup', kind: 'demonstration', title: 'Reach the Italian',
       instruction: 'Watch both sides develop toward the Italian Game.',
       variationName: 'Giuoco Piano', positionId: 'initial', currentFen: previewOpeningFens.initial,
-      legalMoves: [], stepNumber: 2
+      legalMoves: [], activityNumber: 2,
+      movesToHere: [{ uci: 'e2e4', resultingFen: previewOpeningFens.prompt }]
     },
     {
-      ...common, stepId: 'try-c3', kind: 'try', title: 'Prepare the centre',
+      ...common, activityId: 'try-c3', kind: 'decision', title: 'Prepare the centre',
       instruction: 'Choose White\'s preparation move.', variationName: 'Giuoco Piano',
       positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
-      legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 3
-    },
-    {
-      ...common, stepId: 'branch-giuoco', kind: 'branch', title: 'Recognise the branch',
-      instruction: 'Choose White\'s setup after Black develops the bishop.',
-      variationName: 'Giuoco Piano', positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
-      legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 4
-    },
-    {
-      ...common, stepId: 'recall-c3', kind: 'recall', title: 'Recall the Giuoco move',
-      instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
-      positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
-      legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 5
+      legalMoves: ['b2b4', 'c2c3', 'd2d3'], activityNumber: 3,
+      annotations: [{ kind: 'square', from: 'd4', label: 'future centre' }]
     }
   ]
   return steps[index]
@@ -204,14 +205,21 @@ function previewActiveOpening(
 }
 
 function previewCompletedOpening(mode: 'lesson' | 'review'): OpeningSessionView {
+  if (mode === 'lesson') {
+    return {
+      sessionId: 'preview-opening-session', mode, status: 'completed',
+      courseId: 'synthetic-italian', generationId: 'preview-generation',
+      lessonId: 'giuoco-c3', depth: previewOpeningDepth
+    }
+  }
   return {
     sessionId: 'preview-opening-session', mode, status: 'completed',
     courseId: 'synthetic-italian', generationId: 'preview-generation',
-    lessonId: mode === 'review' ? 'review' : 'giuoco-c3', depth: previewOpeningDepth,
+    lessonId: 'review', depth: previewOpeningDepth,
     summary: {
-      totalPrompts: mode === 'review' ? 1 : 3,
-      positionsRecalled: mode === 'review' ? 1 : 2,
-      branchesRecognized: mode === 'review' ? 0 : 1,
+      totalPrompts: 1,
+      positionsRecalled: 1,
+      branchesRecognized: 0,
       retried: 0, usedHint: previewOpeningHintLevel > 0 ? 1 : 0, revealed: 0
     }
   }
@@ -225,31 +233,51 @@ function previewOpeningHome(): OpeningHomeView {
       perspective: 'white', depth: previewOpeningDepth, rootPositionId: 'initial',
       completedLessons: completed ? 1 : 0, totalLessons: 1, dueReviews: 0,
       nextLessonId: 'giuoco-c3', nextLessonTitle: 'Prepare d4 with c3',
+      currentLessonId: previewOpeningSession?.status === 'active' ? 'giuoco-c3' : undefined,
+      currentActivityId: previewOpeningSession?.status === 'active'
+        ? previewOpeningSession.current.activityId
+        : undefined,
+      currentPath: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
+      recommendedLessonId: 'giuoco-c3',
+      recommendedLessonTitle: 'Prepare d4 with c3',
       hasResumable: previewOpeningSession?.status === 'active',
+      tree: {
+        rootLessonId: 'giuoco-c3',
+        nodes: [{
+          lessonId: 'giuoco-c3', chapterId: 'giuoco', title: 'Prepare d4 with c3',
+          objective: 'Understand when c3 prepares d4.', minimumDepth: 'quick',
+          progress: completed ? 'completed' : previewOpeningSession?.status === 'active'
+            ? 'in_progress'
+            : 'available',
+          completedActivities: completed ? 3 : previewOpeningStepIndex,
+          requiredActivities: 3, recommended: true, reviewDue: false, visible: true
+        }],
+        edges: []
+      },
       chapters: [{
         chapterId: 'giuoco', title: 'Giuoco Piano',
         lessons: [{
           lessonId: 'giuoco-c3', title: 'Prepare d4 with c3',
-          completedSteps: completed ? 5 : 0, totalSteps: 5, completed
+          completedSteps: completed ? 3 : previewOpeningStepIndex, totalSteps: 3, completed
         }]
       }]
     }]
   }
 }
 
-function completePreviewOpeningMove(): OpeningStepResult {
+function completePreviewOpeningMove(): OpeningActivityResult {
   if (!previewOpeningSession || previewOpeningSession.status !== 'active') {
     throw new Error('preview opening session is not active')
   }
   const current = previewOpeningSession
   const nextIndex = previewOpeningStepIndex + 1
-  previewOpeningSession = current.mode === 'review' || nextIndex >= 5
+  previewOpeningSession = current.mode === 'review' || nextIndex >= 3
     ? previewCompletedOpening(current.mode)
     : previewActiveOpening(nextIndex, current.mode)
   previewOpeningStepIndex = nextIndex
   return {
     session: clonePreviewSession(previewOpeningSession),
-    stepCompleted: true,
+    activityCompleted: true,
     feedback: 'expected',
     appliedMoves: [{ uci: 'c2c3', resultingFen: previewOpeningFens.afterC3 }],
     finalFen: previewOpeningFens.afterC3
@@ -352,18 +380,18 @@ const previewNormalAPI: NormalAPI = {
     previewOpeningSession = previewActiveOpening(0)
     return clonePreviewSession(previewOpeningSession)
   },
-  advanceOpeningStep: async () => {
+  advanceOpeningActivity: async () => {
     if (!previewOpeningSession || previewOpeningSession.status !== 'active' ||
-      (previewOpeningSession.current.kind !== 'explain' &&
-        previewOpeningSession.current.kind !== 'watch')) {
+      (previewOpeningSession.current.kind !== 'concept' &&
+        previewOpeningSession.current.kind !== 'demonstration')) {
       throw new Error('preview opening step requires a move')
     }
-    const wasWatch = previewOpeningSession.current.kind === 'watch'
+    const wasWatch = previewOpeningSession.current.kind === 'demonstration'
     previewOpeningStepIndex++
     previewOpeningSession = previewActiveOpening(previewOpeningStepIndex)
     return {
       session: clonePreviewSession(previewOpeningSession),
-      stepCompleted: true,
+      activityCompleted: true,
       ...(wasWatch
         ? {
             appliedMoves: [{ uci: 'f8c5', resultingFen: previewOpeningFens.prompt }] as AppliedMoveFrames,
@@ -372,6 +400,7 @@ const previewNormalAPI: NormalAPI = {
         : {})
     }
   },
+  advanceOpeningStep: async (sessionId) => previewNormalAPI.advanceOpeningActivity(sessionId),
   playOpeningMove: async (_sessionId, uci) => {
     if (!previewOpeningSession || previewOpeningSession.status !== 'active') {
       throw new Error('preview opening session is not active')
@@ -380,14 +409,14 @@ const previewNormalAPI: NormalAPI = {
     if (uci === 'b2b4') {
       return {
         session: clonePreviewSession(previewOpeningSession),
-        stepCompleted: false,
+        activityCompleted: false,
         feedback: 'alternative',
         message: 'That is a playable course alternative. Return to the lesson position.'
       }
     }
     return {
       session: clonePreviewSession(previewOpeningSession),
-      stepCompleted: false,
+      activityCompleted: false,
       feedback: 'off_course',
       message: 'That move is playable, but this lesson is practising c3.'
     }

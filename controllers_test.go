@@ -184,12 +184,12 @@ func TestNormalControllerOpeningBindingsDelegateThroughOpeningService(t *testing
 	if err != nil || session.Status != openings.OpeningStatusActive {
 		t.Fatalf("RestartOpeningSession() = %+v err=%v", session, err)
 	}
-	if _, err := controller.AdvanceOpeningStep(session.SessionID); err != nil {
+	if _, err := controller.AdvanceOpeningActivity(session.SessionID); err != nil {
 		t.Fatal(err)
 	}
 	advanced, err := controller.AdvanceOpeningStep(session.SessionID)
 	if err != nil || advanced.Session.Current == nil || advanced.Session.Current.Kind != openings.ActivityDecision {
-		t.Fatalf("AdvanceOpeningStep() = %+v err=%v", advanced, err)
+		t.Fatalf("AdvanceOpeningActivity()/compatibility alias = %+v err=%v", advanced, err)
 	}
 	hint, err := controller.UseOpeningHint(session.SessionID)
 	if err != nil || hint.Level != 1 {

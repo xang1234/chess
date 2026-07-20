@@ -7,12 +7,12 @@ import type {
 } from '../contracts/application'
 import type { ImportInspection, ImportProgress, ImportResult } from '../contracts/imports'
 import type {
+  OpeningActivityResult,
   OpeningDepth,
   OpeningHintResult,
   OpeningHomeView,
   OpeningPositionView,
-  OpeningSessionView,
-  OpeningStepResult
+  OpeningSessionView
 } from '../contracts/openings'
 import type { HintResult, MoveResult, SessionView } from '../contracts/puzzles'
 
@@ -51,10 +51,12 @@ export interface NormalAPI extends BackupAPI {
   startOpeningLesson(courseId: string, lessonId: string): Promise<OpeningSessionView>
   resumeOpeningSession(): Promise<OpeningSessionView | null>
   restartOpeningSession(sessionId: string): Promise<OpeningSessionView>
-  advanceOpeningStep(sessionId: string): Promise<OpeningStepResult>
-  playOpeningMove(sessionId: string, uci: string): Promise<OpeningStepResult>
+  advanceOpeningActivity(sessionId: string): Promise<OpeningActivityResult>
+  /** @deprecated One-release compatibility alias. */
+  advanceOpeningStep(sessionId: string): Promise<OpeningActivityResult>
+  playOpeningMove(sessionId: string, uci: string): Promise<OpeningActivityResult>
   useOpeningHint(sessionId: string): Promise<OpeningHintResult>
-  revealOpeningMove(sessionId: string): Promise<OpeningStepResult>
+  revealOpeningMove(sessionId: string): Promise<OpeningActivityResult>
   pauseOpeningSession(sessionId: string): Promise<void>
   startOpeningReview(courseId: string): Promise<OpeningSessionView>
   getParentSummary(): Promise<ParentSummary>

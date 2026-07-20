@@ -59,7 +59,27 @@ export const fakeOpeningHome: OpeningHomeView = {
     dueReviews: 3,
     nextLessonId: 'giuoco-c3',
     nextLessonTitle: 'Giuoco Piano',
+    currentPath: [],
+    recommendedLessonId: 'giuoco-c3',
+    recommendedLessonTitle: 'Giuoco Piano',
     hasResumable: false,
+    tree: {
+      rootLessonId: 'giuoco-c3',
+      nodes: [{
+        lessonId: 'giuoco-c3',
+        chapterId: 'giuoco',
+        title: 'Giuoco Piano',
+        objective: 'Prepare the central break with c3.',
+        minimumDepth: 'quick',
+        progress: 'available',
+        completedActivities: 0,
+        requiredActivities: 3,
+        recommended: true,
+        reviewDue: false,
+        visible: true
+      }],
+      edges: []
+    },
     chapters: [{
       chapterId: 'giuoco',
       title: 'Giuoco Piano',
@@ -83,20 +103,27 @@ export const fakeOpeningSession: ActiveOpeningSessionView = {
   lessonId: 'giuoco-c3',
   depth: 'reference',
   current: {
-    stepId: 'explain-plan',
-    kind: 'explain',
+    activityId: 'explain-plan',
+    kind: 'concept',
     title: 'The central plan',
     instruction: 'White prepares d4 while keeping the position flexible.',
+    required: true,
     positionId: 'after-bc5',
     currentFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4',
     orientation: 'white',
     legalMoves: [],
-    noteTexts: ['Develop quickly and prepare the centre.'],
+    teachingNoteTexts: ['Develop quickly and prepare the centre.'],
     referenceNoteTexts: [],
-    stepNumber: 1,
-    stepTotal: 5,
+    comparison: [],
+    annotations: [],
+    movesToHere: [],
+    activityNumber: 1,
+    activityTotal: 3,
+    completedIdeas: 0,
+    requiredIdeas: 3,
     hintLevel: 0,
-    canReveal: false
+    canReveal: false,
+    referenceSections: []
   }
 }
 
@@ -149,13 +176,17 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
     startOpeningLesson: async () => fakeOpeningSession,
     resumeOpeningSession: async () => null,
     restartOpeningSession: async () => fakeOpeningSession,
+    advanceOpeningActivity: async () => ({
+      session: fakeOpeningSession,
+      activityCompleted: true
+    }),
     advanceOpeningStep: async () => ({
       session: fakeOpeningSession,
-      stepCompleted: true
+      activityCompleted: true
     }),
     playOpeningMove: async () => ({
       session: fakeOpeningSession,
-      stepCompleted: false,
+      activityCompleted: false,
       feedback: 'off_course',
       message: 'Try the course move.'
     }),
@@ -167,7 +198,7 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
     }),
     revealOpeningMove: async () => ({
       session: fakeOpeningSession,
-      stepCompleted: true,
+      activityCompleted: true,
       feedback: 'expected',
       appliedMoves: [{
         uci: 'c2c3',

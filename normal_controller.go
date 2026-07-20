@@ -252,16 +252,24 @@ func (c *NormalController) RestartOpeningSession(
 	})
 }
 
-func (c *NormalController) AdvanceOpeningStep(
+func (c *NormalController) AdvanceOpeningActivity(
 	sessionID string,
-) (openings.OpeningStepResult, error) {
-	return runNormalOperation(c, func() (openings.OpeningStepResult, error) {
+) (openings.OpeningActivityResult, error) {
+	return runNormalOperation(c, func() (openings.OpeningActivityResult, error) {
 		service, err := c.openingService()
 		if err != nil {
-			return openings.OpeningStepResult{}, err
+			return openings.OpeningActivityResult{}, err
 		}
-		return service.Advance(c.actions.ctx, sessionID)
+		return service.AdvanceActivity(c.actions.ctx, sessionID)
 	})
+}
+
+// AdvanceOpeningStep is retained for one release while existing clients migrate
+// to activity terminology.
+func (c *NormalController) AdvanceOpeningStep(
+	sessionID string,
+) (openings.OpeningActivityResult, error) {
+	return c.AdvanceOpeningActivity(sessionID)
 }
 
 func (c *NormalController) PlayOpeningMove(

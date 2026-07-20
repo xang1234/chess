@@ -7,7 +7,9 @@ import {training} from '../models';
 import {importing} from '../models';
 import {domain} from '../models';
 
-export function AdvanceOpeningStep(arg1:string):Promise<openings.OpeningStepResult>;
+export function AdvanceOpeningActivity(arg1:string):Promise<openings.OpeningActivityResult>;
+
+export function AdvanceOpeningStep(arg1:string):Promise<openings.OpeningActivityResult>;
 
 export function CancelImport(arg1:string):Promise<void>;
 
@@ -41,7 +43,7 @@ export function PauseSession(arg1:string):Promise<void>;
 
 export function PlayMove(arg1:string,arg2:string):Promise<domain.MoveResult>;
 
-export function PlayOpeningMove(arg1:string,arg2:string):Promise<openings.OpeningStepResult>;
+export function PlayOpeningMove(arg1:string,arg2:string):Promise<openings.OpeningActivityResult>;
 
 export function Quit():Promise<void>;
 
@@ -53,7 +55,7 @@ export function ResumeOpeningSession():Promise<openings.OpeningSessionView>;
 
 export function ResumeSession():Promise<domain.SessionView>;
 
-export function RevealOpeningMove(arg1:string):Promise<openings.OpeningStepResult>;
+export function RevealOpeningMove(arg1:string):Promise<openings.OpeningActivityResult>;
 
 export function RevealSolution(arg1:string):Promise<domain.MoveResult>;
 

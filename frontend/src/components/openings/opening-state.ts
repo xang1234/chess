@@ -43,7 +43,7 @@ export type OpeningState =
   }
 
 function activeState(session: ActiveOpeningSessionView): OpeningState {
-  if (session.current.kind === 'explain' || session.current.kind === 'watch') {
+  if (session.current.kind === 'concept' || session.current.kind === 'demonstration') {
     return { phase: 'passive', session, fen: session.current.currentFen }
   }
   return { phase: 'ready', session, fen: session.current.currentFen, hint: null }

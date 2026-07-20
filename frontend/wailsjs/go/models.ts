@@ -391,6 +391,38 @@ export namespace main {
 
 export namespace openings {
 
+	export class ActivityLine {
+	    label: string;
+	    moveIds: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new ActivityLine(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.moveIds = source["moveIds"];
+	    }
+	}
+	export class BoardAnnotation {
+	    kind: string;
+	    from: string;
+	    to?: string;
+	    label?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new BoardAnnotation(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.label = source["label"];
+	    }
+	}
 	export class Evaluation {
 	    code: string;
 	    sourceSymbol?: string;
@@ -546,6 +578,289 @@ export namespace openings {
 		}
 	}
 
+	export class OpeningPathItem {
+	    lessonId: string;
+	    title: string;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningPathItem(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lessonId = source["lessonId"];
+	        this.title = source["title"];
+	    }
+	}
+	export class OpeningRoadmapCheckpoint {
+	    completedLessonId: string;
+	    path: OpeningPathItem[];
+	    availableLessonIds: string[];
+	    recommendedLessonId?: string;
+	    recommendedLessonTitle?: string;
+	    completedLessons: number;
+	    totalLessons: number;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningRoadmapCheckpoint(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.completedLessonId = source["completedLessonId"];
+	        this.path = this.convertValues(source["path"], OpeningPathItem);
+	        this.availableLessonIds = source["availableLessonIds"];
+	        this.recommendedLessonId = source["recommendedLessonId"];
+	        this.recommendedLessonTitle = source["recommendedLessonTitle"];
+	        this.completedLessons = source["completedLessons"];
+	        this.totalLessons = source["totalLessons"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OpeningSummary {
+	    totalPrompts: number;
+	    positionsRecalled: number;
+	    branchesRecognized: number;
+	    retried: number;
+	    usedHint: number;
+	    revealed: number;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningSummary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalPrompts = source["totalPrompts"];
+	        this.positionsRecalled = source["positionsRecalled"];
+	        this.branchesRecognized = source["branchesRecognized"];
+	        this.retried = source["retried"];
+	        this.usedHint = source["usedHint"];
+	        this.revealed = source["revealed"];
+	    }
+	}
+	export class OpeningReferenceSection {
+	    activityId: string;
+	    title: string;
+	    instruction: string;
+	    positionId?: string;
+	    noteTexts: string[];
+	    annotations: BoardAnnotation[];
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningReferenceSection(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.activityId = source["activityId"];
+	        this.title = source["title"];
+	        this.instruction = source["instruction"];
+	        this.positionId = source["positionId"];
+	        this.noteTexts = source["noteTexts"];
+	        this.annotations = this.convertValues(source["annotations"], BoardAnnotation);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OpeningActivityView {
+	    activityId: string;
+	    kind: string;
+	    title: string;
+	    instruction: string;
+	    required: boolean;
+	    variationName?: string;
+	    positionId?: string;
+	    currentFen: string;
+	    orientation: string;
+	    legalMoves: string[];
+	    teachingNoteTexts: string[];
+	    referenceNoteTexts: string[];
+	    comparison: ActivityLine[];
+	    annotations: BoardAnnotation[];
+	    movesToHere: domain.AppliedMove[];
+	    activityNumber: number;
+	    activityTotal: number;
+	    completedIdeas: number;
+	    requiredIdeas: number;
+	    hintLevel: number;
+	    canReveal: boolean;
+	    referenceSections: OpeningReferenceSection[];
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningActivityView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.activityId = source["activityId"];
+	        this.kind = source["kind"];
+	        this.title = source["title"];
+	        this.instruction = source["instruction"];
+	        this.required = source["required"];
+	        this.variationName = source["variationName"];
+	        this.positionId = source["positionId"];
+	        this.currentFen = source["currentFen"];
+	        this.orientation = source["orientation"];
+	        this.legalMoves = source["legalMoves"];
+	        this.teachingNoteTexts = source["teachingNoteTexts"];
+	        this.referenceNoteTexts = source["referenceNoteTexts"];
+	        this.comparison = this.convertValues(source["comparison"], ActivityLine);
+	        this.annotations = this.convertValues(source["annotations"], BoardAnnotation);
+	        this.movesToHere = this.convertValues(source["movesToHere"], domain.AppliedMove);
+	        this.activityNumber = source["activityNumber"];
+	        this.activityTotal = source["activityTotal"];
+	        this.completedIdeas = source["completedIdeas"];
+	        this.requiredIdeas = source["requiredIdeas"];
+	        this.hintLevel = source["hintLevel"];
+	        this.canReveal = source["canReveal"];
+	        this.referenceSections = this.convertValues(source["referenceSections"], OpeningReferenceSection);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OpeningSessionView {
+	    sessionId: string;
+	    mode: string;
+	    status: string;
+	    courseId: string;
+	    generationId: string;
+	    lessonId: string;
+	    depth: string;
+	    current?: OpeningActivityView;
+	    summary?: OpeningSummary;
+	    notice?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningSessionView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.mode = source["mode"];
+	        this.status = source["status"];
+	        this.courseId = source["courseId"];
+	        this.generationId = source["generationId"];
+	        this.lessonId = source["lessonId"];
+	        this.depth = source["depth"];
+	        this.current = this.convertValues(source["current"], OpeningActivityView);
+	        this.summary = this.convertValues(source["summary"], OpeningSummary);
+	        this.notice = source["notice"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OpeningActivityResult {
+	    session: OpeningSessionView;
+	    activityCompleted: boolean;
+	    stepCompleted?: boolean;
+	    feedback?: string;
+	    message?: string;
+	    appliedMoves?: domain.AppliedMove[];
+	    finalFen?: string;
+	    checkpoint?: OpeningRoadmapCheckpoint;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningActivityResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.session = this.convertValues(source["session"], OpeningSessionView);
+	        this.activityCompleted = source["activityCompleted"];
+	        this.stepCompleted = source["stepCompleted"];
+	        this.feedback = source["feedback"];
+	        this.message = source["message"];
+	        this.appliedMoves = this.convertValues(source["appliedMoves"], domain.AppliedMove);
+	        this.finalFen = source["finalFen"];
+	        this.checkpoint = this.convertValues(source["checkpoint"], OpeningRoadmapCheckpoint);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
 	export class OpeningLessonSummary {
 	    lessonId: string;
 	    title: string;
@@ -600,38 +915,76 @@ export namespace openings {
 		    return a;
 		}
 	}
-	export class OpeningCourseSummary {
-	    courseId: string;
-	    title: string;
-	    perspective: string;
-	    depth: string;
-	    rootPositionId: string;
-	    completedLessons: number;
-	    totalLessons: number;
-	    dueReviews: number;
-	    nextLessonId?: string;
-	    nextLessonTitle?: string;
-	    hasResumable: boolean;
-	    chapters: OpeningChapterSummary[];
+	export class OpeningTeachingEdgeView {
+	    edgeId: string;
+	    fromLessonId: string;
+	    toLessonId: string;
+	    ordinal: number;
+	    kind: string;
+	    label?: string;
+	    minimumDepth: string;
 
 	    static createFrom(source: any = {}) {
-	        return new OpeningCourseSummary(source);
+	        return new OpeningTeachingEdgeView(source);
 	    }
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.courseId = source["courseId"];
+	        this.edgeId = source["edgeId"];
+	        this.fromLessonId = source["fromLessonId"];
+	        this.toLessonId = source["toLessonId"];
+	        this.ordinal = source["ordinal"];
+	        this.kind = source["kind"];
+	        this.label = source["label"];
+	        this.minimumDepth = source["minimumDepth"];
+	    }
+	}
+	export class OpeningTeachingNodeView {
+	    lessonId: string;
+	    chapterId: string;
+	    title: string;
+	    objective: string;
+	    minimumDepth: string;
+	    progress: string;
+	    completedActivities: number;
+	    requiredActivities: number;
+	    recommended: boolean;
+	    reviewDue: boolean;
+	    visible: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningTeachingNodeView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lessonId = source["lessonId"];
+	        this.chapterId = source["chapterId"];
 	        this.title = source["title"];
-	        this.perspective = source["perspective"];
-	        this.depth = source["depth"];
-	        this.rootPositionId = source["rootPositionId"];
-	        this.completedLessons = source["completedLessons"];
-	        this.totalLessons = source["totalLessons"];
-	        this.dueReviews = source["dueReviews"];
-	        this.nextLessonId = source["nextLessonId"];
-	        this.nextLessonTitle = source["nextLessonTitle"];
-	        this.hasResumable = source["hasResumable"];
-	        this.chapters = this.convertValues(source["chapters"], OpeningChapterSummary);
+	        this.objective = source["objective"];
+	        this.minimumDepth = source["minimumDepth"];
+	        this.progress = source["progress"];
+	        this.completedActivities = source["completedActivities"];
+	        this.requiredActivities = source["requiredActivities"];
+	        this.recommended = source["recommended"];
+	        this.reviewDue = source["reviewDue"];
+	        this.visible = source["visible"];
+	    }
+	}
+	export class OpeningTeachingTreeView {
+	    rootLessonId: string;
+	    nodes: OpeningTeachingNodeView[];
+	    edges: OpeningTeachingEdgeView[];
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningTeachingTreeView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rootLessonId = source["rootLessonId"];
+	        this.nodes = this.convertValues(source["nodes"], OpeningTeachingNodeView);
+	        this.edges = this.convertValues(source["edges"], OpeningTeachingEdgeView);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -652,96 +1005,50 @@ export namespace openings {
 		    return a;
 		}
 	}
-	export class OpeningSummary {
-	    totalPrompts: number;
-	    positionsRecalled: number;
-	    branchesRecognized: number;
-	    retried: number;
-	    usedHint: number;
-	    revealed: number;
-
-	    static createFrom(source: any = {}) {
-	        return new OpeningSummary(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.totalPrompts = source["totalPrompts"];
-	        this.positionsRecalled = source["positionsRecalled"];
-	        this.branchesRecognized = source["branchesRecognized"];
-	        this.retried = source["retried"];
-	        this.usedHint = source["usedHint"];
-	        this.revealed = source["revealed"];
-	    }
-	}
-	export class OpeningStepView {
-	    stepId: string;
-	    kind: string;
-	    title: string;
-	    instruction: string;
-	    variationName?: string;
-	    positionId: string;
-	    currentFen: string;
-	    orientation: string;
-	    legalMoves: string[];
-	    noteTexts: string[];
-	    referenceNoteTexts: string[];
-	    stepNumber: number;
-	    stepTotal: number;
-	    hintLevel: number;
-	    canReveal: boolean;
-
-	    static createFrom(source: any = {}) {
-	        return new OpeningStepView(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.stepId = source["stepId"];
-	        this.kind = source["kind"];
-	        this.title = source["title"];
-	        this.instruction = source["instruction"];
-	        this.variationName = source["variationName"];
-	        this.positionId = source["positionId"];
-	        this.currentFen = source["currentFen"];
-	        this.orientation = source["orientation"];
-	        this.legalMoves = source["legalMoves"];
-	        this.noteTexts = source["noteTexts"];
-	        this.referenceNoteTexts = source["referenceNoteTexts"];
-	        this.stepNumber = source["stepNumber"];
-	        this.stepTotal = source["stepTotal"];
-	        this.hintLevel = source["hintLevel"];
-	        this.canReveal = source["canReveal"];
-	    }
-	}
-	export class OpeningSessionView {
-	    sessionId: string;
-	    mode: string;
-	    status: string;
+	export class OpeningCourseSummary {
 	    courseId: string;
-	    generationId: string;
-	    lessonId: string;
+	    title: string;
+	    perspective: string;
 	    depth: string;
-	    current?: OpeningStepView;
-	    summary?: OpeningSummary;
-	    notice?: string;
+	    rootPositionId: string;
+	    completedLessons: number;
+	    totalLessons: number;
+	    dueReviews: number;
+	    nextLessonId?: string;
+	    nextLessonTitle?: string;
+	    currentLessonId?: string;
+	    currentActivityId?: string;
+	    currentPath: OpeningPathItem[];
+	    recommendedLessonId?: string;
+	    recommendedLessonTitle?: string;
+	    hasResumable: boolean;
+	    tree: OpeningTeachingTreeView;
+	    chapters: OpeningChapterSummary[];
 
 	    static createFrom(source: any = {}) {
-	        return new OpeningSessionView(source);
+	        return new OpeningCourseSummary(source);
 	    }
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.sessionId = source["sessionId"];
-	        this.mode = source["mode"];
-	        this.status = source["status"];
 	        this.courseId = source["courseId"];
-	        this.generationId = source["generationId"];
-	        this.lessonId = source["lessonId"];
+	        this.title = source["title"];
+	        this.perspective = source["perspective"];
 	        this.depth = source["depth"];
-	        this.current = this.convertValues(source["current"], OpeningStepView);
-	        this.summary = this.convertValues(source["summary"], OpeningSummary);
-	        this.notice = source["notice"];
+	        this.rootPositionId = source["rootPositionId"];
+	        this.completedLessons = source["completedLessons"];
+	        this.totalLessons = source["totalLessons"];
+	        this.dueReviews = source["dueReviews"];
+	        this.nextLessonId = source["nextLessonId"];
+	        this.nextLessonTitle = source["nextLessonTitle"];
+	        this.currentLessonId = source["currentLessonId"];
+	        this.currentActivityId = source["currentActivityId"];
+	        this.currentPath = this.convertValues(source["currentPath"], OpeningPathItem);
+	        this.recommendedLessonId = source["recommendedLessonId"];
+	        this.recommendedLessonTitle = source["recommendedLessonTitle"];
+	        this.hasResumable = source["hasResumable"];
+	        this.tree = this.convertValues(source["tree"], OpeningTeachingTreeView);
+	        this.chapters = this.convertValues(source["chapters"], OpeningChapterSummary);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -836,46 +1143,11 @@ export namespace openings {
 	}
 
 
-	export class OpeningStepResult {
-	    session: OpeningSessionView;
-	    stepCompleted: boolean;
-	    feedback?: string;
-	    message?: string;
-	    appliedMoves?: domain.AppliedMove[];
-	    finalFen?: string;
 
-	    static createFrom(source: any = {}) {
-	        return new OpeningStepResult(source);
-	    }
 
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.session = this.convertValues(source["session"], OpeningSessionView);
-	        this.stepCompleted = source["stepCompleted"];
-	        this.feedback = source["feedback"];
-	        this.message = source["message"];
-	        this.appliedMoves = this.convertValues(source["appliedMoves"], domain.AppliedMove);
-	        this.finalFen = source["finalFen"];
-	    }
 
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
+
+
 
 
 

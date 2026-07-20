@@ -13,7 +13,7 @@ import {
   decodeOpeningHome,
   decodeOpeningPosition,
   decodeOpeningSession,
-  decodeOpeningStepResult
+  decodeOpeningActivityResult
 } from './api-contract'
 import { decodeOpeningHome as decodeOpeningHomeContract } from './contracts/openings'
 import { decodeImportInspection as decodeImportInspectionContract } from './contracts/imports'
@@ -41,7 +41,7 @@ const production = vi.hoisted(() => ({
   startOpeningLesson: vi.fn(),
   resumeOpeningSession: vi.fn(),
   restartOpeningSession: vi.fn(),
-  advanceOpeningStep: vi.fn(),
+  advanceOpeningActivity: vi.fn(),
   playOpeningMove: vi.fn(),
   useOpeningHint: vi.fn(),
   revealOpeningMove: vi.fn(),
@@ -75,7 +75,8 @@ vi.mock('../../wailsjs/go/main/NormalController', () => ({
   StartOpeningLesson: production.startOpeningLesson,
   ResumeOpeningSession: production.resumeOpeningSession,
   RestartOpeningSession: production.restartOpeningSession,
-  AdvanceOpeningStep: production.advanceOpeningStep,
+  AdvanceOpeningActivity: production.advanceOpeningActivity,
+  AdvanceOpeningStep: production.advanceOpeningActivity,
   PlayOpeningMove: production.playOpeningMove,
   UseOpeningHint: production.useOpeningHint,
   RevealOpeningMove: production.revealOpeningMove,
@@ -114,21 +115,28 @@ afterEach(() => {
 })
 
 const openingStepPayload = {
-  stepId: 'try-c3',
-  kind: 'try',
+  activityId: 'try-c3',
+  kind: 'decision',
   title: 'Prepare the centre',
   instruction: 'Choose the course move.',
+  required: true,
   variationName: 'Giuoco Piano',
   positionId: 'after-bc5',
   currentFen: 'opening-fen',
   orientation: 'white',
   legalMoves: ['c2c3', 'd2d3'],
-  noteTexts: ['Prepare d4.'],
+  teachingNoteTexts: ['Prepare d4.'],
   referenceNoteTexts: ['A detailed source line.'],
-  stepNumber: 3,
-  stepTotal: 5,
+  comparison: [],
+  annotations: [{ kind: 'square', from: 'd4', label: 'central break' }],
+  movesToHere: [],
+  activityNumber: 3,
+  activityTotal: 5,
+  completedIdeas: 2,
+  requiredIdeas: 5,
   hintLevel: 0,
-  canReveal: false
+  canReveal: false,
+  referenceSections: []
 }
 
 const activeOpeningPayload = {
@@ -155,7 +163,22 @@ const openingHomePayload = {
     dueReviews: 2,
     nextLessonId: 'giuoco-c3',
     nextLessonTitle: 'Prepare d4 with c3',
+    currentLessonId: 'giuoco-c3',
+    currentActivityId: 'try-c3',
+    currentPath: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
+    recommendedLessonId: 'giuoco-c3',
+    recommendedLessonTitle: 'Prepare d4 with c3',
     hasResumable: true,
+    tree: {
+      rootLessonId: 'giuoco-c3',
+      nodes: [{
+        lessonId: 'giuoco-c3', chapterId: 'giuoco', title: 'Prepare d4 with c3',
+        objective: 'Prepare d4 with c3.', minimumDepth: 'quick', progress: 'in_progress',
+        completedActivities: 2, requiredActivities: 5, recommended: true,
+        reviewDue: false, visible: true
+      }],
+      edges: []
+    },
     chapters: [{
       chapterId: 'giuoco',
       title: 'Giuoco Piano',
@@ -237,9 +260,15 @@ test('strictly decodes the opening home hierarchy', () => {
 })
 
 test.each([
-  [{ ...activeOpeningPayload, current: undefined }, 'current step'],
+  [{ ...activeOpeningPayload, current: undefined }, 'current activity'],
   [{ ...activeOpeningPayload, summary: { totalPrompts: 1 } }, 'must not include a summary'],
-  [{ ...activeOpeningPayload, status: 'completed', current: undefined }, 'summary'],
+  [{
+    ...activeOpeningPayload,
+    mode: 'review',
+    status: 'completed',
+    current: undefined,
+    summary: undefined
+  }, 'completed review has no summary'],
   [{
     ...activeOpeningPayload,
     status: 'completed',
@@ -247,9 +276,9 @@ test.each([
       totalPrompts: 1, positionsRecalled: 1, branchesRecognized: 0,
       retried: 0, usedHint: 0, revealed: 0
     }
-  }, 'must not include a current step'],
+  }, 'must not include a current activity'],
   [{ ...activeOpeningPayload, status: 'restart_required', current: undefined }, 'notice'],
-  [{ ...activeOpeningPayload, status: 'restart_required', notice: 'Updated' }, 'must not include a current step']
+  [{ ...activeOpeningPayload, status: 'restart_required', notice: 'Updated' }, 'must not include a current activity']
 ])('opening session decoder rejects an invalid discriminated shape', (value, message) => {
   expect(() => decodeOpeningSession(value)).toThrow(message)
 })
@@ -265,30 +294,55 @@ test.each([
 })
 
 test.each([
-  [{ ...openingStepPayload, stepNumber: 0 }, 'stepNumber'],
-  [{ ...openingStepPayload, stepTotal: 1.5 }, 'stepTotal'],
+  [{ ...openingStepPayload, activityNumber: 0 }, 'activityNumber'],
+  [{ ...openingStepPayload, activityTotal: 1.5 }, 'activityTotal'],
+  [{ ...openingStepPayload, activityNumber: 6 }, 'must not exceed'],
   [{ ...openingStepPayload, legalMoves: ['c2c3', 42] }, 'legalMoves[1]'],
-  [{ ...openingStepPayload, noteTexts: undefined }, 'noteTexts'],
+  [{ ...openingStepPayload, teachingNoteTexts: undefined }, 'teachingNoteTexts'],
   [{ ...openingStepPayload, referenceNoteTexts: undefined }, 'referenceNoteTexts']
 ])('opening step decoder rejects malformed exact fields', (current, message) => {
   expect(() => decodeOpeningSession({ ...activeOpeningPayload, current })).toThrow(message)
 })
 
+test('opening home decoder rejects invalid node progress', () => {
+  const course = openingHomePayload.courses[0]
+  expect(() => decodeOpeningHome({
+    ...openingHomePayload,
+    courses: [{
+      ...course,
+      tree: { ...course.tree, nodes: [{ ...course.tree.nodes[0], progress: 'locked' }] }
+    }]
+  })).toThrow('progress')
+})
+
+test('opening result decoder rejects a checkpoint with no path', () => {
+  expect(() => decodeOpeningActivityResult({
+    session: { ...activeOpeningPayload, status: 'completed', current: undefined },
+    activityCompleted: true,
+    checkpoint: {
+      completedLessonId: 'giuoco-c3',
+      availableLessonIds: ['two-knights-nf3'],
+      completedLessons: 1,
+      totalLessons: 3
+    }
+  })).toThrow('checkpoint.path')
+})
+
 test('opening result decoder requires authoritative frames for an expected prompt completion', () => {
-  expect(() => decodeOpeningStepResult({
+  expect(() => decodeOpeningActivityResult({
     session: activeOpeningPayload,
-    stepCompleted: true,
+    activityCompleted: true,
     feedback: 'expected'
-  })).toThrow('authoritative move frames')
-  expect(() => decodeOpeningStepResult({
+  })).toThrow('appliedMoves')
+  expect(() => decodeOpeningActivityResult({
     session: activeOpeningPayload,
-    stepCompleted: true,
+    activityCompleted: true,
     feedback: 'expected',
     appliedMoves: [{ uci: 'c2c3', resultingFen: 'after-c3' }]
-  })).toThrow('final FEN')
-  expect(decodeOpeningStepResult({
+  })).toThrow('finalFen')
+  expect(decodeOpeningActivityResult({
     session: activeOpeningPayload,
-    stepCompleted: true,
+    activityCompleted: true,
     feedback: 'expected',
     appliedMoves: [{ uci: 'c2c3', resultingFen: 'after-c3' }],
     finalFen: 'after-c3'
@@ -300,28 +354,28 @@ test.each(['alternative', 'off_course'] as const)(
   (feedback) => {
     const base = {
       session: activeOpeningPayload,
-      stepCompleted: false,
+      activityCompleted: false,
       feedback,
       message: 'Try the course move.'
     }
-    expect(decodeOpeningStepResult(base)).toMatchObject({ feedback, stepCompleted: false })
-    expect(() => decodeOpeningStepResult({
+    expect(decodeOpeningActivityResult(base)).toMatchObject({ feedback, activityCompleted: false })
+    expect(() => decodeOpeningActivityResult({
       ...base,
       appliedMoves: [{ uci: 'd2d3', resultingFen: 'wrong-fen' }],
       finalFen: 'wrong-fen'
-    })).toThrow('must not include')
+    })).toThrow('must not mutate')
   }
 )
 
 test('opening result decoder rejects unknown feedback and permits omitted passive frames only', () => {
-  expect(() => decodeOpeningStepResult({
+  expect(() => decodeOpeningActivityResult({
     session: activeOpeningPayload,
-    stepCompleted: false,
+    activityCompleted: false,
     feedback: 'almost'
   })).toThrow('feedback')
-  expect(decodeOpeningStepResult({
+  expect(decodeOpeningActivityResult({
     session: activeOpeningPayload,
-    stepCompleted: true
+    activityCompleted: true
   }).appliedMoves).toBeUndefined()
 })
 
@@ -417,16 +471,16 @@ test('preview API exposes an original guided opening lesson', async () => {
     nextLessonId: 'giuoco-c3'
   })
   const started = await application.api.startOpeningLesson('synthetic-italian', 'giuoco-c3')
-  expect(started.current?.kind).toBe('explain')
-  const watch = await application.api.advanceOpeningStep(started.sessionId)
-  expect(watch.session.current?.kind).toBe('watch')
-  const prompt = await application.api.advanceOpeningStep(started.sessionId)
+  expect(started.current?.kind).toBe('concept')
+  const watch = await application.api.advanceOpeningActivity(started.sessionId)
+  expect(watch.session.current?.kind).toBe('demonstration')
+  const prompt = await application.api.advanceOpeningActivity(started.sessionId)
   expect(prompt.appliedMoves).toHaveLength(1)
-  expect(prompt.session.current?.kind).toBe('try')
+  expect(prompt.session.current?.kind).toBe('decision')
   const alternative = await application.api.playOpeningMove(started.sessionId, 'b2b4')
-  expect(alternative).toMatchObject({ feedback: 'alternative', stepCompleted: false })
+  expect(alternative).toMatchObject({ feedback: 'alternative', activityCompleted: false })
   const expected = await application.api.playOpeningMove(started.sessionId, 'c2c3')
-  expect(expected).toMatchObject({ feedback: 'expected', stepCompleted: true })
+  expect(expected).toMatchObject({ feedback: 'expected', activityCompleted: true })
   expect(expected.finalFen).toBe(expected.appliedMoves?.[0].resultingFen)
   const position = await application.api.getOpeningPosition(
     'synthetic-italian', 'initial', 'reference'
@@ -442,7 +496,7 @@ test('production opening adapters decode every returned boundary', async () => {
   production.resumeOpeningSession.mockResolvedValue(activeOpeningPayload)
   production.playOpeningMove.mockResolvedValue({
     session: activeOpeningPayload,
-    stepCompleted: true,
+    activityCompleted: true,
     feedback: 'expected',
     appliedMoves: [{ uci: 'c2c3', resultingFen: 'after-c3' }],
     finalFen: 'after-c3'
@@ -454,7 +508,7 @@ test('production opening adapters decode every returned boundary', async () => {
   await expect(application.api.getOpeningPosition('italian-white', 'after-bc5', 'reference'))
     .resolves.toEqual(openingPositionPayload)
   await expect(application.api.startOpeningLesson('italian-white', 'giuoco-c3')).resolves
-    .toMatchObject({ status: 'active', current: { kind: 'try' } })
+    .toMatchObject({ status: 'active', current: { kind: 'decision' } })
   await expect(application.api.resumeOpeningSession()).resolves
     .toMatchObject({ sessionId: 'opening-session' })
   await expect(application.api.playOpeningMove('opening-session', 'c2c3')).resolves

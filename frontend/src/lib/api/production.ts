@@ -18,11 +18,11 @@ import {
   decodeImportResult
 } from '../contracts/imports'
 import {
+  decodeOpeningActivityResult,
   decodeOpeningHintResult,
   decodeOpeningHome,
   decodeOpeningPosition,
-  decodeOpeningSession,
-  decodeOpeningStepResult
+  decodeOpeningSession
 } from '../contracts/openings'
 import {
   decodeHintResult,
@@ -69,16 +69,19 @@ const productionNormalAPI: NormalAPI = {
   restartOpeningSession: async (sessionId) => decodeOpeningSession(
     await Normal.RestartOpeningSession(sessionId)
   ),
-  advanceOpeningStep: async (sessionId) => decodeOpeningStepResult(
+  advanceOpeningActivity: async (sessionId) => decodeOpeningActivityResult(
+    await Normal.AdvanceOpeningActivity(sessionId)
+  ),
+  advanceOpeningStep: async (sessionId) => decodeOpeningActivityResult(
     await Normal.AdvanceOpeningStep(sessionId)
   ),
-  playOpeningMove: async (sessionId, uci) => decodeOpeningStepResult(
+  playOpeningMove: async (sessionId, uci) => decodeOpeningActivityResult(
     await Normal.PlayOpeningMove(sessionId, uci)
   ),
   useOpeningHint: async (sessionId) => decodeOpeningHintResult(
     await Normal.UseOpeningHint(sessionId)
   ),
-  revealOpeningMove: async (sessionId) => decodeOpeningStepResult(
+  revealOpeningMove: async (sessionId) => decodeOpeningActivityResult(
     await Normal.RevealOpeningMove(sessionId)
   ),
   pauseOpeningSession: Normal.PauseOpeningSession,

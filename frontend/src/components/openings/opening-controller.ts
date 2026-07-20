@@ -3,7 +3,7 @@ import type {
   NormalAPI,
   OpeningMoveFeedback,
   OpeningSessionView,
-  OpeningStepResult
+  OpeningActivityResult
 } from '../../lib/api'
 import { moveSquares, type Square } from '../../lib/uci'
 import type { BoardEffects } from '../chess/board-effects'
@@ -133,9 +133,9 @@ export class OpeningController {
     const owned = this.beginOwnedRequest('advance')
     if (!owned) return
     try {
-      const result = await this.api.advanceOpeningStep(owned.request.session.sessionId)
+      const result = await this.api.advanceOpeningActivity(owned.request.session.sessionId)
       if (!this.acceptsOwnedResponse(owned)) return
-      if (result.stepCompleted === false) {
+      if (result.activityCompleted === false) {
         throw new Error('Teaching step did not advance to the next course step.')
       }
       await this.finishSuccessful(owned, result)
@@ -147,7 +147,7 @@ export class OpeningController {
   async play(uci: string): Promise<void> {
     const owned = this.beginOwnedRequest('move')
     if (!owned) return
-    let result: OpeningStepResult
+    let result: OpeningActivityResult
     try {
       result = await this.api.playOpeningMove(owned.request.session.sessionId, uci)
     } catch (error) {
@@ -155,7 +155,7 @@ export class OpeningController {
       return
     }
     if (!this.acceptsOwnedResponse(owned)) return
-    if (result.stepCompleted === false) {
+    if (result.activityCompleted === false) {
       await this.finishFeedback(owned, result)
       return
     }
@@ -187,7 +187,7 @@ export class OpeningController {
     try {
       const result = await this.api.revealOpeningMove(owned.request.session.sessionId)
       if (!this.acceptsOwnedResponse(owned)) return
-      if (result.stepCompleted === false) {
+      if (result.activityCompleted === false) {
         throw new Error('Reveal did not return the authoritative course move.')
       }
       await this.finishSuccessful(owned, result)
@@ -325,7 +325,7 @@ export class OpeningController {
 
   private async finishFeedback(
     owned: OwnedRequest,
-    result: Extract<OpeningStepResult, { stepCompleted: false }>
+    result: Extract<OpeningActivityResult, { activityCompleted: false }>
   ): Promise<void> {
     const authoritativeFen = result.session.current.currentFen
     const warning = await this.runtime.reconcilePosition(
@@ -353,7 +353,7 @@ export class OpeningController {
 
   private async finishSuccessful(
     owned: OwnedRequest,
-    result: Extract<OpeningStepResult, { stepCompleted: true }>,
+    result: Extract<OpeningActivityResult, { activityCompleted: true }>,
     optimisticUci?: string
   ): Promise<void> {
     const frames: AppliedMove[] = result.appliedMoves ?? []

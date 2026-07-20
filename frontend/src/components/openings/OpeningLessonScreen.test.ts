@@ -4,7 +4,7 @@ import type {
   ActiveOpeningSessionView,
   CompletedOpeningSessionView,
   OpeningSessionView,
-  OpeningStepResult,
+  OpeningActivityResult,
   RestartRequiredOpeningSessionView
 } from '../../lib/api'
 import type { SoundService } from '../../lib/sound'
@@ -19,7 +19,7 @@ import type {
 import OpeningLessonScreen from './OpeningLessonScreen.svelte'
 
 function active(
-  kind: ActiveOpeningSessionView['current']['kind'] = 'explain',
+  kind: ActiveOpeningSessionView['current']['kind'] = 'concept',
   overrides: Partial<ActiveOpeningSessionView['current']> = {}
 ): ActiveOpeningSessionView {
   return {
@@ -28,7 +28,7 @@ function active(
       ...fakeOpeningSession.current,
       kind,
       variationName: 'Giuoco Piano',
-      legalMoves: kind === 'try' || kind === 'branch' || kind === 'recall' ? ['c2c3'] : [],
+      legalMoves: kind === 'decision' ? ['c2c3'] : [],
       ...overrides
     }
   }
@@ -42,15 +42,7 @@ function completed(): CompletedOpeningSessionView {
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: fakeOpeningSession.lessonId,
-    depth: fakeOpeningSession.depth,
-    summary: {
-      totalPrompts: 4,
-      positionsRecalled: 2,
-      branchesRecognized: 1,
-      retried: 1,
-      usedHint: 2,
-      revealed: 1
-    }
+    depth: fakeOpeningSession.depth
   }
 }
 
@@ -89,16 +81,16 @@ function boardHarness() {
 }
 
 test('renders a board-first teaching step and defers the next step until Continue', async () => {
-  const explain = active('explain', {
+  const explain = active('concept', {
     title: 'The central plan',
     instruction: 'Prepare d4 without blocking the bishop.',
-    noteTexts: ['The quiet c3 move supports a later d4.'],
+    teachingNoteTexts: ['The quiet c3 move supports a later d4.'],
     referenceNoteTexts: ['A detailed reference remains available on demand.']
   })
-  const watch = active('watch', { stepId: 'watch-c3', stepNumber: 2, title: 'Watch c3' })
-  const advanceOpeningStep = vi.fn(async (): Promise<OpeningStepResult> => ({
+  const watch = active('demonstration', { activityId: 'watch-c3', activityNumber: 2, title: 'Watch c3' })
+  const advanceOpeningActivity = vi.fn(async (): Promise<OpeningActivityResult> => ({
     session: watch,
-    stepCompleted: true,
+    activityCompleted: true,
     message: 'Plan understood.'
   }))
   const board = boardHarness()
@@ -106,13 +98,13 @@ test('renders a board-first teaching step and defers the next step until Continu
     session: explain,
     effects: effects(),
     boardAdapterFactory: board.factory
-  }, withNormalAPI(fakeAPI({ advanceOpeningStep })))
+  }, withNormalAPI(fakeAPI({ advanceOpeningActivity })))
   const changes: OpeningSessionView[] = []
   component.$on('change', (event) => changes.push(event.detail))
 
   expect(await screen.findByRole('heading', { name: 'The central plan' })).toBeInTheDocument()
   expect(screen.getByText('Opening course · Giuoco Piano')).toBeInTheDocument()
-  expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
+  expect(screen.getByText('Step 1 of 3')).toBeInTheDocument()
   expect(screen.getByText('Prepare d4 without blocking the bishop.')).toBeInTheDocument()
   expect(screen.getByText('The quiet c3 move supports a later d4.')).toBeInTheDocument()
   expect(screen.getByText('Reference notes')).toBeInTheDocument()
@@ -132,8 +124,8 @@ test('renders a board-first teaching step and defers the next step until Continu
 })
 
 test('keeps detailed reference notes collapsed until the learner opens them', async () => {
-  const current = active('explain', {
-    noteTexts: ['Keep this teaching note visible.'],
+  const current = active('concept', {
+    teachingNoteTexts: ['Keep this teaching note visible.'],
     referenceNoteTexts: [
       'Source note a records a detailed private reference.',
       'Source note b records another detailed private reference.'
@@ -156,8 +148,8 @@ test('keeps detailed reference notes collapsed until the learner opens them', as
 })
 
 test('shows progressive hints and the reveal action only when allowed', async () => {
-  const current = active('try', { title: 'Find White’s setup', canReveal: false })
-  const hinted = active('try', { title: 'Find White’s setup', hintLevel: 3, canReveal: true })
+  const current = active('decision', { title: 'Find White’s setup', canReveal: false })
+  const hinted = active('decision', { title: 'Find White’s setup', hintLevel: 3, canReveal: true })
   const board = boardHarness()
   render(OpeningLessonScreen, {
     session: current,
@@ -186,10 +178,10 @@ test('shows progressive hints and the reveal action only when allowed', async ()
 })
 
 test('restores alternative moves with neutral course feedback', async () => {
-  const current = active('branch', { title: 'Recognize the branch' })
-  const result: OpeningStepResult = {
+  const current = active('decision', { title: 'Recognize the branch' })
+  const result: OpeningActivityResult = {
     session: current,
-    stepCompleted: false,
+    activityCompleted: false,
     feedback: 'alternative'
   }
   const board = boardHarness()
@@ -217,7 +209,7 @@ test('renders update restart and completion summaries', async () => {
     depth: fakeOpeningSession.depth,
     notice: 'The course changed since this lesson began.'
   }
-  const checkpoint = active('explain', { title: 'Safe checkpoint' })
+  const checkpoint = active('concept', { title: 'Safe checkpoint' })
   const restartOpeningSession = vi.fn(async () => checkpoint)
   const restarted = render(OpeningLessonScreen, {
     session: restartRequired,
@@ -236,9 +228,5 @@ test('renders update restart and completion summaries', async () => {
     boardAdapterFactory: boardHarness().factory
   }, withNormalAPI(fakeAPI()))
   expect(await screen.findByRole('heading', { name: 'Opening lesson complete!' })).toBeInTheDocument()
-  expect(screen.getByText('2 positions recalled')).toBeInTheDocument()
-  expect(screen.getByText('1 branch recognized')).toBeInTheDocument()
-  expect(screen.getByText('1 retry')).toBeInTheDocument()
-  expect(screen.getByText('2 hints used')).toBeInTheDocument()
-  expect(screen.getByText('1 course move shown')).toBeInTheDocument()
+  expect(screen.getByText('Your place in the course has been saved.')).toBeInTheDocument()
 })

@@ -32,27 +32,19 @@ function completed(): CompletedOpeningSessionView {
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: fakeOpeningSession.lessonId,
-    depth: fakeOpeningSession.depth,
-    summary: {
-      totalPrompts: 3,
-      positionsRecalled: 1,
-      branchesRecognized: 1,
-      retried: 1,
-      usedHint: 1,
-      revealed: 0
-    }
+    depth: fakeOpeningSession.depth
   }
 }
 
 test('initialises passive teaching steps and ready move prompts', () => {
   expect(initialiseOpening(active()).phase).toBe('passive')
-  expect(initialiseOpening(active({ current: { ...fakeOpeningSession.current, kind: 'try' } })).phase)
+  expect(initialiseOpening(active({ current: { ...fakeOpeningSession.current, kind: 'decision' } })).phase)
     .toBe('ready')
 })
 
 test('ignores stale feedback and hint responses', () => {
   const requesting = beginOpeningRequest(
-    initialiseOpening(active({ current: { ...fakeOpeningSession.current, kind: 'try' } })),
+    initialiseOpening(active({ current: { ...fakeOpeningSession.current, kind: 'decision' } })),
     'move',
     2
   )
@@ -70,7 +62,7 @@ test.each(['alternative', 'off_course'] as const)(
   '%s feedback restores the returned authoritative position',
   (feedback) => {
     const original = active({
-      current: { ...fakeOpeningSession.current, kind: 'branch', currentFen: 'before-fen' }
+      current: { ...fakeOpeningSession.current, kind: 'decision', currentFen: 'before-fen' }
     })
     const returned = active({
       current: { ...original.current, currentFen: 'authoritative-fen', hintLevel: 1 }
@@ -88,13 +80,13 @@ test.each(['alternative', 'off_course'] as const)(
 )
 
 test('successful animation holds the persisted next step until Continue', () => {
-  const current = active({ current: { ...fakeOpeningSession.current, kind: 'watch' } })
+  const current = active({ current: { ...fakeOpeningSession.current, kind: 'demonstration' } })
   const pending = active({
     current: {
       ...fakeOpeningSession.current,
-      kind: 'try',
-      stepId: 'try-c3',
-      stepNumber: 2,
+      kind: 'decision',
+      activityId: 'try-c3',
+      activityNumber: 2,
       currentFen: nextFen,
       legalMoves: ['c2c3']
     }
@@ -121,7 +113,7 @@ test('successful animation holds the persisted next step until Continue', () => 
 })
 
 test('a completed pending session becomes summary only after Continue', () => {
-  const current = active({ current: { ...fakeOpeningSession.current, kind: 'recall' } })
+  const current = active({ current: { ...fakeOpeningSession.current, kind: 'decision' } })
   const requesting = beginOpeningRequest(initialiseOpening(current), 'move', 1)
   const animating = beginOpeningAnimation(requesting, 1)
   const stepComplete = completeOpeningStep(animating, 1, nextFen, completed(), 'Recalled.')

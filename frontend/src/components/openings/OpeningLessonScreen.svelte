@@ -52,11 +52,11 @@
   $: hintSource = optionalSquare(hint?.sourceSquare)
   $: hintTarget = optionalSquare(hint?.targetSquare)
   $: canReveal = Boolean(hint?.canReveal || current?.canReveal)
-  $: teachingStep = current?.kind === 'explain' || current?.kind === 'watch'
+  $: teachingStep = current?.kind === 'concept' || current?.kind === 'demonstration'
   $: referenceNotes = current
     ? teachingStep
       ? current.referenceNoteTexts
-      : [...current.noteTexts, ...current.referenceNoteTexts]
+      : [...current.teachingNoteTexts, ...current.referenceNoteTexts]
     : []
 
   afterUpdate(() => controller.receiveSession(session))
@@ -86,14 +86,18 @@
       <span class="celebration" aria-hidden="true">♝</span>
       <p class="eyebrow">Italian course</p>
       <h2 id="opening-completion-title">Opening lesson complete!</h2>
-      <p>You worked through {countLabel(state.session.summary.totalPrompts, 'training prompt')}.</p>
-      <div class="summary-grid">
-        <strong>{countLabel(state.session.summary.positionsRecalled, 'position recalled', 'positions recalled')}</strong>
-        <strong>{countLabel(state.session.summary.branchesRecognized, 'branch recognized')}</strong>
-        <strong>{countLabel(state.session.summary.retried, 'retry', 'retries')}</strong>
-        <strong>{countLabel(state.session.summary.usedHint, 'hint used', 'hints used')}</strong>
-        <strong>{countLabel(state.session.summary.revealed, 'course move shown')}</strong>
-      </div>
+      {#if state.session.mode === 'review'}
+        <p>You worked through {countLabel(state.session.summary.totalPrompts, 'training prompt')}.</p>
+        <div class="summary-grid">
+          <strong>{countLabel(state.session.summary.positionsRecalled, 'position recalled', 'positions recalled')}</strong>
+          <strong>{countLabel(state.session.summary.branchesRecognized, 'branch recognized')}</strong>
+          <strong>{countLabel(state.session.summary.retried, 'retry', 'retries')}</strong>
+          <strong>{countLabel(state.session.summary.usedHint, 'hint used', 'hints used')}</strong>
+          <strong>{countLabel(state.session.summary.revealed, 'course move shown')}</strong>
+        </div>
+      {:else}
+        <p>Your place in the course has been saved.</p>
+      {/if}
       <button class="primary" type="button" on:click={() => controller.finishHome()}>
         Back home
       </button>
@@ -111,7 +115,7 @@
   {:else if state && current && view}
     <section
       class="opening-lesson-layout"
-      aria-label={`Opening lesson step ${current.stepNumber} of ${current.stepTotal}`}
+      aria-label={`Opening lesson step ${current.activityNumber} of ${current.activityTotal}`}
     >
       <div class="opening-board-stage">
         {#key view.boardGeneration}
@@ -153,17 +157,17 @@
         </div>
 
         <div>
-          <p class="progress-label">Step {current.stepNumber} of {current.stepTotal}</p>
+          <p class="progress-label">Step {current.activityNumber} of {current.activityTotal}</p>
           <div class="progress-track" aria-hidden="true">
-            <span style={`width: ${(current.stepNumber / current.stepTotal) * 100}%`}></span>
+            <span style={`width: ${(current.activityNumber / current.activityTotal) * 100}%`}></span>
           </div>
         </div>
 
         <div class="opening-instruction">
           <p>{current.instruction}</p>
-          {#if teachingStep && current.noteTexts.length > 0}
+          {#if teachingStep && current.teachingNoteTexts.length > 0}
             <div class="teaching-notes">
-              {#each current.noteTexts as note}<p>{note}</p>{/each}
+              {#each current.teachingNoteTexts as note}<p>{note}</p>{/each}
             </div>
           {/if}
           {#if referenceNotes.length > 0}

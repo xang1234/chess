@@ -210,7 +210,7 @@ function interactiveOpening(): ActiveOpeningSessionView {
     ...fakeOpeningSession,
     current: {
       ...fakeOpeningSession.current,
-      kind: 'recall',
+      kind: 'decision',
       title: 'Recall the quiet setup',
       legalMoves: ['c2c3'],
       canReveal: true,
@@ -224,10 +224,10 @@ function nextOpening(): ActiveOpeningSessionView {
     ...fakeOpeningSession,
     current: {
       ...fakeOpeningSession.current,
-      stepId: 'watch-reply',
-      kind: 'watch',
+      activityId: 'watch-reply',
+      kind: 'demonstration',
       title: 'Watch Black’s reply',
-      stepNumber: 2,
+      activityNumber: 2,
       legalMoves: []
     }
   }
@@ -241,15 +241,7 @@ function completedOpening(): CompletedOpeningSessionView {
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: fakeOpeningSession.lessonId,
-    depth: fakeOpeningSession.depth,
-    summary: {
-      totalPrompts: 1,
-      positionsRecalled: 1,
-      branchesRecognized: 0,
-      retried: 0,
-      usedHint: 0,
-      revealed: 1
-    }
+    depth: fakeOpeningSession.depth
   }
 }
 
@@ -264,7 +256,7 @@ async function openAndRevealOpening(
     startOpeningLesson: async () => interactiveOpening(),
     revealOpeningMove: async () => ({
       session: pending,
-      stepCompleted: true,
+      activityCompleted: true,
       feedback: 'expected',
       message: 'Course move shown.',
       appliedMoves: [{

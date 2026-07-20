@@ -100,7 +100,7 @@ type WireSession = Exclude<Awaited<ReturnType<NormalControllerMock['StartGuided'
 type WirePuzzle = NonNullable<WireSession['current']>
 type WireImportResult = Awaited<ReturnType<NormalControllerMock['GetImportResult']>>
 type WireOpeningSession = Awaited<ReturnType<NormalControllerMock['StartOpeningLesson']>>
-type WireOpeningStep = NonNullable<WireOpeningSession['current']>
+type WireOpeningActivity = NonNullable<WireOpeningSession['current']>
 
 type TestWindow = Window & {
   __testBackend: TestBackendState
@@ -174,6 +174,7 @@ export async function installTestBackend(
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
     }
     const normalController: NormalControllerMock = {
+      AdvanceOpeningActivity: async () => { throw new Error('test backend has no opening activity') },
       AdvanceOpeningStep: async () => { throw new Error('test backend has no opening step') },
       CancelImport: async () => {},
       ChooseOpeningCourseFile: async () => '',
@@ -605,54 +606,64 @@ export async function installTestBackend(
         report: { accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {} }
       }
 
-      const openingStep = (index: number, mode: 'lesson' | 'review'): WireOpeningStep => {
+      const openingStep = (index: number, mode: 'lesson' | 'review'): WireOpeningActivity => {
         if (mode === 'review') {
           return {
-            stepId: 'review-recall-c3', kind: 'recall', title: 'Review the Giuoco Piano',
+            activityId: 'review-recall-c3', kind: 'decision', title: 'Review the Giuoco Piano',
             instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
+            required: true,
             positionId: 'after-bc5', currentFen: promptFen, orientation: 'white',
-            legalMoves: ['b2b4', 'c2c3', 'd2d3'], noteTexts: [],
-            referenceNoteTexts: ['The quiet c3 move supports a later d4.'], stepNumber: 1,
-            stepTotal: 1, hintLevel: openingHintLevel, canReveal: openingHintLevel >= 4
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], teachingNoteTexts: [],
+            referenceNoteTexts: ['The quiet c3 move supports a later d4.'],
+            comparison: [], annotations: [], movesToHere: [], completedIdeas: 0,
+            requiredIdeas: 1, referenceSections: [], activityNumber: 1,
+            activityTotal: 1, hintLevel: openingHintLevel, canReveal: openingHintLevel >= 4
           }
         }
         const common = {
           orientation: 'white',
-          noteTexts: ['Develop quickly and prepare the centre.'],
+          required: true,
+          teachingNoteTexts: ['Develop quickly and prepare the centre.'],
           referenceNoteTexts: ['Reference lines remain available without crowding the lesson.'],
-          stepTotal: 5,
+          comparison: [],
+          annotations: [],
+          movesToHere: [],
+          activityTotal: 5,
+          completedIdeas: index,
+          requiredIdeas: 5,
           hintLevel: openingHintLevel,
-          canReveal: openingHintLevel >= 4
+          canReveal: openingHintLevel >= 4,
+          referenceSections: []
         }
-        const steps: WireOpeningStep[] = [
+        const steps: WireOpeningActivity[] = [
           {
-            ...common, stepId: 'explain-plan', kind: 'explain', title: 'The central plan',
+            ...common, activityId: 'explain-plan', kind: 'concept', title: 'The central plan',
             instruction: 'White prepares d4 while keeping the position flexible.',
-            positionId: 'after-bc5', currentFen: promptFen, legalMoves: [], stepNumber: 1
+            positionId: 'after-bc5', currentFen: promptFen, legalMoves: [], activityNumber: 1
           },
           {
-            ...common, stepId: 'watch-setup', kind: 'watch', title: 'Reach the Italian',
+            ...common, activityId: 'watch-setup', kind: 'demonstration', title: 'Reach the Italian',
             instruction: 'Watch both sides develop toward the Italian Game.',
             variationName: 'Giuoco Piano', positionId: 'initial', currentFen: initialFen,
-            legalMoves: [], stepNumber: 2
+            legalMoves: [], activityNumber: 2
           },
           {
-            ...common, stepId: 'try-c3', kind: 'try', title: 'Prepare the centre',
+            ...common, activityId: 'try-c3', kind: 'decision', title: 'Prepare the centre',
             instruction: 'Choose White\'s preparation move.', variationName: 'Giuoco Piano',
             positionId: 'after-bc5', currentFen: promptFen,
-            legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 3
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], activityNumber: 3
           },
           {
-            ...common, stepId: 'branch-giuoco', kind: 'branch', title: 'Recognise the branch',
+            ...common, activityId: 'branch-giuoco', kind: 'decision', title: 'Recognise the branch',
             instruction: 'Choose White\'s setup after Black develops the bishop.',
             variationName: 'Giuoco Piano', positionId: 'after-bc5', currentFen: promptFen,
-            legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 4
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], activityNumber: 4
           },
           {
-            ...common, stepId: 'recall-c3', kind: 'recall', title: 'Recall the Giuoco move',
+            ...common, activityId: 'recall-c3', kind: 'decision', title: 'Recall the Giuoco move',
             instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
             positionId: 'after-bc5', currentFen: promptFen,
-            legalMoves: ['b2b4', 'c2c3', 'd2d3'], stepNumber: 5
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], activityNumber: 5
           }
         ]
         return steps[index]
@@ -672,20 +683,17 @@ export async function installTestBackend(
       })
       const completedOpening = (mode: 'lesson' | 'review'): WireOpeningSession => ({
         sessionId: mode === 'review' ? 'opening-review-session' : 'opening-lesson-session',
-        mode,
-        status: 'completed',
-        courseId: 'synthetic-italian',
+        mode, status: 'completed', courseId: 'synthetic-italian',
         generationId: 'synthetic-generation-1',
-        lessonId: mode === 'review' ? 'review-c3' : 'giuoco-c3',
-        depth: openingDepth,
-        summary: {
-          totalPrompts: mode === 'review' ? 1 : 3,
+        lessonId: mode === 'review' ? 'review-c3' : 'giuoco-c3', depth: openingDepth,
+        ...(mode === 'review' ? { summary: {
+          totalPrompts: 1,
           positionsRecalled: 1,
-          branchesRecognized: mode === 'review' ? 0 : 1,
+          branchesRecognized: 0,
           retried: 0,
-          usedHint: mode === 'lesson' ? 1 : 0,
-          revealed: mode === 'lesson' && lessonRevealed ? 1 : 0
-        }
+          usedHint: 0,
+          revealed: 0
+        } } : {})
       })
       const openingHome = () => ({
         courses: courseImported ? [{
@@ -699,7 +707,28 @@ export async function installTestBackend(
           dueReviews: reviewCompleted ? 0 : 1,
           nextLessonId: 'giuoco-c3',
           nextLessonTitle: 'Prepare d4 with c3',
+          currentLessonId: openingSession?.status === 'active' ? 'giuoco-c3' : undefined,
+          currentActivityId: openingSession?.status === 'active'
+            ? openingSession.current?.activityId
+            : undefined,
+          currentPath: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
+          recommendedLessonId: 'giuoco-c3',
+          recommendedLessonTitle: 'Prepare d4 with c3',
           hasResumable: openingSession?.status === 'active',
+          tree: {
+            rootLessonId: 'giuoco-c3',
+            nodes: [{
+              lessonId: 'giuoco-c3', chapterId: 'giuoco', title: 'Prepare d4 with c3',
+              objective: 'Prepare the centre with c3 and d4.', minimumDepth: 'quick',
+              progress: lessonCompleted ? 'completed' : openingSession?.status === 'active'
+                ? 'in_progress'
+                : 'available',
+              completedActivities: lessonCompleted ? 5 : openingStepIndex,
+              requiredActivities: 5, recommended: true, reviewDue: !reviewCompleted,
+              visible: true
+            }],
+            edges: []
+          },
           chapters: [
             { chapterId: 'foundations', title: 'Italian Foundations', lessons: [] },
             {
@@ -735,7 +764,7 @@ export async function installTestBackend(
         }
         return {
           session: clone(openingSession),
-          stepCompleted: true,
+          activityCompleted: true,
           feedback: 'expected',
           appliedMoves: [{ uci: 'c2c3', resultingFen: afterC3Fen }],
           finalFen: afterC3Fen
@@ -800,17 +829,17 @@ export async function installTestBackend(
           openingSession = activeOpening(0, openingMode)
           return clone(openingSession)
         },
-        AdvanceOpeningStep: async () => {
+        AdvanceOpeningActivity: async () => {
           const activeSession = requireOpening()
-          if (activeSession.current?.kind !== 'explain' && activeSession.current?.kind !== 'watch') {
+          if (activeSession.current?.kind !== 'concept' && activeSession.current?.kind !== 'demonstration') {
             throw new Error('opening step requires a learner move')
           }
-          const watched = activeSession.current.kind === 'watch'
+          const watched = activeSession.current.kind === 'demonstration'
           openingStepIndex++
           openingSession = activeOpening(openingStepIndex, 'lesson')
           return {
             session: clone(openingSession),
-            stepCompleted: true,
+            activityCompleted: true,
             ...(watched ? { appliedMoves: watchFrames, finalFen: promptFen } : {})
           }
         },
@@ -820,7 +849,7 @@ export async function installTestBackend(
           if (uci === 'b2b4') {
             return {
               session: clone(requireOpening()),
-              stepCompleted: false,
+              activityCompleted: false,
               feedback: 'alternative',
               message: 'Playable alternative. Return to the lesson position.'
             }
@@ -828,7 +857,7 @@ export async function installTestBackend(
           if (uci === 'd2d3') {
             return {
               session: clone(requireOpening()),
-              stepCompleted: false,
+              activityCompleted: false,
               feedback: 'off_course',
               message: 'This lesson is practising c3.'
             }
