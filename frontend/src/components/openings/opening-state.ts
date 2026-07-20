@@ -1,8 +1,11 @@
 import type {
   ActiveOpeningSessionView,
+  CompletedOpeningLessonView,
   CompletedOpeningSessionView,
+  OpeningActivityResult,
   OpeningHintResult,
   OpeningMoveFeedback,
+  OpeningRoadmapCheckpoint,
   OpeningSessionView,
   RestartRequiredOpeningSessionView
 } from '../../lib/api'
@@ -26,11 +29,16 @@ export type OpeningState =
     requestId: number
   }
   | {
-    phase: 'step-complete'
+    phase: 'activity-complete'
     session: ActiveOpeningSessionView
     fen: string
-    pending: OpeningSessionView
+    result: Extract<OpeningActivityResult, { activityCompleted: true }>
     message: string
+  }
+  | {
+    phase: 'checkpoint'
+    session: CompletedOpeningLessonView
+    checkpoint: OpeningRoadmapCheckpoint
   }
   | { phase: 'summary'; session: CompletedOpeningSessionView }
   | { phase: 'restart-required'; session: RestartRequiredOpeningSessionView }
@@ -43,7 +51,7 @@ export type OpeningState =
   }
 
 function activeState(session: ActiveOpeningSessionView): OpeningState {
-  if (session.current.kind === 'concept' || session.current.kind === 'demonstration') {
+  if (session.current.kind !== 'decision') {
     return { phase: 'passive', session, fen: session.current.currentFen }
   }
   return { phase: 'ready', session, fen: session.current.currentFen, hint: null }
@@ -143,29 +151,39 @@ export function finishOpeningHint(
   }
 }
 
-export function completeOpeningStep(
+export function completeOpeningActivity(
   state: OpeningState,
   requestId: number,
   finalFen: string,
-  pending: OpeningSessionView,
+  result: Extract<OpeningActivityResult, { activityCompleted: true }>,
   message: string
 ): OpeningState {
   if (state.phase !== 'animating' || state.requestId !== requestId) return state
-  if (!finalFen) throw new Error('completed opening step requires a final FEN')
+  if (!finalFen) throw new Error('completed opening activity requires a final FEN')
   return {
-    phase: 'step-complete',
+    phase: 'activity-complete',
     session: state.session,
     fen: finalFen,
-    pending,
+    result,
     message
   }
 }
 
-export function acknowledgeOpeningStep(state: OpeningState): OpeningState {
-  if (state.phase !== 'step-complete') {
-    throw new Error(`${state.phase} state cannot acknowledge a completed step`)
+export function acknowledgeOpeningActivity(state: OpeningState): OpeningState {
+  if (state.phase !== 'activity-complete') {
+    throw new Error(`${state.phase} state cannot acknowledge a completed activity`)
   }
-  return initialiseOpening(state.pending)
+  if (state.result.checkpoint) {
+    if (state.result.session.status !== 'completed' || state.result.session.mode !== 'lesson') {
+      throw new Error('roadmap checkpoint requires a completed lesson session')
+    }
+    return {
+      phase: 'checkpoint',
+      session: state.result.session,
+      checkpoint: state.result.checkpoint
+    }
+  }
+  return initialiseOpening(state.result.session)
 }
 
 export function failOpeningRequest(
@@ -173,9 +191,11 @@ export function failOpeningRequest(
   message: string,
   recoverable: boolean
 ): OpeningState {
-  if (state.phase === 'summary' || state.phase === 'restart-required') return state
-  if (state.phase === 'step-complete') {
-    throw new Error('completed opening step cannot fail a request')
+  if (state.phase === 'summary' || state.phase === 'checkpoint' || state.phase === 'restart-required') {
+    return state
+  }
+  if (state.phase === 'activity-complete') {
+    throw new Error('completed opening activity cannot fail a request')
   }
   return {
     phase: 'failed',

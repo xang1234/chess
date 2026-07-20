@@ -266,6 +266,49 @@ input, select {
   font-weight: 800;
 }
 .opening-tree-card > button { flex: 0 0 auto; }
+.opening-path ol {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+  color: #cdd8d1;
+  font-size: 0.8rem;
+  list-style: none;
+}
+.opening-path li:not(:last-child)::after { margin-left: 6px; content: '›'; }
+.opening-path li[aria-current='step'] { color: #f0c14b; font-weight: 800; }
+.opening-activity-content { display: grid; gap: 12px; }
+.opening-activity-instruction { margin: 0; font-size: 1.05rem; line-height: 1.55; }
+.opening-activity-content .teaching-notes {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #35413d;
+}
+.opening-activity-content .teaching-notes p { margin: 0; color: #e8e4d8; line-height: 1.45; }
+.opening-comparison { display: grid; gap: 8px; }
+.opening-comparison article {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #586660;
+  border-radius: 10px;
+  background: #303c38;
+}
+.opening-comparison span { color: #d8d5ca; }
+.opening-replay-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.opening-deeper-analysis { padding-top: 2px; color: #d8d5ca; }
+.opening-deeper-analysis summary { cursor: pointer; font-weight: 800; }
+.opening-deeper-analysis p { margin: 9px 0 0; line-height: 1.45; }
+.opening-deeper-analysis section { margin-top: 14px; padding-top: 10px; border-top: 1px solid #56635e; }
+.opening-deeper-analysis h3 { margin: 0; color: #f7f4e9; font-size: 0.98rem; }
+.opening-checkpoint { width: min(680px, 100%); margin: auto; }
+.opening-checkpoint .opening-path ol { color: var(--ink-700); }
+.opening-checkpoint .opening-path li[aria-current='step'] { color: var(--forest-700); }
+.checkpoint-progress { color: var(--forest-700); font-size: 1.1rem; font-weight: 800; }
+.opening-checkpoint-actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
 .opening-chapters { display: grid; gap: 18px; }
 .opening-chapter {
   padding: 20px;

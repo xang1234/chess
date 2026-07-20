@@ -16,10 +16,10 @@ import type { RequestToken } from '../chess/request-owner'
 import {
   acceptsOpeningInput,
   acceptsOpeningResponse,
-  acknowledgeOpeningStep,
+  acknowledgeOpeningActivity,
   beginOpeningAnimation,
   beginOpeningRequest,
-  completeOpeningStep,
+  completeOpeningActivity,
   failOpeningRequest,
   finishOpeningHint,
   initialiseOpening,
@@ -45,6 +45,7 @@ export type OpeningControllerView = {
   boardGeneration: number
   reducedMotion: boolean
   soundMuted: boolean
+  lastFrames: AppliedMove[]
   lastMove?: [Square, Square]
 }
 
@@ -108,7 +109,8 @@ export class OpeningController {
       announcement: '',
       boardGeneration: 0,
       reducedMotion: preferences.reducedMotion,
-      soundMuted: preferences.soundMuted
+      soundMuted: preferences.soundMuted,
+      lastFrames: []
     })
   }
 
@@ -233,20 +235,34 @@ export class OpeningController {
     }
   }
 
-  acknowledgeStep(): void {
+  acknowledgeActivity(): void {
     const state = this.requireState()
-    if (state.phase !== 'step-complete') return
-    const pending = state.pending
+    if (state.phase !== 'activity-complete') return
+    const pending = state.result.session
     this.runtime.cancelRequest()
-    this.publishState(acknowledgeOpeningStep(state), {
+    this.publishState(acknowledgeOpeningActivity(state), {
       message: '',
       feedback: null,
       notice: pending.notice ?? '',
-      announcement: pending.status === 'completed' ? 'Opening lesson results.' : 'Next lesson step.',
+      announcement: state.result.checkpoint ? 'Lesson roadmap checkpoint.' : 'Next lesson idea.',
       boardGeneration: this.view.boardGeneration + 1,
+      lastFrames: [],
       lastMove: undefined
     })
     this.events.change(pending)
+  }
+
+  async replayMovesToHere(): Promise<void> {
+    const state = this.requireState()
+    if (state.phase === 'summary' || state.phase === 'checkpoint' ||
+      state.phase === 'restart-required') return
+    await this.replay(state.session.current.movesToHere, state.session.current.currentFen)
+  }
+
+  async replayDemonstration(): Promise<void> {
+    const state = this.requireState()
+    if (state.phase !== 'activity-complete' || state.session.current.kind !== 'demonstration') return
+    await this.replay(this.view.lastFrames, state.session.current.currentFen)
   }
 
   finishHome(): void {
@@ -259,7 +275,7 @@ export class OpeningController {
     if (recovering) return
     this.runtime.consumeWarnings()
     const state = this.requireState()
-    if (state.phase === 'step-complete') {
+    if (state.phase === 'activity-complete') {
       this.update({ notice: message, announcement: message })
       return
     }
@@ -297,6 +313,7 @@ export class OpeningController {
       notice: session.notice ?? '',
       announcement: '',
       boardGeneration: this.currentView ? this.currentView.boardGeneration + 1 : 0,
+      lastFrames: [],
       lastMove: undefined
     })
   }
@@ -378,14 +395,15 @@ export class OpeningController {
 
     const message = result.message || (owned.request.operation === 'reveal'
       ? 'Course move shown.'
-      : owned.request.operation === 'move' ? 'Course move found.' : 'Step complete.')
+      : owned.request.operation === 'move' ? 'Course move found.' : 'Idea complete.')
     const lastMove = frames.length > 0 ? moveSquares(frames[frames.length - 1].uci) : undefined
-    const complete = completeOpeningStep(state, owned.id, finalFen, result.session, message)
+    const complete = completeOpeningActivity(state, owned.id, finalFen, result, message)
     this.publishState(complete, {
       message,
       feedback: 'feedback' in result ? result.feedback ?? null : null,
       announcement: message,
       notice: animation.warning ?? '',
+      lastFrames: frames,
       ...(lastMove ? { lastMove } : {})
     })
     this.applyBoardWarnings()
@@ -409,6 +427,33 @@ export class OpeningController {
       message,
       announcement: message,
       notice: warning
+    })
+    this.applyBoardWarnings()
+  }
+
+  private async replay(frames: readonly AppliedMove[], startingFen: string): Promise<void> {
+    if (frames.length === 0) {
+      this.update({ message: 'This position has no earlier moves to replay.' })
+      return
+    }
+    const token = this.runtime.startRequest()
+    this.update({ message: 'Replaying the line…', announcement: 'Replaying the line.' })
+    const finalFen = frames[frames.length - 1].resultingFen
+    const animation = await animateAppliedMoves({
+      port: this.runtime.animationPort(),
+      startingFen,
+      appliedMoves: [...frames],
+      finalFen,
+      reducedMotion: this.view.reducedMotion,
+      signal: token.controller.signal,
+      onStep: (kind) => this.runtime.playSound(kind)
+    })
+    if (!this.runtime.isCurrent(token) || animation.status === 'aborted') return
+    this.runtime.cancelRequest()
+    this.update({
+      message: 'Replay complete.',
+      announcement: 'Replay complete.',
+      notice: animation.warning ?? ''
     })
     this.applyBoardWarnings()
   }
@@ -449,6 +494,7 @@ export class OpeningController {
       boardGeneration: overrides.boardGeneration ?? current?.boardGeneration ?? 0,
       reducedMotion: overrides.reducedMotion ?? current?.reducedMotion ?? false,
       soundMuted: overrides.soundMuted ?? current?.soundMuted ?? false,
+      lastFrames: overrides.lastFrames ?? current?.lastFrames ?? [],
       ...(Object.prototype.hasOwnProperty.call(overrides, 'lastMove')
         ? overrides.lastMove ? { lastMove: overrides.lastMove } : {}
         : current?.lastMove ? { lastMove: current.lastMove } : {})
@@ -467,7 +513,7 @@ export class OpeningController {
 
 function requestMessage(operation: OpeningOperation): string {
   switch (operation) {
-    case 'advance': return 'Preparing the next step…'
+    case 'advance': return 'Preparing the next idea…'
     case 'move': return 'Checking that move…'
     case 'hint': return 'Finding the next hint…'
     case 'reveal': return 'Preparing the course move…'

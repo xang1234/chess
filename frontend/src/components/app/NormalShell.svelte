@@ -5,6 +5,7 @@
     NormalAPI,
     OpeningDepth,
     OpeningHomeView,
+    OpeningPathItem,
     OpeningSessionView,
     SessionView
   } from '../../lib/api'
@@ -36,6 +37,7 @@
   let explorerPositionId = ''
   let explorerDepth: OpeningDepth = 'reference'
   let error = ''
+  $: activeOpeningPath = openingPath(activeOpeningSession)
   const puzzleImportSession = createImportSession(() => api, 'puzzle')
   const courseImportSession = createImportSession(() => api, 'course')
   let disconnectImport = (): void => {}
@@ -230,6 +232,7 @@
       )
       deferredOpeningSession = null
       syncOpeningResume(activeOpeningSession)
+      await refreshOpeningHome()
       screen.set('opening-lesson')
     } catch (cause) {
       showOpeningError(cause)
@@ -257,6 +260,33 @@
     } catch (cause) {
       showOpeningError(cause)
     }
+  }
+
+  async function showOpeningTree(): Promise<void> {
+    await refreshOpeningHome()
+    if (activeOpeningSession?.status === 'completed') activeOpeningSession = null
+    deferredOpeningSession = null
+    screen.set('openings')
+  }
+
+  function openingPath(session: OpeningSessionView | null): OpeningPathItem[] {
+    if (!session) return []
+    const course = openingHome.courses.find((candidate) => candidate.courseId === session.courseId)
+    if (!course) return []
+    const nodes = new Map(course.tree.nodes.map((node) => [node.lessonId, node]))
+    if (!nodes.has(session.lessonId)) return course.currentPath
+    const parents = new Map(course.tree.edges.map((edge) => [edge.toLessonId, edge.fromLessonId]))
+    const path: OpeningPathItem[] = []
+    const seen = new Set<string>()
+    let lessonId: string | undefined = session.lessonId
+    while (lessonId && !seen.has(lessonId)) {
+      seen.add(lessonId)
+      const node = nodes.get(lessonId)
+      if (!node) break
+      path.push({ lessonId, title: node.title })
+      lessonId = parents.get(lessonId)
+    }
+    return path.reverse()
   }
 
   function exploreOpening(
@@ -316,8 +346,11 @@
     {:else if $screen === 'opening-lesson' && activeOpeningSession}
       <OpeningLessonScreen
         session={activeOpeningSession}
+        path={activeOpeningPath}
         on:change={adoptVisibleOpeningSession}
         on:persisted={rememberPersistedOpeningSession}
+        on:continue={startOpeningLesson}
+        on:tree={showOpeningTree}
         on:home={leaveOpeningLesson}
       />
     {:else if $screen === 'opening-explorer'}

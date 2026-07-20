@@ -22,6 +22,7 @@
   import PromotionDialog from './PromotionDialog.svelte'
   import {
     createChessgroundAdapter,
+    type BoardAnnotation,
     type BoardInteraction,
     type ChessBoardAdapter,
     type ChessgroundAdapterFactory
@@ -35,6 +36,7 @@
   export let wrongMove: [Square, Square] | undefined = undefined
   export let hintSource: Square | undefined = undefined
   export let hintTarget: Square | undefined = undefined
+  export let annotations: readonly BoardAnnotation[] = []
   export let reducedMotion = false
   export let adapterFactory: ChessgroundAdapterFactory = createChessgroundAdapter
 
@@ -91,6 +93,7 @@
     wrongMove,
     hintSource,
     hintTarget,
+    annotations,
     keyboardCursor,
     reducedMotion
   } as BoardInteraction

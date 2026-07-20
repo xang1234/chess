@@ -55,6 +55,11 @@
   outline-offset: clamp(-6px, -0.7vmin, -3px);
 }
 
+.cg-wrap cg-board square.opening-annotation {
+  box-shadow: inset 0 0 0 clamp(3px, 0.65vmin, 6px) rgba(45, 133, 82, 0.82);
+  background-color: rgba(76, 160, 104, 0.22);
+}
+
 .cg-wrap coords {
   color: #35483f;
   font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;

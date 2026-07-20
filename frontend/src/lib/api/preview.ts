@@ -275,12 +275,22 @@ function completePreviewOpeningMove(): OpeningActivityResult {
     ? previewCompletedOpening(current.mode)
     : previewActiveOpening(nextIndex, current.mode)
   previewOpeningStepIndex = nextIndex
+  const checkpoint = current.mode === 'lesson' && nextIndex >= 3
+    ? {
+        completedLessonId: 'giuoco-c3',
+        path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
+        availableLessonIds: [],
+        completedLessons: 1,
+        totalLessons: 1
+      }
+    : undefined
   return {
     session: clonePreviewSession(previewOpeningSession),
     activityCompleted: true,
     feedback: 'expected',
     appliedMoves: [{ uci: 'c2c3', resultingFen: previewOpeningFens.afterC3 }],
-    finalFen: previewOpeningFens.afterC3
+    finalFen: previewOpeningFens.afterC3,
+    checkpoint
   }
 }
 

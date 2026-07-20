@@ -13,6 +13,10 @@ export type BoardCallbacks = {
   onSelect(key: Key): void
 }
 
+export type BoardAnnotation =
+  | { kind: 'square'; from: Key }
+  | { kind: 'arrow'; from: Key; to: Key }
+
 export type BoardInteraction = {
   orientation: 'white' | 'black'
   legalMoves: readonly string[]
@@ -22,6 +26,7 @@ export type BoardInteraction = {
   hintSource?: Key
   hintTarget?: Key
   keyboardCursor?: Key
+  annotations?: readonly BoardAnnotation[]
   reducedMotion: boolean
 }
 
@@ -169,7 +174,19 @@ function interactionConfig(
     },
     selectable: { enabled },
     events: { select: onSelect },
-    drawable: { enabled: false, visible: false }
+    drawable: {
+      enabled: false,
+      visible: true,
+      autoShapes: (interaction.annotations ?? [])
+        .filter((annotation): annotation is Extract<BoardAnnotation, { kind: 'arrow' }> => (
+          annotation.kind === 'arrow'
+        ))
+        .map((annotation) => ({
+          orig: annotation.from,
+          dest: annotation.to,
+          brush: 'green'
+        }))
+    }
   }
 }
 
@@ -183,6 +200,9 @@ function markerClasses(interaction: BoardInteraction): SquareClasses {
   if (interaction.hintTarget) addMarker(classes, interaction.hintTarget, 'hint-target')
   if (interaction.keyboardCursor) {
     addMarker(classes, interaction.keyboardCursor, 'keyboard-cursor')
+  }
+  for (const annotation of interaction.annotations ?? []) {
+    if (annotation.kind === 'square') addMarker(classes, annotation.from, 'opening-annotation')
   }
   return classes
 }

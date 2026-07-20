@@ -1,20 +1,34 @@
 import type {
   ActiveOpeningSessionView,
   CompletedOpeningSessionView,
-  OpeningHintResult
+  OpeningActivityResult,
+  OpeningHintResult,
+  OpeningRoadmapCheckpoint
 } from '../../lib/api'
 import { fakeOpeningSession } from '../../test-fakes'
 import {
-  acknowledgeOpeningStep,
+  acknowledgeOpeningActivity,
   beginOpeningAnimation,
   beginOpeningRequest,
-  completeOpeningStep,
+  completeOpeningActivity,
   finishOpeningHint,
   initialiseOpening,
   markOpeningFeedback
 } from './opening-state'
 
 const nextFen = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+const checkpoint: OpeningRoadmapCheckpoint = {
+  completedLessonId: 'giuoco-c3',
+  path: [
+    { lessonId: 'foundations-e4', title: 'Reach the Italian' },
+    { lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }
+  ],
+  availableLessonIds: ['giuoco-d4'],
+  recommendedLessonId: 'giuoco-d4',
+  recommendedLessonTitle: 'Occupy the centre with d4',
+  completedLessons: 2,
+  totalLessons: 5
+}
 
 function active(overrides: Partial<ActiveOpeningSessionView> = {}): ActiveOpeningSessionView {
   return {
@@ -79,7 +93,7 @@ test.each(['alternative', 'off_course'] as const)(
   }
 )
 
-test('successful animation holds the persisted next step until Continue', () => {
+test('successful animation holds the persisted next activity result until Continue', () => {
   const current = active({ current: { ...fakeOpeningSession.current, kind: 'demonstration' } })
   const pending = active({
     current: {
@@ -93,34 +107,41 @@ test('successful animation holds the persisted next step until Continue', () => 
   })
   const requesting = beginOpeningRequest(initialiseOpening(current), 'advance', 1)
   const animating = beginOpeningAnimation(requesting, 1)
-  const stepComplete = completeOpeningStep(
+  const result: OpeningActivityResult = { session: pending, activityCompleted: true }
+  const activityComplete = completeOpeningActivity(
     animating,
     1,
     nextFen,
-    pending,
+    result,
     'Course move shown.'
   )
 
-  expect(stepComplete).toMatchObject({
-    phase: 'step-complete',
+  expect(activityComplete).toMatchObject({
+    phase: 'activity-complete',
     session: current,
     fen: nextFen,
-    pending,
+    result,
     message: 'Course move shown.'
   })
-  const acknowledged = acknowledgeOpeningStep(stepComplete)
+  const acknowledged = acknowledgeOpeningActivity(activityComplete)
   expect(acknowledged).toMatchObject({ phase: 'ready', session: pending, fen: nextFen })
 })
 
-test('a completed pending session becomes summary only after Continue', () => {
+test('acknowledges lesson completion into a roadmap checkpoint', () => {
   const current = active({ current: { ...fakeOpeningSession.current, kind: 'decision' } })
   const requesting = beginOpeningRequest(initialiseOpening(current), 'move', 1)
   const animating = beginOpeningAnimation(requesting, 1)
-  const stepComplete = completeOpeningStep(animating, 1, nextFen, completed(), 'Recalled.')
+  const result: OpeningActivityResult = {
+    session: completed(),
+    activityCompleted: true,
+    checkpoint
+  }
+  const activityComplete = completeOpeningActivity(animating, 1, nextFen, result, 'Recalled.')
 
-  expect(stepComplete.phase).toBe('step-complete')
-  expect(acknowledgeOpeningStep(stepComplete)).toMatchObject({
-    phase: 'summary',
-    session: { status: 'completed' }
+  expect(activityComplete.phase).toBe('activity-complete')
+  expect(acknowledgeOpeningActivity(activityComplete)).toEqual({
+    phase: 'checkpoint',
+    session: completed(),
+    checkpoint
   })
 })

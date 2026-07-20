@@ -130,12 +130,12 @@ test('defers an advanced teaching step until explicit Continue', async () => {
   await subject.controller.advance()
 
   expect(subject.controller.view.state).toMatchObject({
-    phase: 'step-complete', session: explain, pending: watch
+    phase: 'activity-complete', session: explain, result: { session: watch }
   })
   expect(subject.persisted).toEqual([watch])
   expect(subject.changes).toEqual([])
 
-  subject.controller.acknowledgeStep()
+  subject.controller.acknowledgeActivity()
 
   expect(subject.controller.view.state).toMatchObject({ phase: 'passive', session: watch })
   expect(subject.changes).toEqual([watch])
@@ -161,6 +161,35 @@ test('animates every authoritative watch frame', async () => {
     [afterC3, ['c2', 'c3'], true],
     [afterD6, ['d7', 'd6'], true]
   ])
+})
+
+test('replays moves to here and a completed demonstration without changing progress', async () => {
+  const movesToHere: AppliedMoveFrames = [
+    { uci: 'e2e4', resultingFen: afterC3 },
+    { uci: 'e7e5', resultingFen: afterD6 }
+  ]
+  const current = active('demonstration', { movesToHere })
+  const next = active('decision', { currentFen: afterD6 })
+  const subject = harness(current, {
+    advanceOpeningActivity: async () => ({
+      session: next,
+      activityCompleted: true,
+      appliedMoves: movesToHere,
+      finalFen: afterD6
+    })
+  })
+
+  await subject.controller.replayMovesToHere()
+  expect(subject.persisted).toEqual([])
+  subject.board.setPosition.mockClear()
+
+  await subject.controller.advance()
+  subject.board.setPosition.mockClear()
+  await subject.controller.replayDemonstration()
+
+  expect(subject.board.setPosition).toHaveBeenCalledTimes(2)
+  expect(subject.persisted).toEqual([next])
+  expect(subject.controller.view.state.phase).toBe('activity-complete')
 })
 
 test('does not reanimate the optimistic learner move before the course reply', async () => {
@@ -226,7 +255,9 @@ test('reveals the course move and records the already-persisted completion', asy
   await subject.controller.reveal()
 
   expect(subject.board.setPosition).toHaveBeenCalledWith(afterC3, ['c2', 'c3'], true)
-  expect(subject.controller.view.state).toMatchObject({ phase: 'step-complete', pending: done })
+  expect(subject.controller.view.state).toMatchObject({
+    phase: 'activity-complete', result: { session: done }
+  })
   expect(subject.persisted).toEqual([done])
 })
 
@@ -264,7 +295,7 @@ test('recovers the final FEN and announces an animation warning', async () => {
 
   await subject.controller.play('c2c3')
 
-  expect(subject.controller.view.state).toMatchObject({ phase: 'step-complete', fen: afterC3 })
+  expect(subject.controller.view.state).toMatchObject({ phase: 'activity-complete', fen: afterC3 })
   expect(subject.controller.view.notice).toMatch(/animation failed.*final position was restored/i)
   expect(subject.controller.view.boardGeneration).toBeGreaterThan(0)
 })

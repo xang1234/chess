@@ -76,6 +76,22 @@ test('owns adapter creation, interaction updates, explicit FEN reconciliation, a
   expect(adapter.destroy).toHaveBeenCalledTimes(1)
 })
 
+test('passes read-only board annotations through interaction updates', async () => {
+  const { factory, interactions } = adapterHarness()
+  const { component } = render(ChessBoard, {
+    ...boardProps(factory),
+    annotations: [{ kind: 'arrow', from: 'c2', to: 'c3' }]
+  })
+
+  await waitFor(() => expect(interactions[0].annotations).toEqual([
+    { kind: 'arrow', from: 'c2', to: 'c3' }
+  ]))
+  component.$set({ annotations: [{ kind: 'square', from: 'd4' }] })
+  await waitFor(() => expect(interactions.at(-1)?.annotations).toEqual([
+    { kind: 'square', from: 'd4' }
+  ]))
+})
+
 test('emits only complete legal UCI routes and reports rejected adapter routes', async () => {
   const { adapter, creations, factory } = adapterHarness()
   const moves: string[] = []

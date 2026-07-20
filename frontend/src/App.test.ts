@@ -177,6 +177,93 @@ test('opens the course hub and starts a visible opening lesson', async () => {
   expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
 })
 
+test('continues from a lesson checkpoint directly into the recommended branch', async () => {
+  const baseCourse = fakeOpeningHome.courses[0]
+  const courseHome = {
+    courses: [{
+      ...baseCourse,
+      completedLessons: 0,
+      totalLessons: 2,
+      tree: {
+        rootLessonId: 'giuoco-c3',
+        nodes: [
+          { ...baseCourse.tree.nodes[0], title: 'Giuoco Piano', requiredActivities: 3 },
+          {
+            ...baseCourse.tree.nodes[0],
+            lessonId: 'giuoco-d4',
+            title: 'Occupy the centre with d4',
+            objective: 'Time the central break.',
+            completedActivities: 0,
+            requiredActivities: 3,
+            recommended: false
+          }
+        ],
+        edges: [{
+          edgeId: 'c3-d4',
+          fromLessonId: 'giuoco-c3',
+          toLessonId: 'giuoco-d4',
+          ordinal: 1,
+          kind: 'continuation' as const,
+          minimumDepth: 'quick' as const
+        }]
+      }
+    }]
+  }
+  const first = interactiveOpening()
+  const second: ActiveOpeningSessionView = {
+    ...fakeOpeningSession,
+    lessonId: 'giuoco-d4',
+    current: {
+      ...fakeOpeningSession.current,
+      activityId: 'd4-concept',
+      title: 'Occupy the centre with d4'
+    }
+  }
+  const startOpeningLesson = vi.fn(async (_courseId: string, lessonId: string) => (
+    lessonId === 'giuoco-d4' ? second : first
+  ))
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    getOpeningHome: async () => courseHome,
+    startOpeningLesson,
+    revealOpeningMove: async () => ({
+      session: completedOpening(),
+      activityCompleted: true,
+      feedback: 'expected',
+      message: 'Course move shown.',
+      appliedMoves: [{
+        uci: 'c2c3',
+        resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+      }],
+      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4',
+      checkpoint: {
+        completedLessonId: 'giuoco-c3',
+        path: [{ lessonId: 'giuoco-c3', title: 'Giuoco Piano' }],
+        availableLessonIds: ['giuoco-d4'],
+        recommendedLessonId: 'giuoco-d4',
+        recommendedLessonTitle: 'Occupy the centre with d4',
+        completedLessons: 1,
+        totalLessons: 2
+      }
+    })
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  await fireEvent.click(await screen.findByRole('button', {
+    name: 'Continue to Occupy the centre with d4'
+  }))
+
+  expect(startOpeningLesson).toHaveBeenLastCalledWith('synthetic-italian', 'giuoco-d4')
+  expect(await screen.findByRole('heading', { name: 'Occupy the centre with d4' }))
+    .toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Opening course path' }))
+    .toHaveTextContent('Giuoco Piano')
+})
+
 test('opens the read-only variation explorer at the course depth', async () => {
   const getOpeningPosition = vi.fn(async (courseId: string, positionId: string) => ({
     courseId,

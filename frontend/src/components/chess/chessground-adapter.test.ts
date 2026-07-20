@@ -86,7 +86,7 @@ test('configures a controlled legal-move board for the solver color', () => {
     predroppable: { enabled: false },
     draggable: { enabled: true, showGhost: true, deleteOnDropOff: false },
     selectable: { enabled: true },
-    drawable: { enabled: false, visible: false }
+    drawable: { enabled: false, visible: true, autoShapes: [] }
   })
   expect(initial).not.toHaveProperty('trustAllEvents', true)
   expect(initial).not.toHaveProperty('viewOnly')
@@ -129,6 +129,34 @@ test('merges wrong, hint, and keyboard markers alongside the native last move', 
     ['e2', 'wrong-source hint-source keyboard-cursor'],
     ['e4', 'wrong-target hint-target']
   ]))
+})
+
+test('composes read-only course annotations and updates or removes them through configure', () => {
+  const { adapter, initial, updates } = harness(interaction({
+    hintSource: 'e2',
+    annotations: [
+      { kind: 'square', from: 'd4' },
+      { kind: 'arrow', from: 'c2', to: 'c3' }
+    ]
+  }))
+
+  expect(initial.highlight?.custom).toEqual(new Map([
+    ['e2', 'hint-source'],
+    ['d4', 'opening-annotation']
+  ]))
+  expect(initial.drawable).toMatchObject({
+    enabled: false,
+    visible: true,
+    autoShapes: [{ orig: 'c2', dest: 'c3', brush: 'green' }]
+  })
+
+  adapter.configure(interaction({ annotations: [] }))
+  expect(updates.at(-1)?.highlight?.custom).toEqual(new Map())
+  expect(updates.at(-1)?.drawable).toMatchObject({
+    enabled: false,
+    visible: true,
+    autoShapes: []
+  })
 })
 
 test('forwards only currently legal routes and clears immobile selections', () => {

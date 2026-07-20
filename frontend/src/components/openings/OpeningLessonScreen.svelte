@@ -1,12 +1,17 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
-  import type { OpeningSessionView } from '../../lib/api'
+  import type {
+    OpeningBoardAnnotation,
+    OpeningPathItem,
+    OpeningSessionView
+  } from '../../lib/api'
   import { useNormalAPI } from '../../lib/api-context'
   import type { Square } from '../../lib/uci'
   import ChessBoard from '../chess/ChessBoard.svelte'
   import { browserBoardEffects, type BoardEffects } from '../chess/board-effects'
   import {
     createChessgroundAdapter,
+    type BoardAnnotation,
     type ChessgroundAdapterFactory
   } from '../chess/chessground-adapter'
   import {
@@ -14,14 +19,20 @@
     type OpeningControllerView
   } from './opening-controller'
   import { acceptsOpeningInput } from './opening-state'
+  import OpeningActivityContent from './OpeningActivityContent.svelte'
+  import OpeningPathContext from './OpeningPathContext.svelte'
+  import OpeningRoadmapCheckpoint from './OpeningRoadmapCheckpoint.svelte'
 
   export let session: OpeningSessionView
+  export let path: OpeningPathItem[] = []
   export let effects: BoardEffects = browserBoardEffects
   export let boardAdapterFactory: ChessgroundAdapterFactory = createChessgroundAdapter
 
   const api = useNormalAPI()
   const dispatch = createEventDispatcher<{
     home: { completed: boolean }
+    continue: { courseId: string; lessonId: string }
+    tree: void
     change: OpeningSessionView
     persisted: OpeningSessionView
   }>()
@@ -42,7 +53,8 @@
 
   $: controller.attachBoard(boardComponent)
   $: state = view?.state
-  $: active = state && state.phase !== 'summary' && state.phase !== 'restart-required'
+  $: active = state && state.phase !== 'summary' && state.phase !== 'checkpoint' &&
+    state.phase !== 'restart-required'
     ? state.session
     : undefined
   $: current = active?.current
@@ -52,12 +64,9 @@
   $: hintSource = optionalSquare(hint?.sourceSquare)
   $: hintTarget = optionalSquare(hint?.targetSquare)
   $: canReveal = Boolean(hint?.canReveal || current?.canReveal)
-  $: teachingStep = current?.kind === 'concept' || current?.kind === 'demonstration'
-  $: referenceNotes = current
-    ? teachingStep
-      ? current.referenceNoteTexts
-      : [...current.teachingNoteTexts, ...current.referenceNoteTexts]
-    : []
+  $: annotations = toBoardAnnotations(current?.annotations ?? [])
+  $: canReplayDemonstration = state?.phase === 'activity-complete' &&
+    current?.kind === 'demonstration' && (view?.lastFrames.length ?? 0) > 0
 
   afterUpdate(() => controller.receiveSession(session))
   onMount(() => controller.mount(session))
@@ -68,6 +77,21 @@
 
   function optionalSquare(value: string | undefined): Square | undefined {
     return value && /^[a-h][1-8]$/.test(value) ? value as Square : undefined
+  }
+
+  function toBoardAnnotations(values: OpeningBoardAnnotation[]): BoardAnnotation[] {
+    const result: BoardAnnotation[] = []
+    for (const annotation of values) {
+      const from = optionalSquare(annotation.from)
+      if (!from) continue
+      if (annotation.kind === 'square') {
+        result.push({ kind: 'square', from })
+        continue
+      }
+      const to = optionalSquare(annotation.to)
+      if (to) result.push({ kind: 'arrow', from, to })
+    }
+    return result
   }
 
   function countLabel(count: number, singular: string, plural = `${singular}s`): string {
@@ -85,7 +109,9 @@
       {#if state.session.notice}<p class="terminal-notice">{state.session.notice}</p>{/if}
       <span class="celebration" aria-hidden="true">♝</span>
       <p class="eyebrow">Italian course</p>
-      <h2 id="opening-completion-title">Opening lesson complete!</h2>
+      <h2 id="opening-completion-title">
+        {state.session.mode === 'review' ? 'Opening review complete!' : 'Opening lesson complete!'}
+      </h2>
       {#if state.session.mode === 'review'}
         <p>You worked through {countLabel(state.session.summary.totalPrompts, 'training prompt')}.</p>
         <div class="summary-grid">
@@ -98,10 +124,18 @@
       {:else}
         <p>Your place in the course has been saved.</p>
       {/if}
-      <button class="primary" type="button" on:click={() => controller.finishHome()}>
-        Back home
+      <button class="primary" type="button" on:click={() => dispatch('tree')}>
+        Back to course
       </button>
     </section>
+  {:else if state?.phase === 'checkpoint'}
+    <OpeningRoadmapCheckpoint
+      checkpoint={state.checkpoint}
+      courseId={state.session.courseId}
+      on:continue
+      on:tree
+      on:home
+    />
   {:else if state?.phase === 'restart-required'}
     <section class="panel opening-terminal" aria-labelledby="opening-restart-title">
       <p class="eyebrow">Course update</p>
@@ -115,7 +149,7 @@
   {:else if state && current && view}
     <section
       class="opening-lesson-layout"
-      aria-label={`Opening lesson step ${current.activityNumber} of ${current.activityTotal}`}
+      aria-label={`Opening lesson idea ${current.activityNumber} of ${current.activityTotal}`}
     >
       <div class="opening-board-stage">
         {#key view.boardGeneration}
@@ -128,6 +162,7 @@
             lastMove={view.lastMove}
             {hintSource}
             {hintTarget}
+            {annotations}
             reducedMotion={view.reducedMotion}
             adapterFactory={boardAdapterFactory}
             on:move={(event) => controller.play(event.detail.uci)}
@@ -138,6 +173,7 @@
       </div>
 
       <aside class="opening-lesson-panel">
+        <OpeningPathContext {path} />
         <div class="opening-lesson-heading">
           <div>
             <p class="eyebrow">
@@ -157,26 +193,21 @@
         </div>
 
         <div>
-          <p class="progress-label">Step {current.activityNumber} of {current.activityTotal}</p>
+          <p class="progress-label">
+            Idea {current.activityNumber} of {current.activityTotal}
+            · {current.completedIdeas} learned
+          </p>
           <div class="progress-track" aria-hidden="true">
             <span style={`width: ${(current.activityNumber / current.activityTotal) * 100}%`}></span>
           </div>
         </div>
 
-        <div class="opening-instruction">
-          <p>{current.instruction}</p>
-          {#if teachingStep && current.teachingNoteTexts.length > 0}
-            <div class="teaching-notes">
-              {#each current.teachingNoteTexts as note}<p>{note}</p>{/each}
-            </div>
-          {/if}
-          {#if referenceNotes.length > 0}
-            <details>
-              <summary>Reference notes</summary>
-              {#each referenceNotes as note}<p>{note}</p>{/each}
-            </details>
-          {/if}
-        </div>
+        <OpeningActivityContent
+          activity={current}
+          {canReplayDemonstration}
+          on:replayMoves={() => controller.replayMovesToHere()}
+          on:replayDemonstration={() => controller.replayDemonstration()}
+        />
 
         <div class="opening-feedback" aria-live="polite" aria-atomic="true">
           {#if view.message}<p class:neutral={view.feedback !== null}>{view.message}</p>{/if}
@@ -187,8 +218,8 @@
         </div>
 
         <div class="opening-actions">
-          {#if state.phase === 'step-complete'}
-            <button class="primary" type="button" on:click={() => controller.acknowledgeStep()}>
+          {#if state.phase === 'activity-complete'}
+            <button class="primary" type="button" on:click={() => controller.acknowledgeActivity()}>
               Continue
             </button>
           {:else if state.phase === 'passive'}
@@ -257,13 +288,6 @@
   .progress-label { margin: 0 0 8px; color: #e8e4d8; font-weight: 800; }
   .progress-track { height: 9px; overflow: hidden; border-radius: 999px; background: #4c5a54; }
   .progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--amber-400); }
-  .opening-instruction { display: grid; gap: 12px; }
-  .opening-instruction > p { margin: 0; font-size: 1.05rem; line-height: 1.55; }
-  .teaching-notes { display: grid; gap: 8px; padding: 12px; border-radius: 12px; background: #35413d; }
-  .teaching-notes p { margin: 0; color: #e8e4d8; line-height: 1.45; }
-  details { padding-top: 2px; color: #d8d5ca; }
-  summary { cursor: pointer; font-weight: 800; }
-  details p { margin: 9px 0 0; line-height: 1.45; }
   .opening-feedback { display: grid; min-height: 72px; margin-top: auto; align-content: center; gap: 7px; }
   .opening-feedback p { margin: 0; font-weight: 800; }
   .opening-feedback .neutral { color: #c8dfcf; }
