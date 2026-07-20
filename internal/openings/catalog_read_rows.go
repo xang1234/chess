@@ -2,6 +2,7 @@ package openings
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
@@ -276,7 +277,7 @@ func loadCourseLessonActivities(
 ) error {
 	rows, err := query.QueryContext(
 		ctx,
-		`SELECT lesson_id, data_json
+		`SELECT lesson_id, activity_id, kind, required, position_id, data_json
 		 FROM course_lesson_activities
 		 WHERE generation_id = ? ORDER BY lesson_id, ordinal`,
 		generationID,
@@ -286,13 +287,25 @@ func loadCourseLessonActivities(
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var lessonID, dataJSON string
-		if err := rows.Scan(&lessonID, &dataJSON); err != nil {
+		var lessonID, activityID, dataJSON string
+		var kind ActivityKind
+		var required bool
+		var positionID sql.NullString
+		if err := rows.Scan(&lessonID, &activityID, &kind, &required, &positionID, &dataJSON); err != nil {
 			return fmt.Errorf("scan course lesson activity: %w", err)
 		}
-		var activity LessonActivity
-		if err := decodeStoredJSON(dataJSON, &activity, "lesson activity"); err != nil {
+		var payload storedLessonActivityPayload
+		if err := decodeStoredJSON(dataJSON, &payload, "lesson activity"); err != nil {
 			return err
+		}
+		activity := LessonActivity{
+			ActivityID: activityID, Kind: kind, Title: payload.Title,
+			Instruction: payload.Instruction, Required: required,
+			NoteIDs: payload.NoteIDs, MoveIDs: payload.MoveIDs, PromptID: payload.PromptID,
+			Comparison: payload.Comparison, Annotations: payload.Annotations,
+		}
+		if positionID.Valid {
+			activity.PositionID = positionID.String
 		}
 		lesson, exists := compiled.Lessons[lessonID]
 		if !exists {

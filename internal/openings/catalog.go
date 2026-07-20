@@ -44,6 +44,24 @@ type storedCoverage struct {
 	Report CoverageReport `json:"report"`
 }
 
+type storedLessonActivityPayload struct {
+	Title       string            `json:"title"`
+	Instruction string            `json:"instruction"`
+	NoteIDs     []string          `json:"noteIds"`
+	MoveIDs     []string          `json:"moveIds"`
+	PromptID    string            `json:"promptId,omitempty"`
+	Comparison  []ActivityLine    `json:"comparison,omitempty"`
+	Annotations []BoardAnnotation `json:"annotations,omitempty"`
+}
+
+func activityPayload(activity LessonActivity) storedLessonActivityPayload {
+	return storedLessonActivityPayload{
+		Title: activity.Title, Instruction: activity.Instruction,
+		NoteIDs: activity.NoteIDs, MoveIDs: activity.MoveIDs, PromptID: activity.PromptID,
+		Comparison: activity.Comparison, Annotations: activity.Annotations,
+	}
+}
+
 func (c *SQLiteCatalog) Replace(
 	ctx context.Context,
 	compiled CompiledCourse,

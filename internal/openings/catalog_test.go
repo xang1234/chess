@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"chess-trainer/internal/chessrules"
@@ -51,6 +52,57 @@ func TestSQLiteCatalogRoundTripsTeachingTree(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Lessons["giuoco-plan"].Activities, want.Lessons["giuoco-plan"].Activities) {
 		t.Fatalf("activities=%#v", got.Lessons["giuoco-plan"].Activities)
+	}
+}
+
+func TestSQLiteCatalogUsesActivityColumnsAsCoreSourceOfTruth(t *testing.T) {
+	ctx := context.Background()
+	catalog := NewSQLiteCatalog(openCourseCatalogTestDB(t))
+	want := compileTreeCourse(t)
+	result, err := catalog.Replace(ctx, want, "/private/tree.ctcourse", "sha-tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var storedJSON string
+	if err := catalog.db.QueryRowContext(ctx,
+		`SELECT data_json FROM course_lesson_activities
+		 WHERE generation_id = ? AND lesson_id = ? AND activity_id = ?`,
+		result.GenerationID, "giuoco-plan", "giuoco-concept",
+	).Scan(&storedJSON); err != nil {
+		t.Fatal(err)
+	}
+	for _, duplicated := range []string{`"activityId"`, `"kind"`, `"required"`, `"positionId"`} {
+		if strings.Contains(storedJSON, duplicated) {
+			t.Fatalf("activity payload duplicates core field %s: %s", duplicated, storedJSON)
+		}
+	}
+
+	poisoned := want.Lessons["giuoco-plan"].Activities[0]
+	poisoned.ActivityID = "poisoned-id"
+	poisoned.Kind = ActivityReference
+	poisoned.Required = false
+	poisoned.PositionID = "poisoned-position"
+	poisonedJSON, err := marshalStoredJSON(poisoned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalog.db.ExecContext(ctx,
+		`UPDATE course_lesson_activities SET data_json = ?
+		 WHERE generation_id = ? AND lesson_id = ? AND activity_id = ?`,
+		poisonedJSON, result.GenerationID, "giuoco-plan", "giuoco-concept",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := catalog.LoadGeneration(ctx, result.GenerationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity := got.Lessons["giuoco-plan"].Activities[0]
+	if activity.ActivityID != "giuoco-concept" || activity.Kind != ActivityConcept ||
+		!activity.Required || activity.PositionID != "after-bc5" {
+		t.Fatalf("loaded activity core fields from JSON: %+v", activity)
 	}
 }
 

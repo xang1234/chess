@@ -34,6 +34,7 @@ func compileTreeCourse(t *testing.T) CompiledCourse {
 
 func TestCompileTeachingTreeBuildsDeterministicIndexes(t *testing.T) {
 	compiled := compileTreeCourse(t)
+	index := buildTeachingTreeIndex(compiled)
 	if compiled.RootLessonID != "giuoco-plan" {
 		t.Fatalf("root = %q", compiled.RootLessonID)
 	}
@@ -43,6 +44,11 @@ func TestCompileTeachingTreeBuildsDeterministicIndexes(t *testing.T) {
 	}
 	if parent := compiled.LessonParent["two-knights-plan"]; parent.EdgeID != "giuoco-to-two-knights" {
 		t.Fatalf("parent = %#v", parent)
+	}
+	if !reflect.DeepEqual(index.children, compiled.LessonChildren) ||
+		!reflect.DeepEqual(index.parents, compiled.LessonParent) ||
+		!reflect.DeepEqual(index.roots, []string{"giuoco-plan"}) {
+		t.Fatalf("index=%+v compiled children=%+v parents=%+v", index, compiled.LessonChildren, compiled.LessonParent)
 	}
 }
 

@@ -7,8 +7,6 @@ import (
 
 func (c *courseCompiler) validateTeachingTree() {
 	edgePaths := map[string]string{}
-	incoming := map[string][]LessonEdge{}
-	children := map[string][]LessonEdge{}
 	siblingOrdinals := map[string]map[int]string{}
 
 	for edgeIndex, edge := range c.pack.LessonEdges {
@@ -59,51 +57,44 @@ func (c *courseCompiler) validateTeachingTree() {
 			if edgeDepthOK && fromDepthOK && toDepthOK && edgeRank < max(fromRank, toRank) {
 				c.addDiagnostic("lesson_edge_depth", path+".minimumDepth", "edge cannot be visible before both endpoint lessons")
 			}
-			children[edge.FromLessonID] = append(children[edge.FromLessonID], edge)
-			incoming[edge.ToLessonID] = append(incoming[edge.ToLessonID], edge)
 		}
 	}
 
-	roots := []string{}
+	index := buildTeachingTreeIndex(c.compiled)
 	for _, lesson := range c.pack.Lessons {
-		edges := incoming[lesson.LessonID]
-		if len(edges) == 0 {
-			roots = append(roots, lesson.LessonID)
-		}
+		edges := index.incoming[lesson.LessonID]
 		if len(edges) > 1 {
 			path := c.basePath(c.lessonPaths, lesson.LessonID, "lesson")
 			c.addDiagnostic("lesson_multiple_parents", path+".lessonId", fmt.Sprintf("lesson has %d incoming teaching edges", len(edges)))
 		}
 	}
-	if len(roots) != 1 {
-		c.addDiagnostic("lesson_tree_root", "lessonEdges", fmt.Sprintf("teaching tree requires one root, found %d", len(roots)))
+	if len(index.roots) != 1 {
+		c.addDiagnostic("lesson_tree_root", "lessonEdges", fmt.Sprintf("teaching tree requires one root, found %d", len(index.roots)))
 	} else {
-		c.compiled.RootLessonID = roots[0]
-		if root, ok := c.compiled.Lessons[roots[0]]; ok && root.MinimumDepth != DepthQuick {
+		if root, ok := c.compiled.Lessons[index.roots[0]]; ok && root.MinimumDepth != DepthQuick {
 			c.addDiagnostic("lesson_tree_root_depth", c.basePath(c.lessonPaths, root.LessonID, "lesson")+".minimumDepth", "teaching tree root must be visible at quick depth")
 		}
 	}
 
-	for lessonID := range children {
-		sort.SliceStable(children[lessonID], func(left, right int) bool {
-			if children[lessonID][left].Ordinal != children[lessonID][right].Ordinal {
-				return children[lessonID][left].Ordinal < children[lessonID][right].Ordinal
-			}
-			return children[lessonID][left].EdgeID < children[lessonID][right].EdgeID
-		})
+	c.detectTeachingTreeCycles(index.children)
+	if len(index.roots) == 1 {
+		c.validateTeachingTreeReachability(index.roots[0], index.children)
 	}
-	c.detectTeachingTreeCycles(children)
-	if len(roots) == 1 {
-		c.validateTeachingTreeReachability(roots[0], children)
-	}
-	indexCompiledTeachingTree(&c.compiled)
+	applyTeachingTreeIndex(&c.compiled, index)
 }
 
-func indexCompiledTeachingTree(compiled *CompiledCourse) {
-	compiled.RootLessonID = ""
-	compiled.LessonChildren = map[string][]LessonEdge{}
-	compiled.LessonParent = map[string]LessonEdge{}
-	incoming := map[string]int{}
+type teachingTreeIndex struct {
+	roots    []string
+	incoming map[string][]LessonEdge
+	children map[string][]LessonEdge
+	parents  map[string]LessonEdge
+}
+
+func buildTeachingTreeIndex(compiled CompiledCourse) teachingTreeIndex {
+	index := teachingTreeIndex{
+		roots: []string{}, incoming: map[string][]LessonEdge{},
+		children: map[string][]LessonEdge{}, parents: map[string]LessonEdge{},
+	}
 	for _, edge := range compiled.Pack.LessonEdges {
 		if _, fromOK := compiled.Lessons[edge.FromLessonID]; !fromOK {
 			continue
@@ -111,32 +102,42 @@ func indexCompiledTeachingTree(compiled *CompiledCourse) {
 		if _, toOK := compiled.Lessons[edge.ToLessonID]; !toOK {
 			continue
 		}
-		compiled.LessonChildren[edge.FromLessonID] = append(compiled.LessonChildren[edge.FromLessonID], edge)
-		incoming[edge.ToLessonID]++
-		if incoming[edge.ToLessonID] == 1 {
-			compiled.LessonParent[edge.ToLessonID] = edge
-		} else {
-			delete(compiled.LessonParent, edge.ToLessonID)
-		}
+		index.children[edge.FromLessonID] = append(index.children[edge.FromLessonID], edge)
+		index.incoming[edge.ToLessonID] = append(index.incoming[edge.ToLessonID], edge)
 	}
-	for lessonID := range compiled.LessonChildren {
-		sort.SliceStable(compiled.LessonChildren[lessonID], func(left, right int) bool {
-			children := compiled.LessonChildren[lessonID]
+	for lessonID := range index.children {
+		sort.SliceStable(index.children[lessonID], func(left, right int) bool {
+			children := index.children[lessonID]
 			if children[left].Ordinal != children[right].Ordinal {
 				return children[left].Ordinal < children[right].Ordinal
 			}
 			return children[left].EdgeID < children[right].EdgeID
 		})
 	}
-	for _, lesson := range compiled.Pack.Lessons {
-		if incoming[lesson.LessonID] == 0 {
-			if compiled.RootLessonID != "" {
-				compiled.RootLessonID = ""
-				return
-			}
-			compiled.RootLessonID = lesson.LessonID
+	for lessonID, incoming := range index.incoming {
+		if len(incoming) == 1 {
+			index.parents[lessonID] = incoming[0]
 		}
 	}
+	for _, lesson := range compiled.Pack.Lessons {
+		if len(index.incoming[lesson.LessonID]) == 0 {
+			index.roots = append(index.roots, lesson.LessonID)
+		}
+	}
+	return index
+}
+
+func applyTeachingTreeIndex(compiled *CompiledCourse, index teachingTreeIndex) {
+	compiled.RootLessonID = ""
+	if len(index.roots) == 1 {
+		compiled.RootLessonID = index.roots[0]
+	}
+	compiled.LessonChildren = index.children
+	compiled.LessonParent = index.parents
+}
+
+func indexCompiledTeachingTree(compiled *CompiledCourse) {
+	applyTeachingTreeIndex(compiled, buildTeachingTreeIndex(*compiled))
 }
 
 func (c *courseCompiler) detectTeachingTreeCycles(children map[string][]LessonEdge) {

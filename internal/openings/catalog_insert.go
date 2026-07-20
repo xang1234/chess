@@ -192,7 +192,7 @@ func (c *SQLiteCatalog) insertCourseLessons(
 		}
 
 		for lessonActivityOrdinal, activity := range lesson.Activities {
-			dataJSON, err := marshalStoredJSON(activity)
+			dataJSON, err := marshalStoredJSON(activityPayload(activity))
 			if err != nil {
 				return fmt.Errorf("marshal lesson activity %q: %w", activity.ActivityID, err)
 			}
