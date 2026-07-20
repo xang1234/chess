@@ -73,20 +73,27 @@ func (s *Service) courseSummary(
 	fallbackDepth Depth,
 	resumable *StoredSession,
 ) (OpeningCourseSummary, error) {
-	journey, err := s.store.Journey(ctx, course.Pack.CourseID, fallbackDepth)
+	journey, err := s.store.Journey(ctx, course.Pack.CourseID)
 	if err != nil {
 		return OpeningCourseSummary{}, fmt.Errorf("load opening journey for %q: %w", course.Pack.CourseID, err)
 	}
-	journey = projectLegacyResumableJourney(course, activeGenerationID, journey, resumable)
-	depth := journey.Depth
+	depth := fallbackDepth
 	projection, err := s.projectTeachingTree(ctx, course, depth, journey, resumable)
 	if err != nil {
 		return OpeningCourseSummary{}, err
 	}
 	currentLessonID := validJourneyLessonID(course, journey.CurrentLessonID)
-	currentActivityID := journey.CurrentActivityID
-	if currentLessonID == "" {
-		currentActivityID = ""
+	currentActivityID := ""
+	if resumable != nil && resumable.CourseID == course.Pack.CourseID &&
+		resumable.GenerationID == activeGenerationID && resumable.Mode == OpeningModeLesson {
+		lesson, exists := course.Lessons[resumable.LessonID]
+		if exists && resumable.ActivityIndex >= 0 && resumable.ActivityIndex < len(lesson.Activities) {
+			currentLessonID = resumable.LessonID
+			currentActivityID = lesson.Activities[resumable.ActivityIndex].ActivityID
+		}
+	}
+	if len(projection.currentPath) == 0 && currentLessonID != "" {
+		projection.currentPath = openingPathItems(course, teachingPathLessonIDs(course, currentLessonID))
 	}
 	view := OpeningCourseSummary{
 		CourseID: course.Pack.CourseID, Title: course.Pack.Title,
@@ -137,33 +144,6 @@ func (s *Service) courseSummary(
 	return view, nil
 }
 
-func projectLegacyResumableJourney(
-	course CompiledCourse,
-	activeGenerationID string,
-	journey CourseJourney,
-	resumable *StoredSession,
-) CourseJourney {
-	if resumable == nil || resumable.CourseID != course.Pack.CourseID ||
-		resumable.GenerationID != activeGenerationID || resumable.Mode != OpeningModeLesson {
-		return journey
-	}
-	lesson, exists := course.Lessons[resumable.LessonID]
-	if !exists {
-		return journey
-	}
-	if validJourneyLessonID(course, journey.CurrentLessonID) == "" {
-		journey.CurrentLessonID = resumable.LessonID
-	}
-	if journey.CurrentLessonID == resumable.LessonID && journey.CurrentActivityID == "" &&
-		resumable.ActivityIndex >= 0 && resumable.ActivityIndex < len(lesson.Activities) {
-		journey.CurrentActivityID = lesson.Activities[resumable.ActivityIndex].ActivityID
-	}
-	if len(journey.PathLessonIDs) == 0 {
-		journey.PathLessonIDs = teachingPathLessonIDs(course, resumable.LessonID)
-	}
-	return journey
-}
-
 func (s *Service) SetDepth(ctx context.Context, courseID string, depth Depth) error {
 	if err := s.validate(); err != nil {
 		return err
@@ -171,33 +151,11 @@ func (s *Service) SetDepth(ctx context.Context, courseID string, depth Depth) er
 	if _, ok := depthRank(depth); !ok {
 		return fmt.Errorf("invalid opening depth %q", depth)
 	}
-	course, err := s.catalog.LoadActive(ctx, courseID)
+	_, err := s.catalog.LoadActive(ctx, courseID)
 	if err != nil {
 		return fmt.Errorf("load opening course %q: %w", courseID, err)
 	}
-	now := s.now().UTC()
-	if err := s.store.SetDepth(ctx, courseID, depth, now); err != nil {
-		return err
-	}
-	journey, err := s.store.Journey(ctx, courseID, depth)
-	if err != nil {
-		return err
-	}
-	if journey.CreatedAt.IsZero() {
-		journey.CreatedAt = now
-	}
-	journey.Depth = depth
-	journey.UpdatedAt = now
-	resumable, err := s.store.ResumableSession(ctx)
-	if err != nil {
-		return err
-	}
-	projection, err := s.projectTeachingTree(ctx, course, depth, journey, resumable)
-	if err != nil {
-		return err
-	}
-	journey.LastRecommendedLessonID = projection.recommendedLessonID
-	return s.store.SaveJourney(ctx, journey)
+	return s.store.SetDepth(ctx, courseID, depth, s.now().UTC())
 }
 
 func (s *Service) Explore(
@@ -271,11 +229,11 @@ func (s *Service) StartLesson(
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
-	journey, err := s.store.Journey(ctx, courseID, fallbackDepth)
+	journey, err := s.store.Journey(ctx, courseID)
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
-	depth := journey.Depth
+	depth := fallbackDepth
 	lesson, exists := course.Lessons[lessonID]
 	if !exists {
 		return OpeningSessionView{}, fmt.Errorf("opening lesson %q was not found", lessonID)
@@ -310,9 +268,7 @@ func (s *Service) StartLesson(
 		return OpeningSessionView{}, err
 	}
 	journey.CurrentLessonID = lessonID
-	journey.CurrentActivityID = lesson.Activities[activityIndex].ActivityID
 	journey.PathLessonIDs = teachingPathLessonIDs(course, lessonID)
-	journey.LastRecommendedLessonID = lessonID
 	journey.UpdatedAt = now
 	if journey.CreatedAt.IsZero() {
 		journey.CreatedAt = now

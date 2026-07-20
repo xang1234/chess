@@ -51,9 +51,9 @@ func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
 		!reflect.DeepEqual(done.Checkpoint.AvailableLessonIDs, []string{"two-knights-plan"}) {
 		t.Fatalf("done=%+v", done)
 	}
-	journey, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID, DepthReference)
-	if err != nil || journey.CurrentLessonID != "giuoco-plan" || journey.CurrentActivityID != "" ||
-		journey.ActiveSessionID != "" || !reflect.DeepEqual(journey.PathLessonIDs, []string{"giuoco-plan"}) {
+	journey, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
+	if err != nil || journey.CurrentLessonID != "giuoco-plan" ||
+		!reflect.DeepEqual(journey.PathLessonIDs, []string{"giuoco-plan"}) {
 		t.Fatalf("journey=%+v err=%v", journey, err)
 	}
 }
@@ -198,8 +198,8 @@ func TestOpeningServiceCanStartAnyVisibleNodeWhileAnotherLessonIsActive(t *testi
 		second.Current == nil || second.Current.ActivityID != "two-knights-d3-decision" {
 		t.Fatalf("retired=%+v second=%+v", retired, second)
 	}
-	journey, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID, DepthReference)
-	if err != nil || journey.ActiveSessionID != second.SessionID ||
+	journey, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
+	if err != nil || journey.CurrentLessonID != second.LessonID ||
 		!reflect.DeepEqual(journey.PathLessonIDs, []string{"giuoco-plan", "two-knights-plan"}) {
 		t.Fatalf("journey=%+v err=%v", journey, err)
 	}
@@ -216,7 +216,7 @@ func TestOpeningActivityCompletionRollsBackSessionProgressAndJourney(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID, DepthReference)
+	beforeJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestOpeningActivityCompletionRollsBackSessionProgressAndJourney(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	afterJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID, DepthReference)
+	afterJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestOpeningDecisionCompletionRollsBackAttemptReviewProgressAndJourney(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID, DepthReference)
+	beforeJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestOpeningDecisionCompletionRollsBackAttemptReviewProgressAndJourney(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	afterJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID, DepthReference)
+	afterJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -58,28 +58,26 @@ func TestUserStoreJourneyRoundTrip(t *testing.T) {
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
 	store := NewUserStore(openOpeningUserTestDB(t))
 	want := CourseJourney{
-		CourseID: "italian-white", Depth: DepthStandard,
-		CurrentLessonID: "giuoco-plan", CurrentActivityID: "giuoco-c3-decision",
-		PathLessonIDs:           []string{"foundations", "giuoco-plan"},
-		LastRecommendedLessonID: "two-knights-plan", ActiveSessionID: "session-1",
-		CreatedAt: now, UpdatedAt: now,
+		CourseID: "italian-white", CurrentLessonID: "giuoco-plan",
+		PathLessonIDs: []string{"foundations", "giuoco-plan"},
+		CreatedAt:     now, UpdatedAt: now,
 	}
 	if err := store.SaveJourney(ctx, want); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.Journey(ctx, want.CourseID, DepthReference)
+	got, err := store.Journey(ctx, want.CourseID)
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got=%#v want=%#v err=%v", got, want, err)
 	}
 }
 
-func TestUserStoreJourneyReturnsInitializedFallback(t *testing.T) {
+func TestUserStoreJourneyReturnsInitializedCourse(t *testing.T) {
 	store := NewUserStore(openOpeningUserTestDB(t))
-	got, err := store.Journey(context.Background(), "italian-white", DepthQuick)
+	got, err := store.Journey(context.Background(), "italian-white")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CourseID != "italian-white" || got.Depth != DepthQuick || got.PathLessonIDs == nil {
+	if got.CourseID != "italian-white" || got.PathLessonIDs == nil {
 		t.Fatalf("journey = %#v", got)
 	}
 }
@@ -240,10 +238,9 @@ func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T)
 		t.Fatal(err)
 	}
 	beforeJourney := CourseJourney{
-		CourseID: session.CourseID, Depth: session.Depth,
-		CurrentLessonID: session.LessonID, CurrentActivityID: "decision-c3",
-		PathLessonIDs: []string{session.LessonID}, ActiveSessionID: session.ID,
-		CreatedAt: now, UpdatedAt: now,
+		CourseID: session.CourseID, CurrentLessonID: session.LessonID,
+		PathLessonIDs: []string{session.LessonID},
+		CreatedAt:     now, UpdatedAt: now,
 	}
 	if err := store.SaveJourney(ctx, beforeJourney); err != nil {
 		t.Fatal(err)
@@ -270,7 +267,8 @@ func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T)
 	previousGenerationID := session.GenerationID
 	session.GenerationID = "generation-2"
 	updatedJourney := beforeJourney
-	updatedJourney.CurrentActivityID = "recap"
+	updatedJourney.CurrentLessonID = "replacement-lesson"
+	updatedJourney.PathLessonIDs = []string{"replacement-lesson"}
 	updatedJourney.UpdatedAt = now.Add(time.Minute)
 	err = store.ApplyCourseRevision(ctx, CourseRevision{
 		CourseID:           session.CourseID,
@@ -289,7 +287,7 @@ func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T)
 	if err != nil || loaded.GenerationID != previousGenerationID {
 		t.Fatalf("session after rollback = %+v, err=%v", loaded, err)
 	}
-	afterJourney, err := store.Journey(ctx, session.CourseID, DepthReference)
+	afterJourney, err := store.Journey(ctx, session.CourseID)
 	if err != nil || !reflect.DeepEqual(afterJourney, beforeJourney) {
 		t.Fatalf("journey after rollback = %+v, want %+v, err=%v", afterJourney, beforeJourney, err)
 	}

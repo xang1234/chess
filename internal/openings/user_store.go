@@ -104,15 +104,11 @@ type LessonProgress struct {
 }
 
 type CourseJourney struct {
-	CourseID                string
-	Depth                   Depth
-	CurrentLessonID         string
-	CurrentActivityID       string
-	PathLessonIDs           []string
-	LastRecommendedLessonID string
-	ActiveSessionID         string
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	CourseID        string
+	CurrentLessonID string
+	PathLessonIDs   []string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type ActivityProgressUpdate struct {

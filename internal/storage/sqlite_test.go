@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 		migrations int
 	}{
 		{schema: "puzzles", table: "puzzle_cores", migrations: 1},
-		{schema: "user", table: "profile", migrations: 5},
+		{schema: "user", table: "profile", migrations: 6},
 		{schema: "library", table: "library_metadata", migrations: 1},
 		{schema: "courses", table: "course_generations", migrations: 2},
 	}
@@ -96,7 +97,7 @@ func TestUserMigration005CreatesOpeningLearningState(t *testing.T) {
 	}
 }
 
-func TestUserMigration005BackfillsOpeningJourneyAndActivityProgress(t *testing.T) {
+func TestUserMigration006MakesOpeningPreferenceDepthCanonical(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "user.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -182,37 +183,54 @@ func TestUserMigration005BackfillsOpeningJourneyAndActivityProgress(t *testing.T
 		)
 	}
 
-	var depth, lessonID, activityID, pathJSON, recommendedID, sessionID string
+	var lessonID, pathJSON string
 	var journeyCreatedAt, journeyUpdatedAt int64
 	if err := db.QueryRow(
-		`SELECT depth, current_lesson_id, current_activity_id, path_lesson_ids_json,
-		        last_recommended_lesson_id, active_session_id, created_at, updated_at
+		`SELECT current_lesson_id, path_lesson_ids_json, created_at, updated_at
 		 FROM opening_course_journeys WHERE course_id = ?`,
 		"italian-white",
 	).Scan(
-		&depth, &lessonID, &activityID, &pathJSON, &recommendedID, &sessionID,
-		&journeyCreatedAt, &journeyUpdatedAt,
+		&lessonID, &pathJSON, &journeyCreatedAt, &journeyUpdatedAt,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if depth != "standard" || lessonID != "giuoco-plan" || activityID != "" ||
-		pathJSON != `["giuoco-plan"]` || recommendedID != "" || sessionID != "session-1" ||
+	if lessonID != "giuoco-plan" || pathJSON != `["giuoco-plan"]` ||
 		journeyCreatedAt != createdAt || journeyUpdatedAt != updatedAt {
 		t.Fatalf(
-			"migrated journey depth=%s lesson=%s activity=%s path=%s recommended=%s session=%s created=%d updated=%d",
-			depth, lessonID, activityID, pathJSON, recommendedID, sessionID, journeyCreatedAt, journeyUpdatedAt,
+			"migrated journey lesson=%s path=%s created=%d updated=%d",
+			lessonID, pathJSON, journeyCreatedAt, journeyUpdatedAt,
 		)
 	}
 
-	var preferenceDepth, preferencePath string
+	var migratedDepth string
 	if err := db.QueryRow(
-		`SELECT depth, path_lesson_ids_json FROM opening_course_journeys WHERE course_id = ?`,
-		"preference-only",
-	).Scan(&preferenceDepth, &preferencePath); err != nil {
+		`SELECT depth FROM opening_preferences WHERE course_id = ?`,
+		"italian-white",
+	).Scan(&migratedDepth); err != nil {
 		t.Fatal(err)
 	}
-	if preferenceDepth != "reference" || preferencePath != `[]` {
-		t.Fatalf("preference-only journey depth=%s path=%s", preferenceDepth, preferencePath)
+	if migratedDepth != "standard" {
+		t.Fatalf("canonical preference depth=%s, want standard", migratedDepth)
+	}
+
+	rows, err := db.Query(`PRAGMA table_info(opening_course_journeys)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	columns := []string{}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, dataType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatal(err)
+		}
+		columns = append(columns, name)
+	}
+	wantColumns := []string{"course_id", "current_lesson_id", "path_lesson_ids_json", "created_at", "updated_at"}
+	if !reflect.DeepEqual(columns, wantColumns) {
+		t.Fatalf("journey columns=%v, want %v", columns, wantColumns)
 	}
 }
 

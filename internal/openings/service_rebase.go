@@ -126,16 +126,14 @@ func (s *Service) rebaseLesson(
 	oldLesson, oldExists := oldCourse.Lessons[session.LessonID]
 	newLesson, newExists := newCourse.Lessons[session.LessonID]
 	now := s.now().UTC()
-	journey, err := s.store.Journey(ctx, session.CourseID, session.Depth)
+	journey, err := s.store.Journey(ctx, session.CourseID)
 	if err != nil {
 		return nil, err
 	}
 	if journey.CreatedAt.IsZero() {
 		journey.CreatedAt = now
 	}
-	journey.Depth = session.Depth
 	journey.CurrentLessonID = session.LessonID
-	journey.ActiveSessionID = session.ID
 	journey.UpdatedAt = now
 	if newExists {
 		journey.PathLessonIDs = teachingPathLessonIDs(newCourse, session.LessonID)
@@ -159,7 +157,6 @@ func (s *Service) rebaseLesson(
 				session.State.Attempt.PromptID = newActivity.PromptID
 			}
 			session.State.Restart = nil
-			journey.CurrentActivityID = newActivity.ActivityID
 			if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
 				PreviousGenerationID: previousGenerationID,
 				Session:              session,
@@ -176,10 +173,6 @@ func (s *Service) rebaseLesson(
 	session.State.Restart = compatibleActivityCheckpoint(
 		oldCourse, oldLesson, newCourse, newLesson, session.ActivityIndex,
 	)
-	journey.CurrentActivityID = ""
-	if newExists && session.State.Restart != nil && session.State.Restart.ActivityIndex < len(newLesson.Activities) {
-		journey.CurrentActivityID = newLesson.Activities[session.State.Restart.ActivityIndex].ActivityID
-	}
 	if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
 		PreviousGenerationID: session.GenerationID,
 		Session:              session,
@@ -326,18 +319,15 @@ func (s *Service) Restart(ctx context.Context, sessionID string) (OpeningSession
 	session.Status = OpeningStatusActive
 	session.ActivityIndex = activityIndex
 	session.State = state
-	journey, err := s.store.Journey(ctx, session.CourseID, session.Depth)
+	journey, err := s.store.Journey(ctx, session.CourseID)
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
 	if journey.CreatedAt.IsZero() {
 		journey.CreatedAt = now
 	}
-	journey.Depth = session.Depth
 	journey.CurrentLessonID = lesson.LessonID
-	journey.CurrentActivityID = activity.ActivityID
 	journey.PathLessonIDs = teachingPathLessonIDs(course, lesson.LessonID)
-	journey.ActiveSessionID = session.ID
 	journey.UpdatedAt = now
 	if err := s.applyCourseRevision(ctx, course, &SessionRebase{
 		PreviousGenerationID: previousGenerationID,

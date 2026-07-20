@@ -10,34 +10,25 @@ import (
 	"time"
 )
 
-func (s *UserStore) Journey(ctx context.Context, courseID string, fallback Depth) (CourseJourney, error) {
+func (s *UserStore) Journey(ctx context.Context, courseID string) (CourseJourney, error) {
 	if s == nil || s.db == nil {
 		return CourseJourney{}, errors.New("opening user store is required")
 	}
 	if err := validateCourseKey(courseID); err != nil {
 		return CourseJourney{}, err
 	}
-	if _, ok := depthRank(fallback); !ok {
-		return CourseJourney{}, fmt.Errorf("invalid fallback opening depth %q", fallback)
-	}
-	journey := CourseJourney{CourseID: courseID, Depth: fallback, PathLessonIDs: []string{}}
+	journey := CourseJourney{CourseID: courseID, PathLessonIDs: []string{}}
 	var pathJSON string
 	var createdAt, updatedAt int64
 	err := s.db.QueryRowContext(
 		ctx,
-		`SELECT course_id, depth, current_lesson_id, current_activity_id,
-		        path_lesson_ids_json, last_recommended_lesson_id, active_session_id,
-		        created_at, updated_at
+		`SELECT course_id, current_lesson_id, path_lesson_ids_json, created_at, updated_at
 		 FROM opening_course_journeys WHERE course_id = ?`,
 		courseID,
 	).Scan(
 		&journey.CourseID,
-		&journey.Depth,
 		&journey.CurrentLessonID,
-		&journey.CurrentActivityID,
 		&pathJSON,
-		&journey.LastRecommendedLessonID,
-		&journey.ActiveSessionID,
 		&createdAt,
 		&updatedAt,
 	)
@@ -77,26 +68,16 @@ func saveJourneyTx(ctx context.Context, execer contextExecer, journey CourseJour
 	_, err = execer.ExecContext(
 		ctx,
 		`INSERT INTO opening_course_journeys(
-		   course_id, depth, current_lesson_id, current_activity_id,
-		   path_lesson_ids_json, last_recommended_lesson_id, active_session_id,
-		   created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		   course_id, current_lesson_id, path_lesson_ids_json, created_at, updated_at
+		 ) VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(course_id) DO UPDATE SET
-		   depth = excluded.depth,
 		   current_lesson_id = excluded.current_lesson_id,
-		   current_activity_id = excluded.current_activity_id,
 		   path_lesson_ids_json = excluded.path_lesson_ids_json,
-		   last_recommended_lesson_id = excluded.last_recommended_lesson_id,
-		   active_session_id = excluded.active_session_id,
 		   created_at = opening_course_journeys.created_at,
 		   updated_at = excluded.updated_at`,
 		journey.CourseID,
-		journey.Depth,
 		journey.CurrentLessonID,
-		journey.CurrentActivityID,
 		string(pathJSON),
-		journey.LastRecommendedLessonID,
-		journey.ActiveSessionID,
 		journey.CreatedAt.UnixMilli(),
 		journey.UpdatedAt.UnixMilli(),
 	)
@@ -106,9 +87,6 @@ func saveJourneyTx(ctx context.Context, execer contextExecer, journey CourseJour
 func validateCourseJourney(journey CourseJourney) error {
 	if err := validateCourseKey(journey.CourseID); err != nil {
 		return err
-	}
-	if _, ok := depthRank(journey.Depth); !ok {
-		return fmt.Errorf("invalid opening journey depth %q", journey.Depth)
 	}
 	if journey.CreatedAt.IsZero() || journey.UpdatedAt.IsZero() {
 		return errors.New("opening journey timestamps are required")

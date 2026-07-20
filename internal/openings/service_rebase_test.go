@@ -85,9 +85,8 @@ func TestOpeningRebaseKeepsMatchingActivityAndJourney(t *testing.T) {
 		resumed.Current.ActivityID != "giuoco-c3-decision" {
 		t.Fatalf("resumed=%+v err=%v", resumed, err)
 	}
-	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID, DepthReference)
-	if err != nil || journey.CurrentActivityID != "giuoco-c3-decision" ||
-		journey.ActiveSessionID != paused.SessionID {
+	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID)
+	if err != nil || journey.CurrentLessonID != "giuoco-plan" {
 		t.Fatalf("journey=%+v err=%v", journey, err)
 	}
 	stored, err := fixture.store.LoadSession(context.Background(), paused.SessionID)
@@ -146,8 +145,8 @@ func TestOpeningRebaseRemovedActivityRestartsAtNearestCompatibleActivity(t *test
 	if err != nil || stored.State.Restart == nil || stored.State.Restart.ActivityIndex != 0 {
 		t.Fatalf("stored=%+v err=%v", stored, err)
 	}
-	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID, DepthReference)
-	if err != nil || journey.CurrentActivityID != "giuoco-concept" {
+	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID)
+	if err != nil || journey.CurrentLessonID != "giuoco-plan" {
 		t.Fatalf("journey=%+v err=%v", journey, err)
 	}
 	restarted, err := fixture.service.Restart(context.Background(), paused.SessionID)
@@ -180,9 +179,8 @@ func TestOpeningRebaseRemovedLessonRestartsAtFirstVisibleTeachingNode(t *testing
 		restarted.Current.ActivityID != "giuoco-concept" {
 		t.Fatalf("restarted=%+v err=%v", restarted, err)
 	}
-	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID, DepthReference)
-	if err != nil || journey.CurrentLessonID != "replacement-plan" ||
-		journey.CurrentActivityID != "giuoco-concept" {
+	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID)
+	if err != nil || journey.CurrentLessonID != "replacement-plan" {
 		t.Fatalf("journey=%+v err=%v", journey, err)
 	}
 }

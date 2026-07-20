@@ -51,14 +51,13 @@ func (s *Service) completeLessonActivity(
 		return OpeningActivityResult{}, err
 	}
 	now := s.now().UTC()
-	journey, err := s.store.Journey(ctx, session.CourseID, session.Depth)
+	journey, err := s.store.Journey(ctx, session.CourseID)
 	if err != nil {
 		return OpeningActivityResult{}, err
 	}
 	if journey.CreatedAt.IsZero() {
 		journey.CreatedAt = now
 	}
-	journey.Depth = session.Depth
 	journey.CurrentLessonID = session.LessonID
 	journey.PathLessonIDs = teachingPathLessonIDs(course, session.LessonID)
 	journey.UpdatedAt = now
@@ -76,8 +75,6 @@ func (s *Service) completeLessonActivity(
 		if err != nil {
 			return OpeningActivityResult{}, err
 		}
-		journey.CurrentActivityID = lesson.Activities[nextIndex].ActivityID
-		journey.ActiveSessionID = session.ID
 	} else {
 		session.Status = OpeningStatusCompleted
 		if finalFEN != "" {
@@ -94,13 +91,10 @@ func (s *Service) completeLessonActivity(
 			}
 		}
 		session.State.Attempt = nil
-		journey.CurrentActivityID = ""
-		journey.ActiveSessionID = ""
-		checkpoint, err = s.lessonCheckpointAfterCompletion(ctx, course, session.LessonID, journey)
+		checkpoint, err = s.lessonCheckpointAfterCompletion(ctx, course, session.LessonID, session.Depth, journey)
 		if err != nil {
 			return OpeningActivityResult{}, err
 		}
-		journey.LastRecommendedLessonID = checkpoint.RecommendedLessonID
 	}
 
 	if err := s.store.CompleteLessonActivity(ctx, LessonActivityCompletion{
@@ -125,9 +119,10 @@ func (s *Service) lessonCheckpointAfterCompletion(
 	ctx context.Context,
 	course CompiledCourse,
 	lessonID string,
+	depth Depth,
 	journey CourseJourney,
 ) (*OpeningRoadmapCheckpoint, error) {
-	projection, err := s.projectTeachingTree(ctx, course, journey.Depth, journey, nil)
+	projection, err := s.projectTeachingTree(ctx, course, depth, journey, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -136,19 +131,19 @@ func (s *Service) lessonCheckpointAfterCompletion(
 	progress.Completed = true
 	progress.CompletedActivities = progress.TotalActivities
 	projection.progressByLesson[lessonID] = progress
-	recommendedID := recommendTeachingLesson(course, journey.Depth, journey, nil, projection.progressByLesson)
+	recommendedID := recommendTeachingLesson(course, depth, journey, nil, projection.progressByLesson)
 	recommendedTitle := ""
 	if recommendedID != "" {
 		recommendedTitle = course.Lessons[recommendedID].Title
 	}
 	completedLessons := projection.completedLessons
-	if completedNow && visibleAtDepth(course.Lessons[lessonID].MinimumDepth, journey.Depth) {
+	if completedNow && visibleAtDepth(course.Lessons[lessonID].MinimumDepth, depth) {
 		completedLessons++
 	}
 	available := []string{}
 	for _, edge := range course.LessonChildren[lessonID] {
 		child, exists := course.Lessons[edge.ToLessonID]
-		if exists && visibleAtDepth(child.MinimumDepth, journey.Depth) {
+		if exists && visibleAtDepth(child.MinimumDepth, depth) {
 			available = append(available, child.LessonID)
 		}
 	}

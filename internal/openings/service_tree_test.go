@@ -35,9 +35,6 @@ func newTreeServiceFixture(t *testing.T) treeServiceFixture {
 func (fixture treeServiceFixture) saveJourney(t *testing.T, journey CourseJourney) {
 	t.Helper()
 	journey.CourseID = fixture.compiled.Pack.CourseID
-	if journey.Depth == "" {
-		journey.Depth = fixture.compiled.Pack.DefaultDepth
-	}
 	journey.CreatedAt = fixture.now
 	journey.UpdatedAt = fixture.now
 	if journey.PathLessonIDs == nil {
@@ -98,7 +95,7 @@ func TestOpeningHomeReturnsTeachingTreeAndRecommendation(t *testing.T) {
 func TestRecommendationUsesExactVisibleResumableLesson(t *testing.T) {
 	fixture := newTreeServiceFixture(t)
 	ctx := context.Background()
-	session, err := fixture.store.CreateSession(ctx, SessionSeed{
+	_, err := fixture.store.CreateSession(ctx, SessionSeed{
 		CourseID: fixture.compiled.Pack.CourseID, GenerationID: fixture.result.GenerationID,
 		LessonID: "two-knights-plan", Mode: OpeningModeLesson, Depth: DepthReference,
 		State: SessionState{Position: PositionState{
@@ -110,8 +107,8 @@ func TestRecommendationUsesExactVisibleResumableLesson(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture.saveJourney(t, CourseJourney{
-		CurrentLessonID: "two-knights-plan", CurrentActivityID: "two-knights-d3-decision",
-		PathLessonIDs: []string{"giuoco-plan", "two-knights-plan"}, ActiveSessionID: session.ID,
+		CurrentLessonID: "two-knights-plan",
+		PathLessonIDs:   []string{"giuoco-plan", "two-knights-plan"},
 	})
 
 	home, err := fixture.service.Home(ctx)
@@ -314,7 +311,7 @@ func TestPausedReviewStaysSeparateFromContinueLearning(t *testing.T) {
 
 func TestSetDepthPersistsJourneyAndRecommendsAroundHiddenCurrentLesson(t *testing.T) {
 	fixture := newTreeServiceFixture(t)
-	session, err := fixture.store.CreateSession(context.Background(), SessionSeed{
+	_, err := fixture.store.CreateSession(context.Background(), SessionSeed{
 		CourseID: fixture.compiled.Pack.CourseID, GenerationID: fixture.result.GenerationID,
 		LessonID: "two-knights-plan", Mode: OpeningModeLesson, Depth: DepthReference,
 		State: SessionState{Position: PositionState{
@@ -326,17 +323,18 @@ func TestSetDepthPersistsJourneyAndRecommendsAroundHiddenCurrentLesson(t *testin
 		t.Fatal(err)
 	}
 	fixture.saveJourney(t, CourseJourney{
-		CurrentLessonID: "two-knights-plan", CurrentActivityID: "two-knights-d3-decision",
-		PathLessonIDs: []string{"giuoco-plan", "two-knights-plan"}, ActiveSessionID: session.ID,
+		CurrentLessonID: "two-knights-plan",
+		PathLessonIDs:   []string{"giuoco-plan", "two-knights-plan"},
 	})
 	if err := fixture.service.SetDepth(context.Background(), fixture.compiled.Pack.CourseID, DepthQuick); err != nil {
 		t.Fatal(err)
 	}
-	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID, DepthReference)
+	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if journey.Depth != DepthQuick || journey.CurrentLessonID != "two-knights-plan" || len(journey.PathLessonIDs) != 2 {
+	depth, depthErr := fixture.store.Depth(context.Background(), fixture.compiled.Pack.CourseID, DepthReference)
+	if depthErr != nil || depth != DepthQuick || journey.CurrentLessonID != "two-knights-plan" || len(journey.PathLessonIDs) != 2 {
 		t.Fatalf("journey = %+v", journey)
 	}
 	home, err := fixture.service.Home(context.Background())

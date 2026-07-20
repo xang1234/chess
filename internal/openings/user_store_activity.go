@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,9 +30,6 @@ func (s *UserStore) CreateLessonSession(
 	if seed.CourseID != journey.CourseID || seed.LessonID != journey.CurrentLessonID {
 		return StoredSession{}, CourseJourney{}, errors.New("opening lesson session and journey must identify the same course and lesson")
 	}
-	if strings.TrimSpace(journey.CurrentActivityID) == "" {
-		return StoredSession{}, CourseJourney{}, errors.New("opening journey current activity ID is required")
-	}
 	stateJSON, err := encodeSessionState(seed.State)
 	if err != nil {
 		return StoredSession{}, CourseJourney{}, err
@@ -43,7 +39,6 @@ func (s *UserStore) CreateLessonSession(
 		LessonID: seed.LessonID, Mode: seed.Mode, Status: OpeningStatusActive,
 		Depth: seed.Depth, ActivityIndex: seed.ActivityIndex, State: seed.State,
 	}
-	journey.ActiveSessionID = session.ID
 	journey.UpdatedAt = now
 	if journey.CreatedAt.IsZero() {
 		journey.CreatedAt = now
@@ -60,18 +55,6 @@ func (s *UserStore) CreateLessonSession(
 		return StoredSession{}, CourseJourney{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(
-		ctx,
-		`UPDATE opening_course_journeys
-		 SET active_session_id = '', updated_at = ?
-		 WHERE active_session_id IN (
-		   SELECT session_id FROM opening_sessions
-		   WHERE status IN ('active','paused','restart_required')
-		 )`,
-		now.UnixMilli(),
-	); err != nil {
-		return StoredSession{}, CourseJourney{}, fmt.Errorf("detach previous opening journey: %w", err)
-	}
 	if _, err := tx.ExecContext(
 		ctx,
 		`UPDATE opening_sessions SET status = 'completed', updated_at = ?
