@@ -198,6 +198,12 @@ input, select {
 .opening-progress { display: grid; gap: 6px; }
 .opening-progress strong { font-size: 1.2rem; }
 .opening-progress span { color: var(--ink-700); }
+.course-control {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  margin: 0 0 20px;
+}
 .depth-control { margin: 0; }
 .opening-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0 28px; }
 .opening-tree-scroll { max-width: 100%; overflow: hidden; }

@@ -177,6 +177,33 @@ test('opens the course hub and starts a visible opening lesson', async () => {
   expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
 })
 
+test('keeps an explicit opening course selection across the app shell', async () => {
+	const secondCourse = {
+		...fakeOpeningHome.courses[0],
+		courseId: 'queens-gambit-white',
+		title: "Queen's Gambit for White"
+	}
+	const startOpeningLesson = vi.fn(async () => ({
+		...fakeOpeningSession,
+		courseId: secondCourse.courseId,
+		courseTitle: secondCourse.title
+	}))
+	const api = fakeAPI({
+		getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+		getOpeningHome: async () => ({ courses: [fakeOpeningHome.courses[0], secondCourse] }),
+		startOpeningLesson
+	})
+	render(App, { loadAPI: async () => normalApplication(api) })
+
+	await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
+	await fireEvent.change(screen.getByLabelText('Opening course'), {
+		target: { value: secondCourse.courseId }
+	})
+	expect(await screen.findByRole('heading', { name: secondCourse.title })).toBeInTheDocument()
+	await fireEvent.click(screen.getByRole('button', { name: 'Study Giuoco Piano' }))
+	expect(startOpeningLesson).toHaveBeenCalledWith(secondCourse.courseId, 'giuoco-c3')
+})
+
 test('continues from a lesson checkpoint directly into the recommended branch', async () => {
   const baseCourse = fakeOpeningHome.courses[0]
   const courseHome = {
@@ -374,22 +401,34 @@ async function openAndRevealOpening(
   pending: ActiveOpeningSessionView | CompletedOpeningSessionView,
   puzzle: SessionView | null = null
 ): Promise<void> {
+	let activityPersisted = false
   const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
     resumeSession: async () => puzzle,
-    getOpeningHome: async () => fakeOpeningHome,
+    getOpeningHome: async () => ({
+		...fakeOpeningHome,
+		courses: fakeOpeningHome.courses.map((course) => ({
+			...course,
+			hasResumable: activityPersisted && pending.status !== 'completed',
+			currentLessonId: activityPersisted && pending.status !== 'completed' ? pending.lessonId : undefined,
+			currentPath: activityPersisted && pending.status !== 'completed' ? pending.path : []
+		}))
+	}),
     startOpeningLesson: async () => interactiveOpening(),
-    revealOpeningMove: async () => ({
-      session: pending,
-      activityCompleted: true,
-      feedback: 'expected',
-      message: 'Course move shown.',
-      appliedMoves: [{
-        uci: 'c2c3',
-        resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
-      }],
-      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
-    })
+		revealOpeningMove: async () => {
+			activityPersisted = true
+			return {
+				session: pending,
+				activityCompleted: true as const,
+				feedback: 'expected' as const,
+				message: 'Course move shown.',
+				appliedMoves: [{
+					uci: 'c2c3',
+					resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+				}],
+				finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+			}
+		}
   })
   render(App, { loadAPI: async () => normalApplication(api) })
   await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
@@ -404,7 +443,7 @@ test('keeps the persisted next opening step resumable when Home leaves its solve
   await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
 
   expect(await screen.findByRole('button', { name: 'Learn Openings' }))
-    .toHaveTextContent('Continue your Italian course')
+    .toHaveTextContent('Continue Italian Game for White')
 })
 
 test('finishing an opening lesson does not clear an active puzzle session', async () => {
@@ -415,7 +454,7 @@ test('finishing an opening lesson does not clear an active puzzle session', asyn
 
   expect(await screen.findByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Learn Openings' }))
-    .not.toHaveTextContent('Continue your Italian course')
+    .not.toHaveTextContent('Continue Italian Game for White')
 })
 
 test('uses catalogued learner bounds on the parent settings screen', async () => {

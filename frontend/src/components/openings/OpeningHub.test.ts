@@ -108,3 +108,25 @@ test('shows private import guidance when no course is installed', () => {
   expect(screen.queryByRole('button', { name: /Start / })).not.toBeInTheDocument()
   expect(screen.getByText('Course storage is available.')).toBeInTheDocument()
 })
+
+test('renders the explicitly selected course when several courses are available', async () => {
+	const second = {
+		...fakeOpeningHome.courses[0],
+		courseId: 'queens-gambit-white',
+		title: "Queen's Gambit for White",
+		recommendedLessonTitle: 'Build the d4 centre'
+	}
+	const { component } = render(OpeningHub, {
+		home: { courses: [fakeOpeningHome.courses[0], second] },
+		selectedCourseId: second.courseId
+	})
+	const select = vi.fn()
+	component.$on('select', select)
+
+	expect(screen.getByRole('heading', { name: "Queen's Gambit for White" })).toBeInTheDocument()
+	expect(screen.queryByRole('heading', { name: 'Italian Game for White' })).not.toBeInTheDocument()
+	await fireEvent.change(screen.getByLabelText('Opening course'), {
+		target: { value: 'synthetic-italian' }
+	})
+	expect(select).toHaveBeenCalledWith(expect.objectContaining({ detail: 'synthetic-italian' }))
+})

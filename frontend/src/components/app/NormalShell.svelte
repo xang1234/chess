@@ -5,7 +5,6 @@
     NormalAPI,
     OpeningDepth,
     OpeningHomeView,
-    OpeningPathItem,
     OpeningSessionView,
     SessionView
   } from '../../lib/api'
@@ -31,13 +30,13 @@
   let activeSession: SessionView | null = null
   let deferredSession: SessionView | null = null
   let openingHome: OpeningHomeView = { courses: [] }
+  let selectedOpeningCourseId = ''
   let activeOpeningSession: OpeningSessionView | null = null
   let deferredOpeningSession: OpeningSessionView | null = null
   let explorerCourseId = ''
   let explorerPositionId = ''
   let explorerDepth: OpeningDepth = 'reference'
   let error = ''
-  $: activeOpeningPath = openingPath(activeOpeningSession)
   const puzzleImportSession = createImportSession(() => api, 'puzzle')
   const courseImportSession = createImportSession(() => api, 'course')
   let disconnectImport = (): void => {}
@@ -84,6 +83,7 @@
         if (openingNotice && !openingHome.notice) {
           openingHome = { ...openingHome, notice: openingNotice }
         }
+        reconcileOpeningCourseSelection()
         if ($screen !== 'legal') screen.set('home')
       }
     } catch (cause) {
@@ -109,6 +109,31 @@
     openingHome = result.error
       ? { ...result.value, notice: result.error }
       : result.value
+    reconcileOpeningCourseSelection()
+  }
+
+  function reconcileOpeningCourseSelection(): void {
+    const sessionCourseId = activeOpeningSession?.courseId
+    if (sessionCourseId && openingHome.courses.some((course) => course.courseId === sessionCourseId)) {
+      selectedOpeningCourseId = sessionCourseId
+      return
+    }
+    if (openingHome.courses.some((course) => course.courseId === selectedOpeningCourseId)) return
+    const [onlyCourse] = openingHome.courses
+    selectedOpeningCourseId = openingHome.courses.length === 1 && onlyCourse
+      ? onlyCourse.courseId
+      : ''
+  }
+
+  function selectOpeningCourse(event: CustomEvent<string>): void {
+    if (openingHome.courses.some((course) => course.courseId === event.detail)) {
+      selectedOpeningCourseId = event.detail
+    }
+  }
+
+  function openOpeningHub(): void {
+    reconcileOpeningCourseSelection()
+    screen.set('openings')
   }
 
   function errorMessage(cause: unknown): string {
@@ -144,45 +169,35 @@
   function adoptVisibleOpeningSession(event: CustomEvent<OpeningSessionView>): void {
     activeOpeningSession = event.detail
     deferredOpeningSession = null
-    syncOpeningResume(event.detail)
+    selectedOpeningCourseId = event.detail.courseId
   }
 
   function rememberPersistedOpeningSession(event: CustomEvent<OpeningSessionView>): void {
     deferredOpeningSession = event.detail
-    syncOpeningResume(event.detail)
+    selectedOpeningCourseId = event.detail.courseId
   }
 
-  function syncOpeningResume(session: OpeningSessionView): void {
-    openingHome = {
-      ...openingHome,
-      courses: openingHome.courses.map((course) => course.courseId === session.courseId
-        ? {
-          ...course,
-          hasResumable: session.mode === 'lesson' && session.status !== 'completed',
-          hasResumableReview: session.mode === 'review' && session.status !== 'completed',
-          ...(session.status !== 'completed' ? { nextLessonId: session.lessonId } : {})
-        }
-        : course)
-    }
-  }
-
-  function goHome(): void {
+  async function goHome(): Promise<void> {
     if (deferredSession) {
       activeSession = deferredSession.status !== 'completed' && deferredSession.current
         ? deferredSession
         : null
       deferredSession = null
     }
+    let refreshOpenings = false
     if (deferredOpeningSession) {
+      selectedOpeningCourseId = deferredOpeningSession.courseId
       activeOpeningSession = deferredOpeningSession.status === 'completed'
         ? null
         : deferredOpeningSession
-      syncOpeningResume(deferredOpeningSession)
       deferredOpeningSession = null
+      refreshOpenings = true
     } else if (activeOpeningSession) {
-      syncOpeningResume(activeOpeningSession)
+      selectedOpeningCourseId = activeOpeningSession.courseId
       if (activeOpeningSession.status === 'completed') activeOpeningSession = null
+      refreshOpenings = true
     }
+    if (refreshOpenings) await refreshOpeningHome()
     screen.set('home')
   }
 
@@ -193,7 +208,7 @@
       screen.set('home')
       return
     }
-    goHome()
+    void goHome()
   }
 
   function startPractice(event: CustomEvent<SessionView>): void {
@@ -203,14 +218,13 @@
 
   async function leaveOpeningLesson(event: CustomEvent<{ completed: boolean }>): Promise<void> {
     if (event.detail.completed) {
-      if (activeOpeningSession) syncOpeningResume(activeOpeningSession)
       activeOpeningSession = null
       deferredOpeningSession = null
       await refreshOpeningHome()
       screen.set('home')
       return
     }
-    goHome()
+    await goHome()
   }
 
   async function changeOpeningDepth(
@@ -218,7 +232,8 @@
   ): Promise<void> {
     try {
       await api.setOpeningDepth(event.detail.courseId, event.detail.depth)
-      openingHome = await api.getOpeningHome()
+      selectedOpeningCourseId = event.detail.courseId
+      await refreshOpeningHome()
     } catch (cause) {
       showOpeningError(cause)
     }
@@ -228,12 +243,12 @@
     event: CustomEvent<{ courseId: string; lessonId: string }>
   ): Promise<void> {
     try {
+      selectedOpeningCourseId = event.detail.courseId
       activeOpeningSession = await api.startOpeningLesson(
         event.detail.courseId,
         event.detail.lessonId
       )
       deferredOpeningSession = null
-      syncOpeningResume(activeOpeningSession)
       await refreshOpeningHome()
       screen.set('opening-lesson')
     } catch (cause) {
@@ -246,7 +261,7 @@
       activeOpeningSession = await api.resumeOpeningSession()
       if (!activeOpeningSession) throw new Error('No opening lesson is ready to continue.')
       deferredOpeningSession = null
-      syncOpeningResume(activeOpeningSession)
+      selectedOpeningCourseId = activeOpeningSession.courseId
       screen.set('opening-lesson')
     } catch (cause) {
       showOpeningError(cause)
@@ -255,9 +270,9 @@
 
   async function startOpeningReview(event: CustomEvent<string>): Promise<void> {
     try {
+      selectedOpeningCourseId = event.detail
       activeOpeningSession = await api.startOpeningReview(event.detail)
       deferredOpeningSession = null
-      syncOpeningResume(activeOpeningSession)
       screen.set('opening-lesson')
     } catch (cause) {
       showOpeningError(cause)
@@ -269,26 +284,6 @@
     if (activeOpeningSession?.status === 'completed') activeOpeningSession = null
     deferredOpeningSession = null
     screen.set('openings')
-  }
-
-  function openingPath(session: OpeningSessionView | null): OpeningPathItem[] {
-    if (!session) return []
-    const course = openingHome.courses.find((candidate) => candidate.courseId === session.courseId)
-    if (!course) return []
-    const nodes = new Map(course.tree.nodes.map((node) => [node.lessonId, node]))
-    if (!nodes.has(session.lessonId)) return course.currentPath
-    const parents = new Map(course.tree.edges.map((edge) => [edge.toLessonId, edge.fromLessonId]))
-    const path: OpeningPathItem[] = []
-    const seen = new Set<string>()
-    let lessonId: string | undefined = session.lessonId
-    while (lessonId && !seen.has(lessonId)) {
-      seen.add(lessonId)
-      const node = nodes.get(lessonId)
-      if (!node) break
-      path.push({ lessonId, title: node.title })
-      lessonId = parents.get(lessonId)
-    }
-    return path.reverse()
   }
 
   function exploreOpening(
@@ -331,14 +326,16 @@
         {openingHome}
         on:training={openTraining}
         on:practice={() => screen.set('practice')}
-        on:openings={() => screen.set('openings')}
+        on:openings={openOpeningHub}
         on:games={() => screen.set('games')}
         on:parent={() => screen.set('parent')}
       />
     {:else if $screen === 'openings'}
       <OpeningHub
         home={openingHome}
+        selectedCourseId={selectedOpeningCourseId}
         on:back={goHome}
+        on:select={selectOpeningCourse}
         on:depth={changeOpeningDepth}
         on:lesson={startOpeningLesson}
         on:resume={resumeOpening}
@@ -348,7 +345,6 @@
     {:else if $screen === 'opening-lesson' && activeOpeningSession}
       <OpeningLessonScreen
         session={activeOpeningSession}
-        path={activeOpeningPath}
         on:change={adoptVisibleOpeningSession}
         on:persisted={rememberPersistedOpeningSession}
         on:continue={startOpeningLesson}

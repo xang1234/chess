@@ -4,9 +4,11 @@
   import OpeningTeachingTree from './OpeningTeachingTree.svelte'
 
   export let home: OpeningHomeView
+  export let selectedCourseId = ''
 
   const dispatch = createEventDispatcher<{
     back: void
+    select: string
     depth: { courseId: string; depth: OpeningDepth }
     lesson: { courseId: string; lessonId: string }
     resume: void
@@ -14,7 +16,8 @@
     explore: { courseId: string; positionId: string }
   }>()
 
-  $: course = home.courses[0]
+  $: onlyCourse = singleCourse(home)
+  $: course = home.courses.find((candidate) => candidate.courseId === selectedCourseId) ?? onlyCourse
   $: continuationLessonId = course?.hasResumable
     ? course.currentLessonId
     : course?.recommendedLessonId || course?.nextLessonId
@@ -26,6 +29,16 @@
     if (!course) return
     const depth = (event.currentTarget as HTMLSelectElement).value as OpeningDepth
     dispatch('depth', { courseId: course.courseId, depth })
+  }
+
+  function singleCourse(value: OpeningHomeView) {
+    if (value.courses.length !== 1) return undefined
+    const [course] = value.courses
+    return course
+  }
+
+  function changeCourse(event: Event): void {
+    dispatch('select', (event.currentTarget as HTMLSelectElement).value)
   }
 
   function reviewLabel(count: number, resumable: boolean): string {
@@ -60,10 +73,27 @@
     <p class="course-notice" role="status">{home.notice}</p>
   {/if}
 
-  {#if !course}
+  {#if home.courses.length > 1}
+    <label class="course-control">
+      Opening course
+      <select value={course?.courseId ?? ''} on:change={changeCourse}>
+        <option value="" disabled>Choose a course</option>
+        {#each home.courses as candidate (candidate.courseId)}
+          <option value={candidate.courseId}>{candidate.title}</option>
+        {/each}
+      </select>
+    </label>
+  {/if}
+
+  {#if home.courses.length === 0}
     <div class="opening-empty panel">
       <h3>No private course imported</h3>
       <p>Import a private .ctcourse file from Parent settings.</p>
+    </div>
+  {:else if !course}
+    <div class="opening-empty panel">
+      <h3>Choose an opening course</h3>
+      <p>Select the repertoire you want to study.</p>
     </div>
   {:else}
     <div class="opening-overview">

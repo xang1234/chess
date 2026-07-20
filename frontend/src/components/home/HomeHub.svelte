@@ -12,14 +12,16 @@
     parent: void
   }>()
 
-  $: openingCourse = openingHome.courses[0]
-  $: openingCopy = !openingCourse
-    ? 'Import a private course'
-    : openingCourse.hasResumable
-      ? 'Continue your Italian course'
-      : openingCourse.recommendedLessonTitle || openingCourse.nextLessonTitle
-        ? `Next: ${openingCourse.recommendedLessonTitle || openingCourse.nextLessonTitle}`
-        : 'Explore your repertoire'
+  $: openingCopy = openingSummary(openingHome)
+
+  function openingSummary(home: OpeningHomeView): string {
+    if (home.courses.length === 0) return 'Import a private course'
+    if (home.courses.length > 1) return `Choose from ${home.courses.length} opening courses`
+    const [course] = home.courses
+    if (course.hasResumable) return `Continue ${course.title}`
+    const next = course.recommendedLessonTitle || course.nextLessonTitle
+    return next ? `Next: ${next}` : `Explore ${course.title}`
+  }
 </script>
 
 <section class="home-hub" aria-labelledby="home-title">

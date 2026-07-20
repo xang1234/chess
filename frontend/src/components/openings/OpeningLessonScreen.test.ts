@@ -105,6 +105,7 @@ test('renders a board-first teaching step and defers the next step until Continu
   component.$on('change', (event) => changes.push(event.detail))
 
   expect(await screen.findByRole('heading', { name: 'The central plan' })).toBeInTheDocument()
+	 expect(screen.getByRole('navigation', { name: 'Opening course path' })).toHaveTextContent('Giuoco Piano')
   expect(screen.getByText('Opening course · Giuoco Piano')).toBeInTheDocument()
   expect(screen.getByText(/Idea 1 of 3/)).toBeInTheDocument()
   expect(screen.getByText('Prepare d4 without blocking the bishop.')).toBeInTheDocument()
@@ -255,7 +256,6 @@ test('continues a completed lesson through the roadmap checkpoint without return
   const board = boardHarness()
   const { component } = render(OpeningLessonScreen, {
     session: current,
-    path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
     effects: effects(),
     boardAdapterFactory: board.factory
   }, withNormalAPI(fakeAPI({ playOpeningMove: async () => result })))
@@ -308,6 +308,7 @@ test('renders update restart and completion summaries', async () => {
     boardAdapterFactory: boardHarness().factory
   }, withNormalAPI(fakeAPI()))
   expect(await screen.findByRole('heading', { name: 'Opening lesson complete!' })).toBeInTheDocument()
+	 expect(screen.getByText(fakeOpeningSession.courseTitle)).toBeInTheDocument()
   expect(screen.getByText('Your place in the course has been saved.')).toBeInTheDocument()
 })
 

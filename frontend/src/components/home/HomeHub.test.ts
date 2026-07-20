@@ -24,7 +24,7 @@ test('summarises resumable and due opening work without replacing puzzle trainin
     }
   })
   expect(screen.getByRole('button', { name: 'Learn Openings' }))
-    .toHaveTextContent('Continue your Italian course')
+    .toHaveTextContent('Continue Italian Game for White')
   expect(screen.getByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
 
   component.$set({
@@ -37,4 +37,17 @@ test('summarises resumable and due opening work without replacing puzzle trainin
     expect(screen.getByRole('button', { name: 'Learn Openings' }))
       .toHaveTextContent('Next: Giuoco Piano')
   })
+})
+
+test('summarises multiple opening courses without silently choosing the first', () => {
+	render(HomeHub, {
+		openingHome: {
+			courses: [
+				fakeOpeningHome.courses[0],
+				{ ...fakeOpeningHome.courses[0], courseId: 'queens-gambit', title: "Queen's Gambit" }
+			]
+		}
+	})
+	expect(screen.getByRole('button', { name: 'Learn Openings' }))
+		.toHaveTextContent('Choose from 2 opening courses')
 })

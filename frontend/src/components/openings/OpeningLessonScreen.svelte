@@ -2,7 +2,6 @@
   import { afterUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
   import type {
     OpeningBoardAnnotation,
-    OpeningPathItem,
     OpeningSessionView
   } from '../../lib/api'
   import { useNormalAPI } from '../../lib/api-context'
@@ -24,7 +23,6 @@
   import OpeningRoadmapCheckpoint from './OpeningRoadmapCheckpoint.svelte'
 
   export let session: OpeningSessionView
-  export let path: OpeningPathItem[] = []
   export let effects: BoardEffects = browserBoardEffects
   export let boardAdapterFactory: ChessgroundAdapterFactory = createChessgroundAdapter
 
@@ -108,7 +106,7 @@
     <section class="completion panel" aria-labelledby="opening-completion-title">
       {#if state.session.notice}<p class="terminal-notice">{state.session.notice}</p>{/if}
       <span class="celebration" aria-hidden="true">♝</span>
-      <p class="eyebrow">Italian course</p>
+      <p class="eyebrow">{state.session.courseTitle || 'Opening course'}</p>
       <h2 id="opening-completion-title">
         {state.session.mode === 'review' ? 'Opening review complete!' : 'Opening lesson complete!'}
       </h2>
@@ -173,7 +171,7 @@
       </div>
 
       <aside class="opening-lesson-panel">
-        <OpeningPathContext {path} />
+        <OpeningPathContext path={state.session.path} />
         <div class="opening-lesson-heading">
           <div>
             <p class="eyebrow">
