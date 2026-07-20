@@ -45,6 +45,32 @@ func TestNormalizeCoursePackSynthesizesAuthoredLegacyLessonOrder(t *testing.T) {
 	}
 }
 
+func TestNormalizeCoursePackKeepsShallowLegacyLessonsOutOfDeeperBranches(t *testing.T) {
+	pack := decodeMiniPack(t)
+	root := pack.Lessons[0]
+	root.LessonID = "root-quick"
+	root.Ordinal = 1
+	standard := pack.Lessons[0]
+	standard.LessonID = "standard-branch"
+	standard.Ordinal = 2
+	standard.MinimumDepth = DepthStandard
+	quickSibling := pack.Lessons[0]
+	quickSibling.LessonID = "quick-sibling"
+	quickSibling.Ordinal = 3
+	pack.Lessons = []Lesson{root, standard, quickSibling}
+
+	normalized, err := NormalizeCoursePack(pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalized.LessonEdges) != 2 {
+		t.Fatalf("edges = %#v", normalized.LessonEdges)
+	}
+	if got := normalized.LessonEdges[1]; got.FromLessonID != "root-quick" || got.ToLessonID != "quick-sibling" || got.Ordinal != 2 {
+		t.Fatalf("quick sibling edge = %#v", got)
+	}
+}
+
 func TestNormalizeCoursePackRejectsVersionSpecificTeachingFields(t *testing.T) {
 	tests := []struct {
 		name string

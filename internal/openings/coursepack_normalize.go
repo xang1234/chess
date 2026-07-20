@@ -84,12 +84,26 @@ func legacyLessonEdges(pack CoursePack) []LessonEdge {
 		return ordered[left].LessonID < ordered[right].LessonID
 	})
 	edges := make([]LessonEdge, 0, max(0, len(ordered)-1))
+	siblingOrdinals := map[string]int{}
 	for index := 1; index < len(ordered); index++ {
+		parentIndex := index - 1
+		childRank, childDepthOK := depthRank(ordered[index].MinimumDepth)
+		if childDepthOK {
+			for parentIndex > 0 {
+				parentRank, parentDepthOK := depthRank(ordered[parentIndex].MinimumDepth)
+				if parentDepthOK && parentRank <= childRank {
+					break
+				}
+				parentIndex--
+			}
+		}
+		parentID := ordered[parentIndex].LessonID
+		siblingOrdinals[parentID]++
 		edges = append(edges, LessonEdge{
 			EdgeID:       fmt.Sprintf("legacy-edge-%04d", index),
-			FromLessonID: ordered[index-1].LessonID,
+			FromLessonID: parentID,
 			ToLessonID:   ordered[index].LessonID,
-			Ordinal:      1,
+			Ordinal:      siblingOrdinals[parentID],
 			Kind:         EdgeContinuation,
 			MinimumDepth: ordered[index].MinimumDepth,
 		})

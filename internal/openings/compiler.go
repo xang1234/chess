@@ -68,16 +68,19 @@ type CoverageReport struct {
 }
 
 type CompiledCourse struct {
-	Pack      CoursePack
-	Positions map[string]CompiledPosition
-	Moves     map[string]CompiledMove
-	Notes     map[string]Note
-	Chapters  map[string]Chapter
-	Lessons   map[string]Lesson
-	Prompts   map[string]CompiledPrompt
-	Outgoing  map[string][]string
-	Incoming  map[string][]string
-	Coverage  CoverageReport
+	Pack           CoursePack
+	Positions      map[string]CompiledPosition
+	Moves          map[string]CompiledMove
+	Notes          map[string]Note
+	Chapters       map[string]Chapter
+	Lessons        map[string]Lesson
+	Prompts        map[string]CompiledPrompt
+	Outgoing       map[string][]string
+	Incoming       map[string][]string
+	RootLessonID   string
+	LessonChildren map[string][]LessonEdge
+	LessonParent   map[string]LessonEdge
+	Coverage       CoverageReport
 }
 
 func (c CompiledCourse) VisibleMoves(positionID string, depth Depth) []CompiledMove {
@@ -110,6 +113,7 @@ type courseCompiler struct {
 	notePaths        map[string]string
 	chapterPaths     map[string]string
 	lessonPaths      map[string]string
+	activityPaths    map[string]string
 	promptPaths      map[string]string
 	reachableByDepth map[Depth]map[string]bool
 }
@@ -126,7 +130,8 @@ func Compile(pack CoursePack, rules RulesPort) (CompiledCourse, error) {
 	compiler.validateReferences()
 	compiler.compileGraph()
 	compiler.validateDepthsAndRoles()
-	compiler.validateLessons()
+	compiler.validateActivities()
+	compiler.validateTeachingTree()
 	compiler.compileFingerprints()
 	compiler.compiled.Coverage, compiler.diagnostics = compileCoverage(normalized, compiler.diagnostics)
 	compiler.sortDiagnostics()
@@ -144,9 +149,10 @@ func newCourseCompiler(pack CoursePack, rules RulesPort) *courseCompiler {
 			Pack: pack, Positions: map[string]CompiledPosition{}, Moves: map[string]CompiledMove{},
 			Notes: map[string]Note{}, Chapters: map[string]Chapter{}, Lessons: map[string]Lesson{},
 			Prompts: map[string]CompiledPrompt{}, Outgoing: map[string][]string{}, Incoming: map[string][]string{},
+			LessonChildren: map[string][]LessonEdge{}, LessonParent: map[string]LessonEdge{},
 		},
 		positionPaths: map[string]string{}, movePaths: map[string]string{}, notePaths: map[string]string{},
-		chapterPaths: map[string]string{}, lessonPaths: map[string]string{}, promptPaths: map[string]string{},
+		chapterPaths: map[string]string{}, lessonPaths: map[string]string{}, activityPaths: map[string]string{}, promptPaths: map[string]string{},
 		reachableByDepth: map[Depth]map[string]bool{},
 	}
 }
