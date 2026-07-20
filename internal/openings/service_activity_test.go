@@ -38,7 +38,8 @@ func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
 	if err != nil || concept.Session.Current == nil || concept.Session.Current.Kind != ActivityDecision {
 		t.Fatalf("concept=%+v err=%v", concept, err)
 	}
-	if !concept.ActivityCompleted || concept.Session.Current.CompletedIdeas != 1 {
+	if !concept.ActivityCompleted || concept.Session.Current.CompletedIdeas != 1 ||
+		concept.Feedback != "" || len(concept.AppliedMoves) != 0 || concept.FinalFEN != "" {
 		t.Fatalf("concept=%+v", concept)
 	}
 	decision, err := fixture.service.PlayMove(ctx, started.SessionID, "c2c3")

@@ -108,11 +108,14 @@ func (s *Service) completeLessonActivity(
 	if err != nil {
 		return OpeningActivityResult{}, err
 	}
-	return OpeningActivityResult{
+	result := OpeningActivityResult{
 		Session: view, ActivityCompleted: true, StepCompleted: true,
-		Feedback: FeedbackExpected, AppliedMoves: frames, FinalFEN: finalFEN,
-		Checkpoint: checkpoint,
-	}, nil
+		AppliedMoves: frames, FinalFEN: finalFEN, Checkpoint: checkpoint,
+	}
+	if attempt != nil {
+		result.Feedback = FeedbackExpected
+	}
+	return result, nil
 }
 
 func (s *Service) lessonCheckpointAfterCompletion(

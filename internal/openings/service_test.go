@@ -134,7 +134,7 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertOpeningActivity(t, advanced.Session, ActivityDemonstration, "watch-setup")
-	if len(advanced.AppliedMoves) != 0 {
+	if advanced.Feedback != "" || len(advanced.AppliedMoves) != 0 || advanced.FinalFEN != "" {
 		t.Fatalf("explain advance frames = %+v", advanced.AppliedMoves)
 	}
 
@@ -143,7 +143,8 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertOpeningActivity(t, advanced.Session, ActivityDecision, "try-c3")
-	if len(advanced.AppliedMoves) != 6 || advanced.FinalFEN != fixture.compiled.Positions["after-bc5"].FEN {
+	if advanced.Feedback != "" || len(advanced.AppliedMoves) != 6 ||
+		advanced.FinalFEN != fixture.compiled.Positions["after-bc5"].FEN {
 		t.Fatalf("watch advance = %+v", advanced)
 	}
 	if !slices.Contains(advanced.Session.Current.LegalMoves, "c2c3") ||
