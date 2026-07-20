@@ -117,14 +117,18 @@ type courseCompiler struct {
 var stableIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 
 func Compile(pack CoursePack, rules RulesPort) (CompiledCourse, error) {
-	compiler := newCourseCompiler(pack, rules)
+	normalized, err := NormalizeCoursePack(pack)
+	if err != nil {
+		return CompiledCourse{}, err
+	}
+	compiler := newCourseCompiler(normalized, rules)
 	compiler.indexAndValidateValues()
 	compiler.validateReferences()
 	compiler.compileGraph()
 	compiler.validateDepthsAndRoles()
 	compiler.validateLessons()
 	compiler.compileFingerprints()
-	compiler.compiled.Coverage, compiler.diagnostics = compileCoverage(pack, compiler.diagnostics)
+	compiler.compiled.Coverage, compiler.diagnostics = compileCoverage(normalized, compiler.diagnostics)
 	compiler.sortDiagnostics()
 	if len(compiler.diagnostics) != 0 {
 		return compiler.compiled, &ValidationError{Diagnostics: compiler.diagnostics}

@@ -29,6 +29,22 @@ func TestDecodeCoursePackAcceptsStrictSyntheticFixture(t *testing.T) {
 	}
 }
 
+func TestDecodeCoursePackAcceptsSchemaVersionsOneAndTwo(t *testing.T) {
+	v1, err := DecodeCoursePack(bytes.NewReader(readMiniCoursePack(t)))
+	if err != nil || v1.SchemaVersion != 1 {
+		t.Fatalf("schema v1 = %+v err=%v", v1, err)
+	}
+
+	v2JSON := bytes.Replace(readMiniCoursePack(t), []byte(`"schemaVersion":1`), []byte(`"schemaVersion":2`), 1)
+	v2JSON = bytes.Replace(v2JSON, []byte(`"chapters":`), []byte(`"lessonEdges":[],"chapters":`), 1)
+	v2JSON = bytes.Replace(v2JSON, []byte(`"steps":`), []byte(`"activities":`), 1)
+	v2JSON = bytes.Replace(v2JSON, []byte(`"stepId":`), []byte(`"activityId":`), -1)
+	pack, err := DecodeCoursePack(bytes.NewReader(v2JSON))
+	if err != nil || pack.SchemaVersion != 2 {
+		t.Fatalf("schema v2 = %+v err=%v", pack, err)
+	}
+}
+
 func TestDecodeCoursePackRejectsUnknownFieldsAtEveryLevel(t *testing.T) {
 	valid := readMiniCoursePack(t)
 	tests := map[string][]byte{
@@ -62,9 +78,9 @@ func TestDecodeCoursePackRejectsInvalidUTF8(t *testing.T) {
 }
 
 func TestDecodeCoursePackRejectsUnsupportedSchemaVersion(t *testing.T) {
-	input := bytes.Replace(readMiniCoursePack(t), []byte(`"schemaVersion":1`), []byte(`"schemaVersion":2`), 1)
+	input := bytes.Replace(readMiniCoursePack(t), []byte(`"schemaVersion":1`), []byte(`"schemaVersion":3`), 1)
 	_, err := DecodeCoursePack(bytes.NewReader(input))
-	if err == nil || !strings.Contains(err.Error(), "unsupported course schema version 2") {
+	if err == nil || !strings.Contains(err.Error(), "unsupported course schema version 3") {
 		t.Fatalf("DecodeCoursePack() error = %v", err)
 	}
 }

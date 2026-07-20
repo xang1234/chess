@@ -33,6 +33,25 @@ const (
 	StepRecall  StepKind = "recall"
 )
 
+type ActivityKind string
+
+const (
+	ActivityConcept       ActivityKind = "concept"
+	ActivityDemonstration ActivityKind = "demonstration"
+	ActivityDecision      ActivityKind = "decision"
+	ActivityComparison    ActivityKind = "comparison"
+	ActivityRecap         ActivityKind = "recap"
+	ActivityReference     ActivityKind = "reference"
+)
+
+type LessonEdgeKind string
+
+const (
+	EdgeContinuation LessonEdgeKind = "continuation"
+	EdgeAlternative  LessonEdgeKind = "alternative"
+	EdgeReference    LessonEdgeKind = "reference"
+)
+
 type EvaluationCode string
 
 const (
@@ -106,14 +125,15 @@ type Chapter struct {
 }
 
 type Lesson struct {
-	LessonID        string       `json:"lessonId"`
-	ChapterID       string       `json:"chapterId"`
-	Ordinal         int          `json:"ordinal"`
-	Title           string       `json:"title"`
-	Objectives      []string     `json:"objectives"`
-	MinimumDepth    Depth        `json:"minimumDepth"`
-	StartPositionID string       `json:"startPositionId"`
-	Steps           []LessonStep `json:"steps"`
+	LessonID        string           `json:"lessonId"`
+	ChapterID       string           `json:"chapterId"`
+	Ordinal         int              `json:"ordinal"`
+	Title           string           `json:"title"`
+	Objectives      []string         `json:"objectives"`
+	MinimumDepth    Depth            `json:"minimumDepth"`
+	StartPositionID string           `json:"startPositionId"`
+	Steps           []LessonStep     `json:"steps,omitempty"`
+	Activities      []LessonActivity `json:"activities,omitempty"`
 }
 
 type LessonStep struct {
@@ -125,6 +145,42 @@ type LessonStep struct {
 	NoteIDs     []string `json:"noteIds"`
 	MoveIDs     []string `json:"moveIds"`
 	PromptID    string   `json:"promptId,omitempty"`
+}
+
+type ActivityLine struct {
+	Label   string   `json:"label"`
+	MoveIDs []string `json:"moveIds"`
+}
+
+type BoardAnnotation struct {
+	Kind  string `json:"kind"`
+	From  string `json:"from"`
+	To    string `json:"to,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+type LessonActivity struct {
+	ActivityID  string            `json:"activityId"`
+	Kind        ActivityKind      `json:"kind"`
+	Title       string            `json:"title"`
+	Instruction string            `json:"instruction"`
+	Required    bool              `json:"required"`
+	PositionID  string            `json:"positionId,omitempty"`
+	NoteIDs     []string          `json:"noteIds"`
+	MoveIDs     []string          `json:"moveIds"`
+	PromptID    string            `json:"promptId,omitempty"`
+	Comparison  []ActivityLine    `json:"comparison,omitempty"`
+	Annotations []BoardAnnotation `json:"annotations,omitempty"`
+}
+
+type LessonEdge struct {
+	EdgeID       string         `json:"edgeId"`
+	FromLessonID string         `json:"fromLessonId"`
+	ToLessonID   string         `json:"toLessonId"`
+	Ordinal      int            `json:"ordinal"`
+	Kind         LessonEdgeKind `json:"kind"`
+	Label        string         `json:"label,omitempty"`
+	MinimumDepth Depth          `json:"minimumDepth"`
 }
 
 type Prompt struct {
@@ -149,6 +205,7 @@ type CoursePack struct {
 	Positions      []Position     `json:"positions"`
 	Moves          []Move         `json:"moves"`
 	Notes          []Note         `json:"notes"`
+	LessonEdges    []LessonEdge   `json:"lessonEdges,omitempty"`
 	Chapters       []Chapter      `json:"chapters"`
 	Lessons        []Lesson       `json:"lessons"`
 	Prompts        []Prompt       `json:"prompts"`

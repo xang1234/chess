@@ -28,7 +28,7 @@ func DecodeCoursePack(reader io.Reader) (CoursePack, error) {
 	if !utf8.Valid(raw.Bytes()) {
 		return CoursePack{}, errors.New("course pack is not valid UTF-8")
 	}
-	if pack.SchemaVersion != 1 {
+	if pack.SchemaVersion != 1 && pack.SchemaVersion != 2 {
 		return CoursePack{}, fmt.Errorf("unsupported course schema version %d", pack.SchemaVersion)
 	}
 	for _, required := range []struct {
