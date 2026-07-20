@@ -50,6 +50,29 @@ test('learns a private two-node teaching tree and preserves the journey', async 
   await expect(page.getByRole('heading', { name: 'Build the centre' })).toBeVisible()
   await expect(page.getByText('Idea 1 of 3 · 0 learned')).toBeVisible()
   await expect(page.getByText('Connect c3 with the later d4 break; this is one plan, not a move drill.')).toBeVisible()
+  const lessonDetails = page.getByRole('region', { name: 'Opening lesson details' })
+  const lessonActions = page.getByRole('group', { name: 'Opening lesson actions' })
+  const lessonBoard = chessgroundBoard(page)
+
+  await expect.poll(() => lessonDetails.evaluate(
+    (element) => element.scrollHeight > element.clientHeight
+  )).toBe(true)
+
+  const boardBefore = await lessonBoard.boundingBox()
+  const actionsBefore = await lessonActions.boundingBox()
+  const viewport = page.viewportSize()
+  if (!boardBefore || !actionsBefore || !viewport) throw new Error('lesson layout has no bounds')
+  expect(boardBefore.y).toBeGreaterThanOrEqual(0)
+  expect(boardBefore.y + boardBefore.height).toBeLessThanOrEqual(viewport.height)
+
+  await lessonDetails.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await expect.poll(() => lessonDetails.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  const boardAfter = await lessonBoard.boundingBox()
+  const actionsAfter = await lessonActions.boundingBox()
+  if (!boardAfter || !actionsAfter) throw new Error('lesson layout lost its bounds')
+  expect(Math.abs(boardAfter.y - boardBefore.y)).toBeLessThanOrEqual(1)
+  expect(Math.abs(actionsAfter.y - actionsBefore.y)).toBeLessThanOrEqual(1)
+
   const referenceText = page.getByText(
     'Reference analysis: c3 supports d4 while preserving the active bishop.'
   )
@@ -60,6 +83,9 @@ test('learns a private two-node teaching tree and preserves the journey', async 
   await page.getByRole('button', { name: 'Continue' }).click()
   await page.getByRole('button', { name: 'Continue' }).click()
   await expect(page.getByRole('heading', { name: 'Choose the preparation' })).toBeVisible()
+  await expect.poll(() => page.getByRole('region', {
+    name: 'Opening lesson details'
+  }).evaluate((element) => element.scrollTop)).toBe(0)
 
   const c3Board = chessgroundBoard(page)
   await mouseClickMove(page, c3Board, 'c2', 'c3', 'white')

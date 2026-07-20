@@ -171,51 +171,61 @@
       </div>
 
       <aside class="opening-lesson-panel">
-        <OpeningPathContext path={state.session.path} />
-        <div class="opening-lesson-heading">
-          <div>
-            <p class="eyebrow">
-              Opening course{current.variationName ? ` · ${current.variationName}` : ''}
-            </p>
-            <h2>{current.title}</h2>
-          </div>
-          <button
-            class="sound-toggle"
-            type="button"
-            aria-label={view.soundMuted ? 'Turn sound on' : 'Mute sounds'}
-            aria-pressed={view.soundMuted}
-            on:click={() => controller.toggleSound()}
+        {#key current.activityId}
+          <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+          <div
+            class="opening-lesson-scroll"
+            role="region"
+            aria-label="Opening lesson details"
+            tabindex="0"
           >
-            <span aria-hidden="true">{view.soundMuted ? '🔇' : '🔊'}</span>
-          </button>
-        </div>
+            <OpeningPathContext path={state.session.path} />
+            <div class="opening-lesson-heading">
+              <div>
+                <p class="eyebrow">
+                  Opening course{current.variationName ? ` · ${current.variationName}` : ''}
+                </p>
+                <h2>{current.title}</h2>
+              </div>
+              <button
+                class="sound-toggle"
+                type="button"
+                aria-label={view.soundMuted ? 'Turn sound on' : 'Mute sounds'}
+                aria-pressed={view.soundMuted}
+                on:click={() => controller.toggleSound()}
+              >
+                <span aria-hidden="true">{view.soundMuted ? '🔇' : '🔊'}</span>
+              </button>
+            </div>
 
-        <div>
-          <p class="progress-label">
-            Idea {current.activityNumber} of {current.activityTotal}
-            · {current.completedIdeas} learned
-          </p>
-          <div class="progress-track" aria-hidden="true">
-            <span style={`width: ${(current.activityNumber / current.activityTotal) * 100}%`}></span>
+            <div>
+              <p class="progress-label">
+                Idea {current.activityNumber} of {current.activityTotal}
+                · {current.completedIdeas} learned
+              </p>
+              <div class="progress-track" aria-hidden="true">
+                <span style={`width: ${(current.activityNumber / current.activityTotal) * 100}%`}></span>
+              </div>
+            </div>
+
+            <OpeningActivityContent
+              activity={current}
+              {canReplayDemonstration}
+              on:replayMoves={() => controller.replayMovesToHere()}
+              on:replayDemonstration={() => controller.replayDemonstration()}
+            />
+
+            <div class="opening-feedback" aria-live="polite" aria-atomic="true">
+              {#if view.message}<p class:neutral={view.feedback !== null}>{view.message}</p>{/if}
+              {#if view.notice}<p class="notice">{view.notice}</p>{/if}
+              {#if view.announcement && view.announcement !== view.message && view.announcement !== view.notice}
+                <p class="visually-hidden">{view.announcement}</p>
+              {/if}
+            </div>
           </div>
-        </div>
+        {/key}
 
-        <OpeningActivityContent
-          activity={current}
-          {canReplayDemonstration}
-          on:replayMoves={() => controller.replayMovesToHere()}
-          on:replayDemonstration={() => controller.replayDemonstration()}
-        />
-
-        <div class="opening-feedback" aria-live="polite" aria-atomic="true">
-          {#if view.message}<p class:neutral={view.feedback !== null}>{view.message}</p>{/if}
-          {#if view.notice}<p class="notice">{view.notice}</p>{/if}
-          {#if view.announcement && view.announcement !== view.message && view.announcement !== view.notice}
-            <p class="visually-hidden">{view.announcement}</p>
-          {/if}
-        </div>
-
-        <div class="opening-actions">
+        <div class="opening-actions" role="group" aria-label="Opening lesson actions">
           {#if state.phase === 'activity-complete'}
             <button class="primary" type="button" on:click={() => controller.acknowledgeActivity()}>
               Continue
@@ -270,15 +280,32 @@
   .opening-board-stage { min-width: 0; }
   .opening-lesson-panel {
     display: flex;
-    min-height: 520px;
+    height: min(760px, calc(100vh - 120px));
+    height: min(760px, calc(100dvh - 120px));
+    min-height: 0;
     padding: 26px;
+    overflow: hidden;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
     border: 1px solid #3b4843;
     border-radius: var(--radius-large);
     color: #f7f4e9;
     background: var(--charcoal-800);
     box-shadow: var(--shadow-soft);
+  }
+  .opening-lesson-scroll {
+    display: flex;
+    min-height: 0;
+    padding-right: 4px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 20px;
+    scrollbar-gutter: stable;
+  }
+  .opening-lesson-scroll:focus-visible {
+    outline: 2px solid var(--amber-400);
+    outline-offset: 2px;
   }
   .opening-lesson-panel .eyebrow { color: #a9d2b6; }
   .opening-lesson-heading { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
@@ -295,11 +322,11 @@
   .progress-label { margin: 0 0 8px; color: #e8e4d8; font-weight: 800; }
   .progress-track { height: 9px; overflow: hidden; border-radius: 999px; background: #4c5a54; }
   .progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--amber-400); }
-  .opening-feedback { display: grid; min-height: 72px; margin-top: auto; align-content: center; gap: 7px; }
+  .opening-feedback { display: grid; min-height: 72px; align-content: center; gap: 7px; }
   .opening-feedback p { margin: 0; font-weight: 800; }
   .opening-feedback .neutral { color: #c8dfcf; }
   .opening-feedback .notice { color: #f4d27b; font-size: 0.94rem; }
-  .opening-actions { display: grid; gap: 10px; }
+  .opening-actions { display: grid; flex: 0 0 auto; gap: 10px; }
   .opening-actions button { min-height: 46px; }
   .quiet-action { border: 0; color: #e8e4d8; background: transparent; font-weight: 800; }
   .opening-terminal { max-width: 680px; text-align: center; }
@@ -323,6 +350,9 @@
 
   @media (max-width: 860px) {
     .opening-lesson-layout { grid-template-columns: minmax(280px, 1fr); }
-    .opening-lesson-panel { min-height: auto; }
+    .opening-lesson-panel {
+      height: min(620px, calc(100vh - 32px));
+      height: min(620px, calc(100dvh - 32px));
+    }
   }
 </style>

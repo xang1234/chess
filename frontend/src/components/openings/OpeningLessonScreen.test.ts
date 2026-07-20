@@ -126,6 +126,34 @@ test('renders a board-first teaching step and defers the next step until Continu
   expect(changes).toEqual([watch])
 })
 
+test('keeps actions outside the activity-scoped lesson details region', async () => {
+  const first = active('concept', {
+    activityId: 'long-concept',
+    title: 'A long concept',
+    teachingNoteTexts: Array.from({ length: 16 }, (_, index) => `Detail ${index + 1}`)
+  })
+  const { component } = render(OpeningLessonScreen, {
+    session: first,
+    effects: effects(),
+    boardAdapterFactory: boardHarness().factory
+  }, withNormalAPI(fakeAPI()))
+
+  const details = await screen.findByRole('region', { name: 'Opening lesson details' })
+  const actions = screen.getByRole('group', { name: 'Opening lesson actions' })
+  expect(details).toContainElement(screen.getByRole('heading', { name: 'A long concept' }))
+  expect(details).not.toContainElement(actions)
+
+  details.scrollTop = 180
+  component.$set({
+    session: active('recap', { activityId: 'next-recap', title: 'Next recap' })
+  })
+
+  await screen.findByRole('heading', { name: 'Next recap' })
+  const nextDetails = screen.getByRole('region', { name: 'Opening lesson details' })
+  expect(nextDetails).not.toBe(details)
+  expect(nextDetails.scrollTop).toBe(0)
+})
+
 test('shows Retry when saving a passive idea fails', async () => {
   const concept = active('concept', { title: 'Build the centre' })
   const next = active('recap', { activityId: 'recap', title: 'Keep the plan' })

@@ -550,7 +550,13 @@ export async function installTestBackend(
             ...common, activityId: 'giuoco-concept', kind: 'concept', title: 'Build the centre',
             instruction: 'White prepares d4 without blocking the active bishop.',
             positionId: 'after-bc5', currentFen: promptFen, legalMoves: [],
-            teachingNoteTexts: ['Connect c3 with the later d4 break; this is one plan, not a move drill.'],
+            teachingNoteTexts: [
+              'Connect c3 with the later d4 break; this is one plan, not a move drill.',
+              ...Array.from(
+                { length: 16 },
+                (_, index) => `Extended lesson detail ${index + 1}: compare the central plan before continuing.`
+              )
+            ],
             annotations: [{ kind: 'arrow', from: 'c2', to: 'c3' }],
             referenceSections: referenceSections(), activityNumber: 1, completedIdeas: 0
           },
