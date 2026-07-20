@@ -45,6 +45,25 @@ func TestCompileDerivesLegalGraphDepthsAndPromptFingerprints(t *testing.T) {
 	}
 }
 
+func TestCompileAllowsAlternativeBranchMoveAsPromptPrimary(t *testing.T) {
+	pack := decodeMiniPack(t)
+	for index := range pack.Moves {
+		if pack.Moves[index].MoveID == "white-b4" {
+			pack.Moves[index].MinimumDepth = DepthQuick
+		}
+	}
+	pack.Prompts[0].PrimaryMoveID = "white-b4"
+	pack.Prompts[0].AcceptedAlternativeMoveIDs = []string{}
+
+	compiled, err := Compile(pack, chessrules.Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled.Prompts["recall-c3"].PrimaryMoveID != "white-b4" {
+		t.Fatalf("primary move = %q", compiled.Prompts["recall-c3"].PrimaryMoveID)
+	}
+}
+
 func TestCompileRejectsInvalidGraphMutations(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -241,8 +241,8 @@ func (c *courseCompiler) validateReferences() {
 			if primary.FromPositionID != prompt.PositionID {
 				c.addDiagnostic("prompt_primary_position", path+".primaryMoveId", fmt.Sprintf("primary move leaves %q, not prompt position %q", primary.FromPositionID, prompt.PositionID))
 			}
-			if primary.TrainingRole != RoleRepertoire {
-				c.addDiagnostic("prompt_primary_role", path+".primaryMoveId", "primary move must have repertoire role")
+			if primary.TrainingRole != RoleRepertoire && primary.TrainingRole != RoleAlternative {
+				c.addDiagnostic("prompt_primary_role", path+".primaryMoveId", "primary move must have repertoire or alternative role")
 			}
 		}
 		accepted := map[string]struct{}{}

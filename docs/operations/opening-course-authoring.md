@@ -179,8 +179,11 @@ connected subsets of Reference.
 Set `trainingRole` from the learner's perspective: `repertoire` is the primary
 course move when the learner is to move, `alternative` is another acceptable
 learner move, and `opponent` is required where the opponent is to move. A
-prompt links one position to exactly one primary repertoire move and zero or
-more accepted alternatives from that same position.
+prompt links one position to one primary answer and zero or more accepted
+alternatives from that same position. The primary answer normally has the
+`repertoire` role. A lesson on an explicit alternative branch may instead use
+that branch's `alternative` move as its primary answer without changing the
+graph's single main-repertoire move.
 
 Supported evaluation codes are `none`, `equal`, `unclear`, `white_slight`,
 `black_slight`, `white_clear`, `black_clear`, `white_winning`, and

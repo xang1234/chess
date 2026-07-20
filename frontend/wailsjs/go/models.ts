@@ -391,34 +391,6 @@ export namespace main {
 
 export namespace openings {
 
-	export class ActivityLine {
-	    label: string;
-	    moveIds: string[];
-
-	    static createFrom(source: any = {}) {
-	        return new ActivityLine(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.label = source["label"];
-	        this.moveIds = source["moveIds"];
-	    }
-	}
-	export class OpeningActivityLine {
-	    label: string;
-	    moves: string[];
-
-	    static createFrom(source: any = {}) {
-	        return new OpeningActivityLine(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.label = source["label"];
-	        this.moves = source["moves"];
-	    }
-	}
 	export class BoardAnnotation {
 	    kind: string;
 	    from: string;
@@ -592,6 +564,20 @@ export namespace openings {
 		}
 	}
 
+	export class OpeningActivityLine {
+	    label: string;
+	    moves: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningActivityLine(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.moves = source["moves"];
+	    }
+	}
 	export class OpeningPathItem {
 	    lessonId: string;
 	    title: string;
