@@ -241,6 +241,7 @@ function previewOpeningHome(): OpeningHomeView {
       recommendedLessonId: 'giuoco-c3',
       recommendedLessonTitle: 'Prepare d4 with c3',
       hasResumable: previewOpeningSession?.status === 'active',
+      hasResumableReview: false,
       tree: {
         rootLessonId: 'giuoco-c3',
         nodes: [{

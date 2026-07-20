@@ -190,12 +190,9 @@ func validJourneyLessonID(course CompiledCourse, lessonID string) string {
 	return ""
 }
 
-func hasVisibleResumable(course CompiledCourse, depth Depth, resumable *StoredSession) bool {
-	if resumable == nil || resumable.CourseID != course.Pack.CourseID {
+func hasVisibleResumableLesson(course CompiledCourse, depth Depth, resumable *StoredSession) bool {
+	if resumable == nil || resumable.CourseID != course.Pack.CourseID || resumable.Mode != OpeningModeLesson {
 		return false
-	}
-	if resumable.Mode == OpeningModeReview {
-		return true
 	}
 	lesson, exists := course.Lessons[resumable.LessonID]
 	return exists && visibleAtDepth(lesson.MinimumDepth, depth)

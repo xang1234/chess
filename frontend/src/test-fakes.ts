@@ -63,6 +63,7 @@ export const fakeOpeningHome: OpeningHomeView = {
     recommendedLessonId: 'giuoco-c3',
     recommendedLessonTitle: 'Giuoco Piano',
     hasResumable: false,
+    hasResumableReview: false,
     tree: {
       rootLessonId: 'giuoco-c3',
       nodes: [{

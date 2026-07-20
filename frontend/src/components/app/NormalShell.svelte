@@ -158,7 +158,8 @@
       courses: openingHome.courses.map((course) => course.courseId === session.courseId
         ? {
           ...course,
-          hasResumable: session.status !== 'completed',
+          hasResumable: session.mode === 'lesson' && session.status !== 'completed',
+          hasResumableReview: session.mode === 'review' && session.status !== 'completed',
           ...(session.status !== 'completed' ? { nextLessonId: session.lessonId } : {})
         }
         : course)
@@ -200,11 +201,12 @@
     screen.set('puzzle')
   }
 
-  function leaveOpeningLesson(event: CustomEvent<{ completed: boolean }>): void {
+  async function leaveOpeningLesson(event: CustomEvent<{ completed: boolean }>): Promise<void> {
     if (event.detail.completed) {
       if (activeOpeningSession) syncOpeningResume(activeOpeningSession)
       activeOpeningSession = null
       deferredOpeningSession = null
+      await refreshOpeningHome()
       screen.set('home')
       return
     }

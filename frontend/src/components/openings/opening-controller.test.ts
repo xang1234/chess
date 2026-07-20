@@ -141,6 +141,44 @@ test('defers an advanced teaching step until explicit Continue', async () => {
   expect(subject.changes).toEqual([watch])
 })
 
+test('retries a failed passive activity save without leaving the activity', async () => {
+  const concept = active('concept')
+  const next = active('recap', { activityId: 'recap', activityNumber: 2 })
+  const advanceOpeningActivity = vi.fn()
+    .mockRejectedValueOnce(new Error('save failed'))
+    .mockResolvedValueOnce({ session: next, activityCompleted: true })
+  const subject = harness(concept, { advanceOpeningActivity })
+
+  await subject.controller.advance()
+  expect(subject.controller.view.state).toMatchObject({
+    phase: 'failed',
+    session: concept,
+    retryOperation: 'advance'
+  })
+
+  await subject.controller.retry()
+  expect(advanceOpeningActivity).toHaveBeenCalledTimes(2)
+  expect(subject.controller.view.state).toMatchObject({
+    phase: 'activity-complete',
+    session: concept,
+    result: { session: next }
+  })
+})
+
+test('can pause a lesson after a recoverable activity save failure', async () => {
+  const pauseOpeningSession = vi.fn(async () => {})
+  const subject = harness(active('concept'), {
+    advanceOpeningActivity: async () => { throw new Error('save failed') },
+    pauseOpeningSession
+  })
+
+  await subject.controller.advance()
+  await subject.controller.pause()
+
+  expect(pauseOpeningSession).toHaveBeenCalledWith(fakeOpeningSession.sessionId)
+  expect(subject.homes).toEqual([false])
+})
+
 test('animates every authoritative watch frame', async () => {
   const watch = active('demonstration')
   const next = active('decision', { activityId: 'try-c3', activityNumber: 2, currentFen: afterD6 })

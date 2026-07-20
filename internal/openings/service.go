@@ -57,7 +57,7 @@ func (s *Service) Home(ctx context.Context) (OpeningHomeView, error) {
 		if err != nil {
 			return OpeningHomeView{}, fmt.Errorf("load opening depth for %q: %w", summary.CourseID, err)
 		}
-		view, err := s.courseSummary(ctx, course, depth, resumable)
+		view, err := s.courseSummary(ctx, course, summary.GenerationID, depth, resumable)
 		if err != nil {
 			return OpeningHomeView{}, err
 		}
@@ -69,6 +69,7 @@ func (s *Service) Home(ctx context.Context) (OpeningHomeView, error) {
 func (s *Service) courseSummary(
 	ctx context.Context,
 	course CompiledCourse,
+	activeGenerationID string,
 	fallbackDepth Depth,
 	resumable *StoredSession,
 ) (OpeningCourseSummary, error) {
@@ -76,6 +77,7 @@ func (s *Service) courseSummary(
 	if err != nil {
 		return OpeningCourseSummary{}, fmt.Errorf("load opening journey for %q: %w", course.Pack.CourseID, err)
 	}
+	journey = projectLegacyResumableJourney(course, activeGenerationID, journey, resumable)
 	depth := journey.Depth
 	projection, err := s.projectTeachingTree(ctx, course, depth, journey, resumable)
 	if err != nil {
@@ -103,7 +105,9 @@ func (s *Service) courseSummary(
 		Tree:                   projection.tree,
 		Chapters:               []OpeningChapterSummary{},
 	}
-	view.HasResumable = hasVisibleResumable(course, depth, resumable)
+	view.HasResumable = hasVisibleResumableLesson(course, depth, resumable)
+	view.HasResumableReview = resumable != nil && resumable.CourseID == course.Pack.CourseID &&
+		resumable.Mode == OpeningModeReview
 	selectedRank, _ := depthRank(depth)
 	for _, chapter := range course.Pack.Chapters {
 		chapterRank, ok := depthRank(chapter.MinimumDepth)
@@ -131,6 +135,33 @@ func (s *Service) courseSummary(
 		view.Chapters = append(view.Chapters, chapterView)
 	}
 	return view, nil
+}
+
+func projectLegacyResumableJourney(
+	course CompiledCourse,
+	activeGenerationID string,
+	journey CourseJourney,
+	resumable *StoredSession,
+) CourseJourney {
+	if resumable == nil || resumable.CourseID != course.Pack.CourseID ||
+		resumable.GenerationID != activeGenerationID || resumable.Mode != OpeningModeLesson {
+		return journey
+	}
+	lesson, exists := course.Lessons[resumable.LessonID]
+	if !exists {
+		return journey
+	}
+	if validJourneyLessonID(course, journey.CurrentLessonID) == "" {
+		journey.CurrentLessonID = resumable.LessonID
+	}
+	if journey.CurrentLessonID == resumable.LessonID && journey.CurrentActivityID == "" &&
+		resumable.ActivityIndex >= 0 && resumable.ActivityIndex < len(lesson.Activities) {
+		journey.CurrentActivityID = lesson.Activities[resumable.ActivityIndex].ActivityID
+	}
+	if len(journey.PathLessonIDs) == 0 {
+		journey.PathLessonIDs = teachingPathLessonIDs(course, resumable.LessonID)
+	}
+	return journey
 }
 
 func (s *Service) SetDepth(ctx context.Context, courseID string, depth Depth) error {
@@ -317,6 +348,20 @@ func (s *Service) Pause(ctx context.Context, sessionID string) error {
 func (s *Service) StartReview(ctx context.Context, courseID string) (OpeningSessionView, error) {
 	if err := s.validate(); err != nil {
 		return OpeningSessionView{}, err
+	}
+	resumable, err := s.store.ResumableSession(ctx)
+	if err != nil {
+		return OpeningSessionView{}, err
+	}
+	if resumable != nil && resumable.CourseID == courseID && resumable.Mode == OpeningModeReview {
+		view, err := s.resume(ctx)
+		if err != nil {
+			return OpeningSessionView{}, err
+		}
+		if view == nil {
+			return OpeningSessionView{}, errors.New("opening review is unavailable")
+		}
+		return *view, nil
 	}
 	generationID, course, err := s.loadActiveCourse(ctx, courseID)
 	if err != nil {

@@ -28,7 +28,7 @@
       {#each activity.comparison as line (line.label)}
         <article>
           <strong>{line.label}</strong>
-          <span>{line.moveIds.join(' → ')}</span>
+          <span>{line.moves.join(' → ')}</span>
         </article>
       {/each}
     </div>

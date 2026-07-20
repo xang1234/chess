@@ -123,6 +123,26 @@ test('renders a board-first teaching step and defers the next step until Continu
   expect(changes).toEqual([watch])
 })
 
+test('shows Retry when saving a passive idea fails', async () => {
+  const concept = active('concept', { title: 'Build the centre' })
+  const next = active('recap', { activityId: 'recap', title: 'Keep the plan' })
+  const advanceOpeningActivity = vi.fn()
+    .mockRejectedValueOnce(new Error('Could not save idea progress.'))
+    .mockResolvedValueOnce({ session: next, activityCompleted: true })
+  render(OpeningLessonScreen, {
+    session: concept,
+    effects: effects(),
+    boardAdapterFactory: boardHarness().factory
+  }, withNormalAPI(fakeAPI({ advanceOpeningActivity })))
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  expect(await screen.findByText('Could not save idea progress.')).toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+  expect(advanceOpeningActivity).toHaveBeenCalledTimes(2)
+  expect(await screen.findByText('Idea complete.')).toBeInTheDocument()
+})
+
 test('keeps detailed reference notes collapsed until the learner opens them', async () => {
   const current = active('concept', {
     teachingNoteTexts: ['Keep this teaching note visible.'],
@@ -145,6 +165,16 @@ test('keeps detailed reference notes collapsed until the learner opens them', as
 
   expect(firstReference).toBeVisible()
   expect(screen.getByText('Source note b records another detailed private reference.')).toBeVisible()
+})
+
+test('orients the board from the learner perspective', async () => {
+  render(OpeningLessonScreen, {
+    session: active('concept', { orientation: 'black' }),
+    effects: effects(),
+    boardAdapterFactory: boardHarness().factory
+  }, withNormalAPI(fakeAPI()))
+
+  expect(await screen.findByRole('grid', { name: 'Chess board, black side' })).toBeInTheDocument()
 })
 
 test('shows progressive hints and the reveal action only when allowed', async () => {

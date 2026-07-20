@@ -83,13 +83,14 @@ export type OpeningCourseSummary = {
   recommendedLessonId?: string
   recommendedLessonTitle?: string
   hasResumable: boolean
+  hasResumableReview: boolean
   tree: OpeningTeachingTree
   chapters: OpeningChapterSummary[]
 }
 
 export type OpeningHomeView = { notice?: string; courses: OpeningCourseSummary[] }
 
-export type OpeningActivityLine = { label: string; moveIds: string[] }
+export type OpeningActivityLine = { label: string; moves: string[] }
 export type OpeningBoardAnnotation = {
   kind: 'square' | 'arrow'
   from: string
@@ -350,7 +351,7 @@ function decodeOpeningActivity(value: unknown, path: string): OpeningActivityVie
       const line = record(entry, entryPath)
       return {
         label: string(line.label, `${entryPath}.label`),
-        moveIds: array(line.moveIds, `${entryPath}.moveIds`, string)
+        moves: array(line.moves, `${entryPath}.moves`, string)
       }
     }),
     annotations: array(raw.annotations, `${path}.annotations`, decodeAnnotation),
@@ -579,6 +580,9 @@ export function decodeOpeningHome(value: unknown, path = 'opening home'): Openin
           course.recommendedLessonTitle, `${coursePath}.recommendedLessonTitle`
         ),
         hasResumable: boolean(course.hasResumable, `${coursePath}.hasResumable`),
+        hasResumableReview: boolean(
+          course.hasResumableReview, `${coursePath}.hasResumableReview`
+        ),
         tree: decodeTree(course.tree, `${coursePath}.tree`),
         chapters: array(course.chapters, `${coursePath}.chapters`, (chapterValue, chapterPath) => {
           const chapter = record(chapterValue, chapterPath)

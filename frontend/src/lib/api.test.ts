@@ -169,6 +169,7 @@ const openingHomePayload = {
     recommendedLessonId: 'giuoco-c3',
     recommendedLessonTitle: 'Prepare d4 with c3',
     hasResumable: true,
+    hasResumableReview: false,
     tree: {
       rootLessonId: 'giuoco-c3',
       nodes: [{

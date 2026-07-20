@@ -48,6 +48,7 @@ export type OpeningState =
     fen: string
     message: string
     recoverable: boolean
+    retryOperation: OpeningOperation | null
   }
 
 function activeState(session: ActiveOpeningSessionView): OpeningState {
@@ -66,7 +67,7 @@ export function initialiseOpening(session: OpeningSessionView): OpeningState {
 }
 
 export function acceptsOpeningInput(state: OpeningState): boolean {
-  return state.phase === 'ready' || (state.phase === 'failed' && state.recoverable)
+  return state.phase === 'ready'
 }
 
 export function acceptsOpeningResponse(
@@ -86,12 +87,14 @@ export function beginOpeningRequest(
   }
 
   const active = state.phase === 'passive' || state.phase === 'ready' ||
-    (state.phase === 'failed' && state.recoverable)
+    (state.phase === 'failed' && state.recoverable &&
+      (state.retryOperation === operation || operation === 'pause'))
   if (!active) throw new Error(`${state.phase} state is locked`)
-  if (state.phase === 'passive' && operation !== 'advance' && operation !== 'pause') {
+  const passive = state.session.current.kind !== 'decision'
+  if (passive && operation !== 'advance' && operation !== 'pause') {
     throw new Error(`${operation} is unavailable for a teaching step`)
   }
-  if (state.phase !== 'passive' && operation === 'advance') {
+  if (!passive && operation === 'advance') {
     throw new Error('advance is available only for a teaching step')
   }
 
@@ -202,6 +205,7 @@ export function failOpeningRequest(
     session: state.session,
     fen: state.fen,
     message,
-    recoverable
+    recoverable,
+    retryOperation: state.phase === 'requesting' ? state.operation : null
   }
 }

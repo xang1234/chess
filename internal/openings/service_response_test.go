@@ -17,7 +17,7 @@ func TestOpeningSessionViewJSONUsesStrictDiscriminatingFields(t *testing.T) {
 			ActivityID: "activity-1", Kind: ActivityConcept, Title: "The centre", Required: true,
 			Instruction: "Learn the plan.", PositionID: "root", CurrentFEN: "fen",
 			Orientation: PerspectiveWhite, LegalMoves: []string{}, TeachingNoteTexts: []string{}, ReferenceNoteTexts: []string{},
-			Comparison: []ActivityLine{}, Annotations: []BoardAnnotation{}, MovesToHere: []domain.AppliedMove{},
+			Comparison: []OpeningActivityLine{}, Annotations: []BoardAnnotation{}, MovesToHere: []domain.AppliedMove{},
 			ActivityNumber: 1, ActivityTotal: 3, RequiredIdeas: 3, ReferenceSections: []OpeningReferenceSection{},
 		},
 	}

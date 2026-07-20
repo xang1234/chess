@@ -664,6 +664,7 @@ export async function installTestBackend(
             ? 'Choose the quiet d3 setup'
             : 'Prepare d4 with c3',
           hasResumable: openingSession?.status === 'active' && openingMode === 'lesson',
+          hasResumableReview: openingSession?.status === 'active' && openingMode === 'review',
           tree: {
             rootLessonId: 'giuoco-c3',
             nodes: [

@@ -10,8 +10,8 @@ test('renders teaching, comparisons, replay controls, and collapsed deeper analy
     teachingNoteTexts: ['Both plans develop before the central break.'],
     referenceNoteTexts: ['Dense source evaluation stays optional.'],
     comparison: [
-      { label: 'Active centre', moveIds: ['c3', 'd4'] },
-      { label: 'Quiet setup', moveIds: ['d3', 'Re1'] }
+      { label: 'Active centre', moves: ['c3', 'd4'] },
+      { label: 'Quiet setup', moves: ['d3', 'Re1'] }
     ],
     movesToHere: [{
       uci: 'e2e4',

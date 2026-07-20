@@ -96,6 +96,35 @@ func TestOpeningRebaseKeepsMatchingActivityAndJourney(t *testing.T) {
 	}
 }
 
+func TestOpeningRebaseDoesNotSkipRequiredActivityInsertedBeforeCursor(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	paused := pauseTreeLessonAtDecision(t, fixture)
+	pack := decodeTreePack(t)
+	pack.ContentVersion = "2.0.1"
+	inserted := pack.Lessons[0].Activities[0]
+	inserted.ActivityID = "inserted-required-concept"
+	inserted.Title = "New required concept"
+	activities := pack.Lessons[0].Activities
+	pack.Lessons[0].Activities = append(
+		[]LessonActivity{activities[0], inserted}, activities[1:]...,
+	)
+	replaceTreeCourse(t, fixture, pack)
+
+	resumed, err := fixture.service.Resume(context.Background())
+	if err != nil || resumed == nil || resumed.Current == nil ||
+		resumed.Current.ActivityID != "giuoco-c3-decision" {
+		t.Fatalf("resumed=%+v err=%v", resumed, err)
+	}
+	result, err := fixture.service.PlayMove(context.Background(), paused.SessionID, "c2c3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Session.Status != OpeningStatusActive || result.Session.Current == nil ||
+		result.Session.Current.ActivityID != inserted.ActivityID || result.Checkpoint != nil {
+		t.Fatalf("completion skipped inserted required activity: %+v", result)
+	}
+}
+
 func TestOpeningRebaseRemovedActivityRestartsAtNearestCompatibleActivity(t *testing.T) {
 	fixture := newTreeServiceFixture(t)
 	paused := pauseTreeLessonAtDecision(t, fixture)

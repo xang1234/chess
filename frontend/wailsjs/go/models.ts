@@ -405,6 +405,20 @@ export namespace openings {
 	        this.moveIds = source["moveIds"];
 	    }
 	}
+	export class OpeningActivityLine {
+	    label: string;
+	    moves: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningActivityLine(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.moves = source["moves"];
+	    }
+	}
 	export class BoardAnnotation {
 	    kind: string;
 	    from: string;
@@ -709,7 +723,7 @@ export namespace openings {
 	    legalMoves: string[];
 	    teachingNoteTexts: string[];
 	    referenceNoteTexts: string[];
-	    comparison: ActivityLine[];
+	    comparison: OpeningActivityLine[];
 	    annotations: BoardAnnotation[];
 	    movesToHere: domain.AppliedMove[];
 	    activityNumber: number;
@@ -738,7 +752,7 @@ export namespace openings {
 	        this.legalMoves = source["legalMoves"];
 	        this.teachingNoteTexts = source["teachingNoteTexts"];
 	        this.referenceNoteTexts = source["referenceNoteTexts"];
-	        this.comparison = this.convertValues(source["comparison"], ActivityLine);
+	        this.comparison = this.convertValues(source["comparison"], OpeningActivityLine);
 	        this.annotations = this.convertValues(source["annotations"], BoardAnnotation);
 	        this.movesToHere = this.convertValues(source["movesToHere"], domain.AppliedMove);
 	        this.activityNumber = source["activityNumber"];
@@ -1022,6 +1036,7 @@ export namespace openings {
 	    recommendedLessonId?: string;
 	    recommendedLessonTitle?: string;
 	    hasResumable: boolean;
+	    hasResumableReview: boolean;
 	    tree: OpeningTeachingTreeView;
 	    chapters: OpeningChapterSummary[];
 
@@ -1047,6 +1062,7 @@ export namespace openings {
 	        this.recommendedLessonId = source["recommendedLessonId"];
 	        this.recommendedLessonTitle = source["recommendedLessonTitle"];
 	        this.hasResumable = source["hasResumable"];
+	        this.hasResumableReview = source["hasResumableReview"];
 	        this.tree = this.convertValues(source["tree"], OpeningTeachingTreeView);
 	        this.chapters = this.convertValues(source["chapters"], OpeningChapterSummary);
 	    }

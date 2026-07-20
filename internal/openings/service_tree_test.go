@@ -130,6 +130,36 @@ func TestRecommendationUsesExactVisibleResumableLesson(t *testing.T) {
 	}
 }
 
+func TestOpeningHomeProjectsLegacyResumableSessionIntoCurrentJourney(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	ctx := context.Background()
+	if _, err := fixture.store.CreateSession(ctx, SessionSeed{
+		CourseID: fixture.compiled.Pack.CourseID, GenerationID: fixture.result.GenerationID,
+		LessonID: "two-knights-plan", Mode: OpeningModeLesson, Depth: DepthReference,
+		ActivityIndex: 0,
+		State: SessionState{Position: PositionState{
+			PositionID: "after-nf6", CurrentFEN: fixture.compiled.Positions["after-nf6"].FEN,
+			PlayedMoveIDs: []string{},
+		}},
+	}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+
+	home, err := fixture.service.Home(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	course := home.Courses[0]
+	if course.CurrentLessonID != "two-knights-plan" ||
+		course.CurrentActivityID != "two-knights-d3-decision" {
+		t.Fatalf("current journey = lesson %q activity %q", course.CurrentLessonID, course.CurrentActivityID)
+	}
+	if len(course.CurrentPath) != 2 || course.CurrentPath[0].LessonID != "giuoco-plan" ||
+		course.CurrentPath[1].LessonID != "two-knights-plan" {
+		t.Fatalf("current path = %#v", course.CurrentPath)
+	}
+}
+
 func TestRecommendationContinuesFromDeepestCompletedPathNode(t *testing.T) {
 	fixture := newTreeServiceFixture(t)
 	fixture.completeLesson(t, "giuoco-plan")
@@ -242,6 +272,43 @@ func TestOpeningHomeMapsDueReviewToLessonNode(t *testing.T) {
 	if course.DueReviews != 1 || !treeNode(t, course, "two-knights-plan").ReviewDue ||
 		treeNode(t, course, "giuoco-plan").ReviewDue {
 		t.Fatalf("course = %+v", course)
+	}
+}
+
+func TestPausedReviewStaysSeparateFromContinueLearning(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	prompt := fixture.compiled.Prompts["recall-d3"]
+	if _, err := fixture.store.db.Exec(
+		`INSERT INTO opening_review_state(
+		 course_id, prompt_id, semantic_fingerprint, due_at, interval_index,
+		 successful_reviews, last_outcome, status
+		) VALUES (?, ?, ?, ?, 0, 1, 'clean', 'active')`,
+		fixture.compiled.Pack.CourseID, prompt.PromptID, prompt.SemanticFingerprint,
+		fixture.now.Add(-time.Minute).UnixMilli(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	started, err := fixture.service.StartReview(context.Background(), fixture.compiled.Pack.CourseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.Pause(context.Background(), started.SessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	home, err := fixture.service.Home(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	course := home.Courses[0]
+	if course.HasResumable || !course.HasResumableReview ||
+		course.RecommendedLessonID != "giuoco-plan" {
+		t.Fatalf("paused review leaked into lesson continuation: %+v", course)
+	}
+	resumed, err := fixture.service.StartReview(context.Background(), fixture.compiled.Pack.CourseID)
+	if err != nil || resumed.SessionID != started.SessionID || resumed.Mode != OpeningModeReview ||
+		resumed.Status != OpeningStatusActive {
+		t.Fatalf("resumed review=%+v err=%v", resumed, err)
 	}
 }
 

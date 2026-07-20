@@ -139,6 +139,23 @@ func TestOpeningServiceExposesOptionalReferenceOutsideRequiredCursor(t *testing.
 	}
 }
 
+func TestActivityComparisonLinesUseSANInsteadOfInternalMoveIDs(t *testing.T) {
+	course, err := Compile(decodeTreePack(t), chessrules.Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lines := activityComparisonLines(course, []ActivityLine{{
+		Label:   "Develop the Italian",
+		MoveIDs: []string{"white-e4", "black-e5", "white-nf3"},
+	}})
+
+	want := []OpeningActivityLine{{Label: "Develop the Italian", Moves: []string{"e4", "e5", "Nf3"}}}
+	if !reflect.DeepEqual(lines, want) {
+		t.Fatalf("comparison lines = %#v, want %#v", lines, want)
+	}
+}
+
 func TestOpeningLessonStartRollsBackSessionWhenJourneyWriteFails(t *testing.T) {
 	fixture := newTreeServiceFixture(t)
 	ctx := context.Background()

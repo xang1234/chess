@@ -156,7 +156,7 @@
           <ChessBoard
             bind:this={boardComponent}
             fen={state.fen}
-            orientation="white"
+            orientation={current.orientation}
             legalMoves={boardLegalMoves}
             {inputEnabled}
             lastMove={view.lastMove}
@@ -222,6 +222,15 @@
             <button class="primary" type="button" on:click={() => controller.acknowledgeActivity()}>
               Continue
             </button>
+          {:else if state.phase === 'failed' && state.recoverable && state.retryOperation}
+            <button class="primary" type="button" on:click={() => controller.retry()}>
+              Retry
+            </button>
+            {#if state.retryOperation !== 'pause'}
+              <button class="quiet-action" type="button" on:click={() => controller.pause()}>
+                Pause lesson
+              </button>
+            {/if}
           {:else if state.phase === 'passive'}
             <button class="primary" type="button" on:click={() => controller.advance()}>
               Continue

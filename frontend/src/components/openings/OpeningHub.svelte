@@ -28,8 +28,9 @@
     dispatch('depth', { courseId: course.courseId, depth })
   }
 
-  function reviewLabel(count: number): string {
-    return `Review ${count} due ${count === 1 ? 'position' : 'positions'}`
+  function reviewLabel(count: number, resumable: boolean): string {
+    const due = `${count} due ${count === 1 ? 'position' : 'positions'}`
+    return resumable ? `Continue review — ${due}` : `Review ${due}`
   }
 
   function continueLearning(): void {
@@ -87,7 +88,7 @@
       {/if}
       {#if course.dueReviews > 0}
         <button class="secondary" type="button" on:click={() => dispatch('review', course.courseId)}>
-          {reviewLabel(course.dueReviews)}
+          {reviewLabel(course.dueReviews, course.hasResumableReview)}
         </button>
       {/if}
       <button

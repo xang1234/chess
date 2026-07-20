@@ -58,6 +58,32 @@ test('starts the recommended lesson when there is no resumable activity', async 
   }))
 })
 
+test('keeps a paused review separate from Continue learning', async () => {
+  const home = {
+    ...fakeOpeningHome,
+    courses: [{
+      ...fakeOpeningHome.courses[0],
+      hasResumable: false,
+      hasResumableReview: true,
+      dueReviews: 1
+    }]
+  }
+  const { component } = render(OpeningHub, { home })
+  const lesson = vi.fn()
+  const resume = vi.fn()
+  const review = vi.fn()
+  component.$on('lesson', lesson)
+  component.$on('resume', resume)
+  component.$on('review', review)
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Continue learning — Giuoco Piano' }))
+  expect(lesson).toHaveBeenCalledOnce()
+  expect(resume).not.toHaveBeenCalled()
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Continue review — 1 due position' }))
+  expect(review).toHaveBeenCalledWith(expect.objectContaining({ detail: 'synthetic-italian' }))
+})
+
 test('shows private import guidance when no course is installed', () => {
   render(OpeningHub, { home: { notice: 'Course storage is available.', courses: [] } })
   expect(screen.getByText('Import a private .ctcourse file from Parent settings.')).toBeInTheDocument()

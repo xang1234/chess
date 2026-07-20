@@ -264,6 +264,42 @@ test('continues from a lesson checkpoint directly into the recommended branch', 
     .toHaveTextContent('Giuoco Piano')
 })
 
+test('refreshes opening progress when Stop for now leaves a checkpoint', async () => {
+  const getOpeningHome = vi.fn(async () => fakeOpeningHome)
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    getOpeningHome,
+    startOpeningLesson: async () => interactiveOpening(),
+    revealOpeningMove: async () => ({
+      session: completedOpening(),
+      activityCompleted: true,
+      feedback: 'expected',
+      appliedMoves: [{
+        uci: 'c2c3',
+        resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+      }],
+      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4',
+      checkpoint: {
+        completedLessonId: 'giuoco-c3',
+        path: [{ lessonId: 'giuoco-c3', title: 'Giuoco Piano' }],
+        availableLessonIds: [],
+        completedLessons: 1,
+        totalLessons: 1
+      }
+    })
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Stop for now' }))
+
+  await waitFor(() => expect(getOpeningHome).toHaveBeenCalledTimes(3))
+  expect(screen.getByRole('button', { name: 'Learn Openings' })).toBeInTheDocument()
+})
+
 test('opens the read-only variation explorer at the course depth', async () => {
   const getOpeningPosition = vi.fn(async (courseId: string, positionId: string) => ({
     courseId,

@@ -75,6 +75,7 @@ type OpeningCourseSummary struct {
 	RecommendedLessonID    string                  `json:"recommendedLessonId,omitempty"`
 	RecommendedLessonTitle string                  `json:"recommendedLessonTitle,omitempty"`
 	HasResumable           bool                    `json:"hasResumable"`
+	HasResumableReview     bool                    `json:"hasResumableReview"`
 	Tree                   OpeningTeachingTreeView `json:"tree"`
 	Chapters               []OpeningChapterSummary `json:"chapters"`
 }
@@ -106,6 +107,11 @@ type OpeningSessionView struct {
 	Notice       string               `json:"notice,omitempty"`
 }
 
+type OpeningActivityLine struct {
+	Label string   `json:"label"`
+	Moves []string `json:"moves"`
+}
+
 type OpeningActivityView struct {
 	ActivityID         string                    `json:"activityId"`
 	Kind               ActivityKind              `json:"kind"`
@@ -119,7 +125,7 @@ type OpeningActivityView struct {
 	LegalMoves         []string                  `json:"legalMoves"`
 	TeachingNoteTexts  []string                  `json:"teachingNoteTexts"`
 	ReferenceNoteTexts []string                  `json:"referenceNoteTexts"`
-	Comparison         []ActivityLine            `json:"comparison"`
+	Comparison         []OpeningActivityLine     `json:"comparison"`
 	Annotations        []BoardAnnotation         `json:"annotations"`
 	MovesToHere        []domain.AppliedMove      `json:"movesToHere"`
 	ActivityNumber     int                       `json:"activityNumber"`

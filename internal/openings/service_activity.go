@@ -184,9 +184,17 @@ func nextStudyActivityIndex(
 	completed map[string]bool,
 	restudying bool,
 ) (int, bool) {
+	if !restudying {
+		for index, activity := range lesson.Activities {
+			if activity.Required && !completed[activity.ActivityID] {
+				return index, true
+			}
+		}
+		return 0, false
+	}
 	for index := currentIndex + 1; index < len(lesson.Activities); index++ {
 		activity := lesson.Activities[index]
-		if activity.Required && (restudying || !completed[activity.ActivityID]) {
+		if activity.Required {
 			return index, true
 		}
 	}
@@ -304,7 +312,7 @@ func (s *Service) buildActivityView(
 		CurrentFEN: session.State.Position.CurrentFEN, Orientation: course.Pack.Perspective,
 		LegalMoves: []string{}, TeachingNoteTexts: teachingNotes,
 		ReferenceNoteTexts: s.activityReferenceNoteTexts(course, activity, teachingNotes),
-		Comparison:         append([]ActivityLine{}, activity.Comparison...),
+		Comparison:         activityComparisonLines(course, activity.Comparison),
 		Annotations:        append([]BoardAnnotation{}, activity.Annotations...),
 		MovesToHere:        movesToHere, ActivityNumber: number, ActivityTotal: total,
 		CompletedIdeas: completed, RequiredIdeas: total,
@@ -329,6 +337,20 @@ func (s *Service) buildActivityView(
 		view.VariationName = course.Moves[activity.MoveIDs[len(activity.MoveIDs)-1]].VariationName
 	}
 	return view, nil
+}
+
+func activityComparisonLines(course CompiledCourse, lines []ActivityLine) []OpeningActivityLine {
+	result := make([]OpeningActivityLine, 0, len(lines))
+	for _, line := range lines {
+		moves := make([]string, 0, len(line.MoveIDs))
+		for _, moveID := range line.MoveIDs {
+			if move, ok := course.Moves[moveID]; ok {
+				moves = append(moves, move.SAN)
+			}
+		}
+		result = append(result, OpeningActivityLine{Label: line.Label, Moves: moves})
+	}
+	return result
 }
 
 func referenceSections(course CompiledCourse, lesson Lesson) []OpeningReferenceSection {

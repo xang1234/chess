@@ -71,6 +71,7 @@ export class OpeningController {
   private currentView: OpeningControllerView | undefined
   private mounted = false
   private observedSession: OpeningSessionView | undefined
+  private failedMoveUci: string | undefined
 
   constructor(options: ControllerOptions) {
     this.api = options.api
@@ -153,6 +154,7 @@ export class OpeningController {
     try {
       result = await this.api.playOpeningMove(owned.request.session.sessionId, uci)
     } catch (error) {
+      this.failedMoveUci = uci
       await this.failRequest(owned, error, true)
       return
     }
@@ -162,6 +164,22 @@ export class OpeningController {
       return
     }
     await this.finishSuccessful(owned, result, uci)
+    this.failedMoveUci = undefined
+  }
+
+  async retry(): Promise<void> {
+    const state = this.requireState()
+    if (state.phase !== 'failed' || !state.recoverable || !state.retryOperation) return
+    switch (state.retryOperation) {
+      case 'advance': await this.advance(); return
+      case 'hint': await this.useHint(); return
+      case 'reveal': await this.reveal(); return
+      case 'pause': await this.pause(); return
+      case 'move':
+        if (this.failedMoveUci) await this.play(this.failedMoveUci)
+        return
+      case 'restart': return
+    }
   }
 
   async useHint(): Promise<void> {
@@ -320,7 +338,8 @@ export class OpeningController {
 
   private beginOwnedRequest(operation: OpeningOperation): OwnedRequest | null {
     const state = this.requireState()
-    const allowed = state.phase === 'passive' || acceptsOpeningInput(state)
+    const allowed = state.phase === 'passive' || acceptsOpeningInput(state) ||
+      (state.phase === 'failed' && state.recoverable)
     if (!allowed) return null
     const token = this.runtime.startRequest()
     try {
