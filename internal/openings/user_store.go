@@ -191,6 +191,7 @@ type CourseRevision struct {
 	CourseID           string
 	PromptFingerprints map[string]string
 	SessionRebase      *SessionRebase
+	Journey            *CourseJourney
 	Now                time.Time
 }
 

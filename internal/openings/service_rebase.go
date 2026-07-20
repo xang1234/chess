@@ -5,11 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 const (
-	updatedCourseNotice = "The private course was updated. Restart from the last compatible teaching checkpoint."
+	updatedCourseNotice = "The private course was updated. Your learned progress is preserved; restart from the last compatible teaching checkpoint."
 	removedLessonNotice = "The private course was updated and this lesson is no longer available. Restart at the first available lesson."
 	missingCourseNotice = "The private course data for this session is unavailable. Reimport the private course pack to continue."
 )
@@ -23,11 +22,13 @@ func (s *Service) applyCourseRevision(
 	ctx context.Context,
 	course CompiledCourse,
 	rebase *SessionRebase,
+	journey *CourseJourney,
 ) error {
 	return s.store.ApplyCourseRevision(ctx, CourseRevision{
 		CourseID:           course.Pack.CourseID,
 		PromptFingerprints: coursePromptFingerprints(course),
 		SessionRebase:      rebase,
+		Journey:            journey,
 		Now:                s.now().UTC(),
 	})
 }
@@ -94,7 +95,7 @@ func (s *Service) resumeCurrentGeneration(
 		return nil, err
 	}
 	if session.Status == OpeningStatusRestartRequired {
-		if err := s.applyCourseRevision(ctx, course, nil); err != nil {
+		if err := s.applyCourseRevision(ctx, course, nil, nil); err != nil {
 			return nil, err
 		}
 		view := restartRequiredView(session, updatedCourseNotice)
@@ -105,10 +106,10 @@ func (s *Service) resumeCurrentGeneration(
 		if err := s.applyCourseRevision(ctx, course, &SessionRebase{
 			PreviousGenerationID: session.GenerationID,
 			Session:              session,
-		}); err != nil {
+		}, nil); err != nil {
 			return nil, err
 		}
-	} else if err := s.applyCourseRevision(ctx, course, nil); err != nil {
+	} else if err := s.applyCourseRevision(ctx, course, nil, nil); err != nil {
 		return nil, err
 	}
 	view, err := s.sessionView(ctx, course, session)
@@ -124,24 +125,45 @@ func (s *Service) rebaseLesson(
 ) (*OpeningSessionView, error) {
 	oldLesson, oldExists := oldCourse.Lessons[session.LessonID]
 	newLesson, newExists := newCourse.Lessons[session.LessonID]
-	if oldExists && newExists && session.ActivityIndex >= 0 && session.ActivityIndex < len(oldLesson.Steps) {
-		oldStep := oldLesson.Steps[session.ActivityIndex]
-		if newIndex, newStep, exists := lessonStepByID(newLesson, oldStep.StepID); exists &&
-			oldStep.Kind == newStep.Kind &&
-			sameStepPosition(oldCourse, oldStep, newCourse, newStep) &&
-			playedMovesCompatible(oldCourse, newCourse, session.State.Position.PlayedMoveIDs) &&
-			promptStepCompatible(oldCourse, oldStep, newCourse, newStep) {
+	now := s.now().UTC()
+	journey, err := s.store.Journey(ctx, session.CourseID, session.Depth)
+	if err != nil {
+		return nil, err
+	}
+	if journey.CreatedAt.IsZero() {
+		journey.CreatedAt = now
+	}
+	journey.Depth = session.Depth
+	journey.CurrentLessonID = session.LessonID
+	journey.ActiveSessionID = session.ID
+	journey.UpdatedAt = now
+	if newExists {
+		journey.PathLessonIDs = teachingPathLessonIDs(newCourse, session.LessonID)
+	}
+
+	if oldExists && newExists && session.ActivityIndex >= 0 && session.ActivityIndex < len(oldLesson.Activities) {
+		oldActivity := oldLesson.Activities[session.ActivityIndex]
+		if newIndex, newActivity, exists := lessonActivityByID(newLesson, oldActivity.ActivityID); exists &&
+			activityCompatible(oldCourse, oldActivity, newCourse, newActivity) &&
+			activityStatePositionCompatible(oldCourse, oldActivity, newCourse, newActivity, session.State.Position.PositionID) &&
+			playedMovesCompatible(oldCourse, newCourse, session.State.Position.PlayedMoveIDs) {
 			previousGenerationID := session.GenerationID
 			session.GenerationID = activeGenerationID
 			session.Status = OpeningStatusActive
 			session.ActivityIndex = newIndex
-			session.State.Position.PositionID = newStep.PositionID
-			session.State.Position.CurrentFEN = newCourse.Positions[newStep.PositionID].FEN
+			if newActivity.PositionID != "" {
+				session.State.Position.PositionID = newActivity.PositionID
+				session.State.Position.CurrentFEN = newCourse.Positions[newActivity.PositionID].FEN
+			}
+			if session.State.Attempt != nil {
+				session.State.Attempt.PromptID = newActivity.PromptID
+			}
 			session.State.Restart = nil
+			journey.CurrentActivityID = newActivity.ActivityID
 			if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
 				PreviousGenerationID: previousGenerationID,
 				Session:              session,
-			}); err != nil {
+			}, &journey); err != nil {
 				return nil, err
 			}
 			view, err := s.sessionView(ctx, newCourse, session)
@@ -151,13 +173,17 @@ func (s *Service) rebaseLesson(
 
 	session.Status = OpeningStatusRestartRequired
 	session.State.Attempt = nil
-	session.State.Restart = compatibleCheckpoint(
+	session.State.Restart = compatibleActivityCheckpoint(
 		oldCourse, oldLesson, newCourse, newLesson, session.ActivityIndex,
 	)
+	journey.CurrentActivityID = ""
+	if newExists && session.State.Restart != nil && session.State.Restart.ActivityIndex < len(newLesson.Activities) {
+		journey.CurrentActivityID = newLesson.Activities[session.State.Restart.ActivityIndex].ActivityID
+	}
 	if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
 		PreviousGenerationID: session.GenerationID,
 		Session:              session,
-	}); err != nil {
+	}, &journey); err != nil {
 		return nil, err
 	}
 	notice := updatedCourseNotice
@@ -206,7 +232,7 @@ func (s *Service) rebaseReview(
 		if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
 			PreviousGenerationID: previousGenerationID,
 			Session:              session,
-		}); err != nil {
+		}, nil); err != nil {
 			return nil, err
 		}
 		view, err := s.sessionView(ctx, newCourse, session)
@@ -229,7 +255,7 @@ func (s *Service) rebaseReview(
 	if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
 		PreviousGenerationID: previousGenerationID,
 		Session:              session,
-	}); err != nil {
+	}, nil); err != nil {
 		return nil, err
 	}
 	view, err := s.sessionView(ctx, newCourse, session)
@@ -264,24 +290,59 @@ func (s *Service) Restart(ctx context.Context, sessionID string) (OpeningSession
 		session.LessonID = lesson.LessonID
 		session.State.Restart = nil
 	}
-	stepIndex := 0
-	if session.State.Restart != nil && session.State.Restart.ActivityIndex < len(lesson.Steps) {
-		stepIndex = session.State.Restart.ActivityIndex
+	activityIndex := -1
+	if session.State.Restart != nil && session.State.Restart.ActivityIndex < len(lesson.Activities) {
+		activityIndex = session.State.Restart.ActivityIndex
 	}
-	state, err := s.stateForLessonStep(course, lesson.Steps[stepIndex], SessionState{
-		Position: PositionState{PlayedMoveIDs: []string{}},
-	}, s.now().UTC())
+	if activityIndex < 0 {
+		progress, progressErr := s.store.LessonProgress(
+			ctx, session.CourseID, lesson.LessonID, RequiredActivityIDs(lesson),
+		)
+		if progressErr != nil {
+			return OpeningSessionView{}, progressErr
+		}
+		var found bool
+		activityIndex, found = firstStudyActivityIndex(lesson, progress)
+		if !found {
+			return OpeningSessionView{}, fmt.Errorf("opening lesson %q has no study activity", lesson.LessonID)
+		}
+	}
+	activity := lesson.Activities[activityIndex]
+	startPosition, exists := course.Positions[lesson.StartPositionID]
+	if !exists {
+		return OpeningSessionView{}, fmt.Errorf("opening lesson %q start position is unavailable", lesson.LessonID)
+	}
+	now := s.now().UTC()
+	state, err := s.stateForActivity(course, activity, SessionState{
+		Position: PositionState{
+			PositionID: lesson.StartPositionID, CurrentFEN: startPosition.FEN,
+			PlayedMoveIDs: []string{},
+		},
+	}, now)
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
 	session.GenerationID = activeGenerationID
 	session.Status = OpeningStatusActive
-	session.ActivityIndex = stepIndex
+	session.ActivityIndex = activityIndex
 	session.State = state
+	journey, err := s.store.Journey(ctx, session.CourseID, session.Depth)
+	if err != nil {
+		return OpeningSessionView{}, err
+	}
+	if journey.CreatedAt.IsZero() {
+		journey.CreatedAt = now
+	}
+	journey.Depth = session.Depth
+	journey.CurrentLessonID = lesson.LessonID
+	journey.CurrentActivityID = activity.ActivityID
+	journey.PathLessonIDs = teachingPathLessonIDs(course, lesson.LessonID)
+	journey.ActiveSessionID = session.ID
+	journey.UpdatedAt = now
 	if err := s.applyCourseRevision(ctx, course, &SessionRebase{
 		PreviousGenerationID: previousGenerationID,
 		Session:              session,
-	}); err != nil {
+	}, &journey); err != nil {
 		return OpeningSessionView{}, err
 	}
 	return s.sessionView(ctx, course, session)
@@ -323,7 +384,7 @@ func (s *Service) restartReview(
 	if err := s.applyCourseRevision(ctx, course, &SessionRebase{
 		PreviousGenerationID: previousGenerationID,
 		Session:              session,
-	}); err != nil {
+	}, nil); err != nil {
 		return OpeningSessionView{}, err
 	}
 	return s.sessionView(ctx, course, session)
@@ -348,102 +409,4 @@ func restartRequiredView(session StoredSession, notice string) OpeningSessionVie
 		CourseID: session.CourseID, GenerationID: session.GenerationID,
 		LessonID: session.LessonID, Depth: session.Depth, Notice: notice,
 	}
-}
-
-func lessonStepByID(lesson Lesson, stepID string) (int, LessonStep, bool) {
-	for index, step := range lesson.Steps {
-		if step.StepID == stepID {
-			return index, step, true
-		}
-	}
-	return 0, LessonStep{}, false
-}
-
-func sameStepPosition(
-	oldCourse CompiledCourse,
-	oldStep LessonStep,
-	newCourse CompiledCourse,
-	newStep LessonStep,
-) bool {
-	oldPosition, oldExists := oldCourse.Positions[oldStep.PositionID]
-	newPosition, newExists := newCourse.Positions[newStep.PositionID]
-	if !oldExists || !newExists {
-		return false
-	}
-	oldCanonical, oldErr := CanonicalPosition(oldPosition.FEN)
-	newCanonical, newErr := CanonicalPosition(newPosition.FEN)
-	return oldErr == nil && newErr == nil && oldCanonical == newCanonical
-}
-
-func playedMovesCompatible(oldCourse CompiledCourse, newCourse CompiledCourse, moveIDs []string) bool {
-	for _, moveID := range moveIDs {
-		oldMove, oldExists := oldCourse.Moves[moveID]
-		newMove, newExists := newCourse.Moves[moveID]
-		if !oldExists || !newExists || oldMove.UCI != newMove.UCI ||
-			!sameMovePosition(oldCourse, oldMove.FromPositionID, newCourse, newMove.FromPositionID) ||
-			!sameMovePosition(oldCourse, oldMove.ToPositionID, newCourse, newMove.ToPositionID) {
-			return false
-		}
-	}
-	return true
-}
-
-func sameMovePosition(oldCourse CompiledCourse, oldID string, newCourse CompiledCourse, newID string) bool {
-	oldPosition, oldExists := oldCourse.Positions[oldID]
-	newPosition, newExists := newCourse.Positions[newID]
-	if !oldExists || !newExists {
-		return false
-	}
-	oldCanonical, oldErr := CanonicalPosition(oldPosition.FEN)
-	newCanonical, newErr := CanonicalPosition(newPosition.FEN)
-	return oldErr == nil && newErr == nil && oldCanonical == newCanonical
-}
-
-func promptStepCompatible(
-	oldCourse CompiledCourse,
-	oldStep LessonStep,
-	newCourse CompiledCourse,
-	newStep LessonStep,
-) bool {
-	if oldStep.PromptID == "" && newStep.PromptID == "" {
-		return true
-	}
-	oldPrompt, oldExists := oldCourse.Prompts[oldStep.PromptID]
-	newPrompt, newExists := newCourse.Prompts[newStep.PromptID]
-	return oldExists && newExists && oldPrompt.SemanticFingerprint == newPrompt.SemanticFingerprint
-}
-
-func compatibleCheckpoint(
-	oldCourse CompiledCourse,
-	oldLesson Lesson,
-	newCourse CompiledCourse,
-	newLesson Lesson,
-	currentIndex int,
-) *RestartCheckpoint {
-	if strings.TrimSpace(oldLesson.LessonID) == "" || strings.TrimSpace(newLesson.LessonID) == "" {
-		return nil
-	}
-	if currentIndex >= len(oldLesson.Steps) {
-		currentIndex = len(oldLesson.Steps) - 1
-	}
-	for index := currentIndex; index >= 0; index-- {
-		oldStep := oldLesson.Steps[index]
-		if oldStep.Kind != StepExplain && oldStep.Kind != StepWatch {
-			continue
-		}
-		newIndex, newStep, exists := lessonStepByID(newLesson, oldStep.StepID)
-		if exists && newStep.Kind == oldStep.Kind && sameStepPosition(oldCourse, oldStep, newCourse, newStep) {
-			return &RestartCheckpoint{ActivityIndex: newIndex}
-		}
-	}
-	return nil
-}
-
-func firstVisibleLesson(course CompiledCourse, depth Depth) (Lesson, bool) {
-	for _, lesson := range course.Pack.Lessons {
-		if visibleAtDepth(lesson.MinimumDepth, depth) && len(lesson.Steps) > 0 {
-			return lesson, true
-		}
-	}
-	return Lesson{}, false
 }

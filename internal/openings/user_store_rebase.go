@@ -35,6 +35,14 @@ func (s *UserStore) ApplyCourseRevision(ctx context.Context, revision CourseRevi
 			return errors.New("opening session rebase course does not match revision course")
 		}
 	}
+	if revision.Journey != nil {
+		if revision.Journey.CourseID != revision.CourseID {
+			return errors.New("opening journey rebase course does not match revision course")
+		}
+		if err := validateCourseJourney(*revision.Journey); err != nil {
+			return err
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -43,6 +51,11 @@ func (s *UserStore) ApplyCourseRevision(ctx context.Context, revision CourseRevi
 	if revision.SessionRebase != nil {
 		if err := rebaseSessionTx(ctx, tx, *revision.SessionRebase, revision.Now); err != nil {
 			return err
+		}
+	}
+	if revision.Journey != nil {
+		if err := saveJourneyTx(ctx, tx, *revision.Journey); err != nil {
+			return fmt.Errorf("rebase opening journey: %w", err)
 		}
 	}
 	if err := reconcileReviewsTx(

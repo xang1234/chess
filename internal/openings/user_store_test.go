@@ -239,6 +239,15 @@ func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	beforeJourney := CourseJourney{
+		CourseID: session.CourseID, Depth: session.Depth,
+		CurrentLessonID: session.LessonID, CurrentActivityID: "decision-c3",
+		PathLessonIDs: []string{session.LessonID}, ActiveSessionID: session.ID,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := store.SaveJourney(ctx, beforeJourney); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(
 		`INSERT INTO opening_review_state(
 		 course_id, prompt_id, semantic_fingerprint, due_at, interval_index,
@@ -260,6 +269,9 @@ func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T)
 
 	previousGenerationID := session.GenerationID
 	session.GenerationID = "generation-2"
+	updatedJourney := beforeJourney
+	updatedJourney.CurrentActivityID = "recap"
+	updatedJourney.UpdatedAt = now.Add(time.Minute)
 	err = store.ApplyCourseRevision(ctx, CourseRevision{
 		CourseID:           session.CourseID,
 		PromptFingerprints: map[string]string{},
@@ -267,7 +279,8 @@ func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T)
 			PreviousGenerationID: previousGenerationID,
 			Session:              session,
 		},
-		Now: now.Add(time.Minute),
+		Journey: &updatedJourney,
+		Now:     now.Add(time.Minute),
 	})
 	if err == nil || !strings.Contains(err.Error(), "forced review archive failure") {
 		t.Fatalf("ApplyCourseRevision() error = %v", err)
@@ -276,12 +289,39 @@ func TestApplyCourseRevisionRollsBackSessionWhenReviewArchiveFails(t *testing.T)
 	if err != nil || loaded.GenerationID != previousGenerationID {
 		t.Fatalf("session after rollback = %+v, err=%v", loaded, err)
 	}
+	afterJourney, err := store.Journey(ctx, session.CourseID, DepthReference)
+	if err != nil || !reflect.DeepEqual(afterJourney, beforeJourney) {
+		t.Fatalf("journey after rollback = %+v, want %+v, err=%v", afterJourney, beforeJourney, err)
+	}
 	var status string
 	if err := db.QueryRow(
 		`SELECT status FROM opening_review_state WHERE course_id = ? AND prompt_id = 'retired'`,
 		session.CourseID,
 	).Scan(&status); err != nil || status != "active" {
 		t.Fatalf("review status after rollback = %q, err=%v", status, err)
+	}
+}
+
+func TestApplyCourseRevisionKeepsCompletedLessonStickyWhenActivitiesGrow(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
+	store := NewUserStore(openOpeningUserTestDB(t))
+	if err := store.RecordActivityProgress(ctx, ActivityProgressUpdate{
+		CourseID: "italian-white", LessonID: "legacy-lesson",
+		CompletedActivityID: "legacy-decision", RequiredActivityIDs: []string{"legacy-decision"}, Now: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyCourseRevision(ctx, CourseRevision{
+		CourseID: "italian-white", PromptFingerprints: map[string]string{}, Now: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := store.LessonProgress(
+		ctx, "italian-white", "legacy-lesson", []string{"legacy-decision", "new-required-concept"},
+	)
+	if err != nil || !progress.Completed {
+		t.Fatalf("progress=%+v err=%v", progress, err)
 	}
 }
 

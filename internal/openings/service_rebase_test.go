@@ -37,6 +37,127 @@ func pauseMiniLessonAtRecall(t *testing.T, fixture openingServiceFixture) Openin
 	return branch.Session
 }
 
+func pauseTreeLessonAtDecision(t *testing.T, fixture treeServiceFixture) OpeningSessionView {
+	t.Helper()
+	ctx := context.Background()
+	started, err := fixture.service.StartLesson(ctx, fixture.compiled.Pack.CourseID, "giuoco-plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanced, err := fixture.service.AdvanceActivity(ctx, started.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.Pause(ctx, started.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	return advanced.Session
+}
+
+func replaceTreeCourse(t *testing.T, fixture treeServiceFixture, pack CoursePack) ReplaceResult {
+	t.Helper()
+	compiled, err := Compile(pack, chessrules.Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := fixture.service.catalog.Replace(
+		context.Background(), compiled, "/private/tree-v2.ctcourse", "sha-tree-v2",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func TestOpeningRebaseKeepsMatchingActivityAndJourney(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	paused := pauseTreeLessonAtDecision(t, fixture)
+	pack := decodeTreePack(t)
+	pack.ContentVersion = "2.0.1"
+	pack.Title = "Synthetic Italian Teaching Tree revised"
+	activities := pack.Lessons[0].Activities
+	pack.Lessons[0].Activities = []LessonActivity{activities[1], activities[0], activities[2]}
+	replacement := replaceTreeCourse(t, fixture, pack)
+
+	resumed, err := fixture.service.Resume(context.Background())
+	if err != nil || resumed == nil || resumed.Current == nil ||
+		resumed.GenerationID != replacement.GenerationID ||
+		resumed.Current.ActivityID != "giuoco-c3-decision" {
+		t.Fatalf("resumed=%+v err=%v", resumed, err)
+	}
+	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID, DepthReference)
+	if err != nil || journey.CurrentActivityID != "giuoco-c3-decision" ||
+		journey.ActiveSessionID != paused.SessionID {
+		t.Fatalf("journey=%+v err=%v", journey, err)
+	}
+	stored, err := fixture.store.LoadSession(context.Background(), paused.SessionID)
+	if err != nil || stored.ActivityIndex != 0 {
+		t.Fatalf("stored=%+v err=%v", stored, err)
+	}
+}
+
+func TestOpeningRebaseRemovedActivityRestartsAtNearestCompatibleActivity(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	paused := pauseTreeLessonAtDecision(t, fixture)
+	pack := decodeTreePack(t)
+	pack.ContentVersion = "2.0.1"
+	pack.Lessons[0].Activities = append(
+		[]LessonActivity{},
+		pack.Lessons[0].Activities[0],
+		pack.Lessons[0].Activities[2],
+	)
+	replacement := replaceTreeCourse(t, fixture, pack)
+
+	resumed, err := fixture.service.Resume(context.Background())
+	if err != nil || resumed == nil || resumed.Status != OpeningStatusRestartRequired ||
+		!strings.Contains(resumed.Notice, "preserved") {
+		t.Fatalf("resumed=%+v err=%v", resumed, err)
+	}
+	stored, err := fixture.store.LoadSession(context.Background(), paused.SessionID)
+	if err != nil || stored.State.Restart == nil || stored.State.Restart.ActivityIndex != 0 {
+		t.Fatalf("stored=%+v err=%v", stored, err)
+	}
+	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID, DepthReference)
+	if err != nil || journey.CurrentActivityID != "giuoco-concept" {
+		t.Fatalf("journey=%+v err=%v", journey, err)
+	}
+	restarted, err := fixture.service.Restart(context.Background(), paused.SessionID)
+	if err != nil || restarted.GenerationID != replacement.GenerationID || restarted.Current == nil ||
+		restarted.Current.ActivityID != "giuoco-concept" {
+		t.Fatalf("restarted=%+v err=%v", restarted, err)
+	}
+}
+
+func TestOpeningRebaseRemovedLessonRestartsAtFirstVisibleTeachingNode(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	paused := pauseTreeLessonAtDecision(t, fixture)
+	pack := decodeTreePack(t)
+	pack.ContentVersion = "2.0.1"
+	replacementLesson := pack.Lessons[0]
+	replacementLesson.LessonID = "replacement-plan"
+	replacementLesson.Title = "Replacement plan"
+	pack.Lessons = []Lesson{replacementLesson}
+	pack.LessonEdges = []LessonEdge{}
+	replacement := replaceTreeCourse(t, fixture, pack)
+
+	resumed, err := fixture.service.Resume(context.Background())
+	if err != nil || resumed == nil || resumed.Status != OpeningStatusRestartRequired ||
+		!strings.Contains(resumed.Notice, "no longer available") {
+		t.Fatalf("resumed=%+v err=%v", resumed, err)
+	}
+	restarted, err := fixture.service.Restart(context.Background(), paused.SessionID)
+	if err != nil || restarted.GenerationID != replacement.GenerationID ||
+		restarted.LessonID != "replacement-plan" || restarted.Current == nil ||
+		restarted.Current.ActivityID != "giuoco-concept" {
+		t.Fatalf("restarted=%+v err=%v", restarted, err)
+	}
+	journey, err := fixture.store.Journey(context.Background(), fixture.compiled.Pack.CourseID, DepthReference)
+	if err != nil || journey.CurrentLessonID != "replacement-plan" ||
+		journey.CurrentActivityID != "giuoco-concept" {
+		t.Fatalf("journey=%+v err=%v", journey, err)
+	}
+}
+
 func replaceMiniCourse(t *testing.T, fixture openingServiceFixture, pack CoursePack) ReplaceResult {
 	t.Helper()
 	compiled, err := Compile(pack, chessrules.Rules{})

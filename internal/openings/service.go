@@ -326,7 +326,7 @@ func (s *Service) StartReview(ctx context.Context, courseID string) (OpeningSess
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
-	if err := s.applyCourseRevision(ctx, course, nil); err != nil {
+	if err := s.applyCourseRevision(ctx, course, nil, nil); err != nil {
 		return OpeningSessionView{}, err
 	}
 	due, err := s.store.DueReviews(ctx, courseID, s.now().UTC(), 10000)
