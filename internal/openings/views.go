@@ -15,19 +15,68 @@ type OpeningHomeView struct {
 	Courses []OpeningCourseSummary `json:"courses"`
 }
 
+type OpeningNodeProgress string
+
+const (
+	NodeAvailable  OpeningNodeProgress = "available"
+	NodeInProgress OpeningNodeProgress = "in_progress"
+	NodeCompleted  OpeningNodeProgress = "completed"
+)
+
+type OpeningTeachingNodeView struct {
+	LessonID            string              `json:"lessonId"`
+	ChapterID           string              `json:"chapterId"`
+	Title               string              `json:"title"`
+	Objective           string              `json:"objective"`
+	MinimumDepth        Depth               `json:"minimumDepth"`
+	Progress            OpeningNodeProgress `json:"progress"`
+	CompletedActivities int                 `json:"completedActivities"`
+	RequiredActivities  int                 `json:"requiredActivities"`
+	Recommended         bool                `json:"recommended"`
+	ReviewDue           bool                `json:"reviewDue"`
+	Visible             bool                `json:"visible"`
+}
+
+type OpeningTeachingEdgeView struct {
+	EdgeID       string         `json:"edgeId"`
+	FromLessonID string         `json:"fromLessonId"`
+	ToLessonID   string         `json:"toLessonId"`
+	Ordinal      int            `json:"ordinal"`
+	Kind         LessonEdgeKind `json:"kind"`
+	Label        string         `json:"label,omitempty"`
+	MinimumDepth Depth          `json:"minimumDepth"`
+}
+
+type OpeningTeachingTreeView struct {
+	RootLessonID string                    `json:"rootLessonId"`
+	Nodes        []OpeningTeachingNodeView `json:"nodes"`
+	Edges        []OpeningTeachingEdgeView `json:"edges"`
+}
+
+type OpeningPathItem struct {
+	LessonID string `json:"lessonId"`
+	Title    string `json:"title"`
+}
+
 type OpeningCourseSummary struct {
-	CourseID         string                  `json:"courseId"`
-	Title            string                  `json:"title"`
-	Perspective      Perspective             `json:"perspective"`
-	Depth            Depth                   `json:"depth"`
-	RootPositionID   string                  `json:"rootPositionId"`
-	CompletedLessons int                     `json:"completedLessons"`
-	TotalLessons     int                     `json:"totalLessons"`
-	DueReviews       int                     `json:"dueReviews"`
-	NextLessonID     string                  `json:"nextLessonId,omitempty"`
-	NextLessonTitle  string                  `json:"nextLessonTitle,omitempty"`
-	HasResumable     bool                    `json:"hasResumable"`
-	Chapters         []OpeningChapterSummary `json:"chapters"`
+	CourseID               string                  `json:"courseId"`
+	Title                  string                  `json:"title"`
+	Perspective            Perspective             `json:"perspective"`
+	Depth                  Depth                   `json:"depth"`
+	RootPositionID         string                  `json:"rootPositionId"`
+	CompletedLessons       int                     `json:"completedLessons"`
+	TotalLessons           int                     `json:"totalLessons"`
+	DueReviews             int                     `json:"dueReviews"`
+	NextLessonID           string                  `json:"nextLessonId,omitempty"`
+	NextLessonTitle        string                  `json:"nextLessonTitle,omitempty"`
+	CurrentLessonID        string                  `json:"currentLessonId,omitempty"`
+	CurrentActivityID      string                  `json:"currentActivityId,omitempty"`
+	CurrentPath            []OpeningPathItem       `json:"currentPath"`
+	RecommendedLessonID    string                  `json:"recommendedLessonId,omitempty"`
+	RecommendedLessonTitle string                  `json:"recommendedLessonTitle,omitempty"`
+	HasResumable           bool                    `json:"hasResumable"`
+	Tree                   OpeningTeachingTreeView `json:"tree"`
+	Chapters               []OpeningChapterSummary `json:"chapters"`
 }
 
 type OpeningChapterSummary struct {

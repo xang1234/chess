@@ -69,18 +69,41 @@ func (s *Service) Home(ctx context.Context) (OpeningHomeView, error) {
 func (s *Service) courseSummary(
 	ctx context.Context,
 	course CompiledCourse,
-	depth Depth,
+	fallbackDepth Depth,
 	resumable *StoredSession,
 ) (OpeningCourseSummary, error) {
+	journey, err := s.store.Journey(ctx, course.Pack.CourseID, fallbackDepth)
+	if err != nil {
+		return OpeningCourseSummary{}, fmt.Errorf("load opening journey for %q: %w", course.Pack.CourseID, err)
+	}
+	depth := journey.Depth
+	projection, err := s.projectTeachingTree(ctx, course, depth, journey, resumable)
+	if err != nil {
+		return OpeningCourseSummary{}, err
+	}
+	currentLessonID := validJourneyLessonID(course, journey.CurrentLessonID)
+	currentActivityID := journey.CurrentActivityID
+	if currentLessonID == "" {
+		currentActivityID = ""
+	}
 	view := OpeningCourseSummary{
 		CourseID: course.Pack.CourseID, Title: course.Pack.Title,
 		Perspective: course.Pack.Perspective, Depth: depth,
-		RootPositionID: course.Pack.RootPositionID,
-		Chapters:       []OpeningChapterSummary{},
+		RootPositionID:         course.Pack.RootPositionID,
+		CompletedLessons:       projection.completedLessons,
+		TotalLessons:           projection.totalLessons,
+		DueReviews:             projection.dueReviews,
+		CurrentLessonID:        currentLessonID,
+		CurrentActivityID:      currentActivityID,
+		CurrentPath:            projection.currentPath,
+		RecommendedLessonID:    projection.recommendedLessonID,
+		RecommendedLessonTitle: projection.recommendedLessonTitle,
+		NextLessonID:           projection.recommendedLessonID,
+		NextLessonTitle:        projection.recommendedLessonTitle,
+		Tree:                   projection.tree,
+		Chapters:               []OpeningChapterSummary{},
 	}
-	if resumable != nil && resumable.CourseID == course.Pack.CourseID {
-		view.HasResumable = true
-	}
+	view.HasResumable = hasVisibleResumable(course, depth, resumable)
 	selectedRank, _ := depthRank(depth)
 	for _, chapter := range course.Pack.Chapters {
 		chapterRank, ok := depthRank(chapter.MinimumDepth)
@@ -96,11 +119,7 @@ func (s *Service) courseSummary(
 			if lesson.ChapterID != chapter.ChapterID || !visibleAtDepth(lesson.MinimumDepth, depth) {
 				continue
 			}
-			stepIDs := lessonStepIDs(lesson)
-			progress, err := s.store.LessonProgress(ctx, course.Pack.CourseID, lesson.LessonID, stepIDs)
-			if err != nil {
-				return OpeningCourseSummary{}, fmt.Errorf("load progress for lesson %q: %w", lesson.LessonID, err)
-			}
+			progress := projection.progressByLesson[lesson.LessonID]
 			lessonView := OpeningLessonSummary{
 				LessonID: lesson.LessonID, Title: lesson.Title,
 				CompletedSteps: progress.CompletedActivities,
@@ -108,26 +127,8 @@ func (s *Service) courseSummary(
 				Completed:      progress.Completed,
 			}
 			chapterView.Lessons = append(chapterView.Lessons, lessonView)
-			view.TotalLessons++
-			if progress.Completed {
-				view.CompletedLessons++
-			} else if view.NextLessonID == "" {
-				view.NextLessonID = lesson.LessonID
-				view.NextLessonTitle = lesson.Title
-			}
 		}
 		view.Chapters = append(view.Chapters, chapterView)
-	}
-	due, err := s.store.DueReviews(ctx, course.Pack.CourseID, s.now().UTC(), 10000)
-	if err != nil {
-		return OpeningCourseSummary{}, fmt.Errorf("load due opening reviews: %w", err)
-	}
-	for _, review := range due {
-		prompt, exists := course.Prompts[review.PromptID]
-		if exists && prompt.SemanticFingerprint == review.SemanticFingerprint &&
-			promptVisibleAtDepth(course, prompt, depth) {
-			view.DueReviews++
-		}
 	}
 	return view, nil
 }
@@ -139,10 +140,33 @@ func (s *Service) SetDepth(ctx context.Context, courseID string, depth Depth) er
 	if _, ok := depthRank(depth); !ok {
 		return fmt.Errorf("invalid opening depth %q", depth)
 	}
-	if _, err := s.catalog.LoadActive(ctx, courseID); err != nil {
+	course, err := s.catalog.LoadActive(ctx, courseID)
+	if err != nil {
 		return fmt.Errorf("load opening course %q: %w", courseID, err)
 	}
-	return s.store.SetDepth(ctx, courseID, depth, s.now().UTC())
+	now := s.now().UTC()
+	if err := s.store.SetDepth(ctx, courseID, depth, now); err != nil {
+		return err
+	}
+	journey, err := s.store.Journey(ctx, courseID, depth)
+	if err != nil {
+		return err
+	}
+	if journey.CreatedAt.IsZero() {
+		journey.CreatedAt = now
+	}
+	journey.Depth = depth
+	journey.UpdatedAt = now
+	resumable, err := s.store.ResumableSession(ctx)
+	if err != nil {
+		return err
+	}
+	projection, err := s.projectTeachingTree(ctx, course, depth, journey, resumable)
+	if err != nil {
+		return err
+	}
+	journey.LastRecommendedLessonID = projection.recommendedLessonID
+	return s.store.SaveJourney(ctx, journey)
 }
 
 func (s *Service) Explore(
