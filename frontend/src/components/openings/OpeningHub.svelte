@@ -29,6 +29,7 @@
   }
 
   function reviewLabel(count: number, resumable: boolean): string {
+    if (resumable && count === 0) return 'Continue review'
     const due = `${count} due ${count === 1 ? 'position' : 'positions'}`
     return resumable ? `Continue review — ${due}` : `Review ${due}`
   }
@@ -86,7 +87,7 @@
           Continue learning{continuationTitle ? ` — ${continuationTitle}` : ''}
         </button>
       {/if}
-      {#if course.dueReviews > 0}
+      {#if course.hasResumableReview || course.dueReviews > 0}
         <button class="secondary" type="button" on:click={() => dispatch('review', course.courseId)}>
           {reviewLabel(course.dueReviews, course.hasResumableReview)}
         </button>

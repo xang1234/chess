@@ -84,6 +84,24 @@ test('keeps a paused review separate from Continue learning', async () => {
   expect(review).toHaveBeenCalledWith(expect.objectContaining({ detail: 'synthetic-italian' }))
 })
 
+test('keeps a paused review available when the selected depth has no due positions', async () => {
+  const home = {
+    ...fakeOpeningHome,
+    courses: [{
+      ...fakeOpeningHome.courses[0],
+      hasResumableReview: true,
+      dueReviews: 0
+    }]
+  }
+  const { component } = render(OpeningHub, { home })
+  const review = vi.fn()
+  component.$on('review', review)
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Continue review' }))
+
+  expect(review).toHaveBeenCalledWith(expect.objectContaining({ detail: 'synthetic-italian' }))
+})
+
 test('shows private import guidance when no course is installed', () => {
   render(OpeningHub, { home: { notice: 'Course storage is available.', courses: [] } })
   expect(screen.getByText('Import a private .ctcourse file from Parent settings.')).toBeInTheDocument()
