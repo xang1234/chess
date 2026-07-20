@@ -101,9 +101,53 @@ type OpeningSessionView struct {
 	GenerationID string               `json:"generationId"`
 	LessonID     string               `json:"lessonId"`
 	Depth        Depth                `json:"depth"`
-	Current      *OpeningStepView     `json:"current,omitempty"`
+	Current      *OpeningActivityView `json:"current,omitempty"`
 	Summary      *OpeningSummary      `json:"summary,omitempty"`
 	Notice       string               `json:"notice,omitempty"`
+}
+
+type OpeningActivityView struct {
+	ActivityID         string                    `json:"activityId"`
+	Kind               ActivityKind              `json:"kind"`
+	Title              string                    `json:"title"`
+	Instruction        string                    `json:"instruction"`
+	Required           bool                      `json:"required"`
+	VariationName      string                    `json:"variationName,omitempty"`
+	PositionID         string                    `json:"positionId,omitempty"`
+	CurrentFEN         string                    `json:"currentFen"`
+	Orientation        Perspective               `json:"orientation"`
+	LegalMoves         []string                  `json:"legalMoves"`
+	TeachingNoteTexts  []string                  `json:"teachingNoteTexts"`
+	ReferenceNoteTexts []string                  `json:"referenceNoteTexts"`
+	Comparison         []ActivityLine            `json:"comparison"`
+	Annotations        []BoardAnnotation         `json:"annotations"`
+	MovesToHere        []domain.AppliedMove      `json:"movesToHere"`
+	ActivityNumber     int                       `json:"activityNumber"`
+	ActivityTotal      int                       `json:"activityTotal"`
+	CompletedIdeas     int                       `json:"completedIdeas"`
+	RequiredIdeas      int                       `json:"requiredIdeas"`
+	HintLevel          int                       `json:"hintLevel"`
+	CanReveal          bool                      `json:"canReveal"`
+	ReferenceSections  []OpeningReferenceSection `json:"referenceSections"`
+}
+
+type OpeningReferenceSection struct {
+	ActivityID  string            `json:"activityId"`
+	Title       string            `json:"title"`
+	Instruction string            `json:"instruction"`
+	PositionID  string            `json:"positionId,omitempty"`
+	NoteTexts   []string          `json:"noteTexts"`
+	Annotations []BoardAnnotation `json:"annotations"`
+}
+
+type OpeningRoadmapCheckpoint struct {
+	CompletedLessonID      string            `json:"completedLessonId"`
+	Path                   []OpeningPathItem `json:"path"`
+	AvailableLessonIDs     []string          `json:"availableLessonIds"`
+	RecommendedLessonID    string            `json:"recommendedLessonId,omitempty"`
+	RecommendedLessonTitle string            `json:"recommendedLessonTitle,omitempty"`
+	CompletedLessons       int               `json:"completedLessons"`
+	TotalLessons           int               `json:"totalLessons"`
 }
 
 type OpeningStepView struct {
@@ -133,14 +177,18 @@ type OpeningSummary struct {
 	Revealed           int `json:"revealed"`
 }
 
-type OpeningStepResult struct {
-	Session       OpeningSessionView   `json:"session"`
-	StepCompleted bool                 `json:"stepCompleted"`
-	Feedback      MoveFeedback         `json:"feedback,omitempty"`
-	Message       string               `json:"message,omitempty"`
-	AppliedMoves  []domain.AppliedMove `json:"appliedMoves,omitempty"`
-	FinalFEN      string               `json:"finalFen,omitempty"`
+type OpeningActivityResult struct {
+	Session           OpeningSessionView        `json:"session"`
+	ActivityCompleted bool                      `json:"activityCompleted"`
+	StepCompleted     bool                      `json:"stepCompleted,omitempty"`
+	Feedback          MoveFeedback              `json:"feedback,omitempty"`
+	Message           string                    `json:"message,omitempty"`
+	AppliedMoves      []domain.AppliedMove      `json:"appliedMoves,omitempty"`
+	FinalFEN          string                    `json:"finalFen,omitempty"`
+	Checkpoint        *OpeningRoadmapCheckpoint `json:"checkpoint,omitempty"`
 }
+
+type OpeningStepResult = OpeningActivityResult
 
 type OpeningHintResult struct {
 	Session      OpeningSessionView `json:"session"`

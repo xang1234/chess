@@ -236,10 +236,15 @@ func (s *Service) StartLesson(
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
-	depth, err := s.store.Depth(ctx, courseID, course.Pack.DefaultDepth)
+	fallbackDepth, err := s.store.Depth(ctx, courseID, course.Pack.DefaultDepth)
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
+	journey, err := s.store.Journey(ctx, courseID, fallbackDepth)
+	if err != nil {
+		return OpeningSessionView{}, err
+	}
+	depth := journey.Depth
 	lesson, exists := course.Lessons[lessonID]
 	if !exists {
 		return OpeningSessionView{}, fmt.Errorf("opening lesson %q was not found", lessonID)
@@ -247,24 +252,48 @@ func (s *Service) StartLesson(
 	if !visibleAtDepth(lesson.MinimumDepth, depth) {
 		return OpeningSessionView{}, fmt.Errorf("opening lesson %q is hidden at %s depth", lessonID, depth)
 	}
-	if len(lesson.Steps) == 0 {
-		return OpeningSessionView{}, fmt.Errorf("opening lesson %q has no steps", lessonID)
+	requiredIDs := RequiredActivityIDs(lesson)
+	if len(requiredIDs) == 0 {
+		return OpeningSessionView{}, fmt.Errorf("opening lesson %q has no required activities", lessonID)
+	}
+	progress, err := s.store.LessonProgress(ctx, courseID, lessonID, requiredIDs)
+	if err != nil {
+		return OpeningSessionView{}, err
+	}
+	activityIndex, exists := firstStudyActivityIndex(lesson, progress)
+	if !exists {
+		return OpeningSessionView{}, fmt.Errorf("opening lesson %q has no study activity", lessonID)
 	}
 	now := s.now().UTC()
-	state, err := s.stateForLessonStep(course, lesson.Steps[0], SessionState{
-		Position: PositionState{PlayedMoveIDs: []string{}},
+	startPosition, exists := course.Positions[lesson.StartPositionID]
+	if !exists {
+		return OpeningSessionView{}, fmt.Errorf("opening lesson %q start position is unavailable", lessonID)
+	}
+	state, err := s.stateForActivity(course, lesson.Activities[activityIndex], SessionState{
+		Position: PositionState{
+			PositionID: lesson.StartPositionID, CurrentFEN: startPosition.FEN,
+			PlayedMoveIDs: []string{},
+		},
 	}, now)
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
-	session, err := s.store.CreateSession(ctx, SessionSeed{
+	journey.CurrentLessonID = lessonID
+	journey.CurrentActivityID = lesson.Activities[activityIndex].ActivityID
+	journey.PathLessonIDs = teachingPathLessonIDs(course, lessonID)
+	journey.LastRecommendedLessonID = lessonID
+	journey.UpdatedAt = now
+	if journey.CreatedAt.IsZero() {
+		journey.CreatedAt = now
+	}
+	session, _, err := s.store.CreateLessonSession(ctx, SessionSeed{
 		CourseID: courseID, GenerationID: generationID, LessonID: lessonID,
-		Mode: OpeningModeLesson, Depth: depth, State: state,
-	}, now)
+		Mode: OpeningModeLesson, Depth: depth, ActivityIndex: activityIndex, State: state,
+	}, journey, now)
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
-	return s.sessionView(course, session)
+	return s.sessionView(ctx, course, session)
 }
 
 func (s *Service) Resume(ctx context.Context) (*OpeningSessionView, error) {
@@ -330,7 +359,7 @@ func (s *Service) StartReview(ctx context.Context, courseID string) (OpeningSess
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
-	return s.sessionView(course, session)
+	return s.sessionView(ctx, course, session)
 }
 
 func (s *Service) loadActiveCourse(
@@ -364,14 +393,6 @@ func visibleAtDepth(minimum Depth, selected Depth) bool {
 func promptVisibleAtDepth(course CompiledCourse, prompt CompiledPrompt, depth Depth) bool {
 	move, exists := course.Moves[prompt.PrimaryMoveID]
 	return exists && visibleAtDepth(move.MinimumDepth, depth)
-}
-
-func lessonStepIDs(lesson Lesson) []string {
-	ids := make([]string, len(lesson.Steps))
-	for index, step := range lesson.Steps {
-		ids[index] = step.StepID
-	}
-	return ids
 }
 
 func nextAttemptID() string {

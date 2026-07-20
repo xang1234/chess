@@ -36,7 +36,13 @@ func (s *UserStore) RecordActivityProgress(ctx context.Context, update ActivityP
 		return err
 	}
 	defer tx.Rollback()
+	if err := recordActivityProgressTx(ctx, tx, update); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
+func recordActivityProgressTx(ctx context.Context, tx *sql.Tx, update ActivityProgressUpdate) error {
 	stored, alreadyCompleted, err := storedLessonProgressTx(ctx, tx, update.CourseID, update.LessonID)
 	if err != nil {
 		return err
@@ -60,7 +66,7 @@ func (s *UserStore) RecordActivityProgress(ctx context.Context, update ActivityP
 	); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func storedLessonProgressTx(

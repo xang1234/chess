@@ -124,7 +124,7 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertOpeningStep(t, started, StepExplain, "explain-plan")
+	assertOpeningActivity(t, started, ActivityConcept, "explain-plan")
 	if started.Current.Orientation != PerspectiveWhite || len(started.Current.LegalMoves) != 0 {
 		t.Fatalf("explain step = %+v", started.Current)
 	}
@@ -133,7 +133,7 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertOpeningStep(t, advanced.Session, StepWatch, "watch-setup")
+	assertOpeningActivity(t, advanced.Session, ActivityDemonstration, "watch-setup")
 	if len(advanced.AppliedMoves) != 0 {
 		t.Fatalf("explain advance frames = %+v", advanced.AppliedMoves)
 	}
@@ -142,7 +142,7 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertOpeningStep(t, advanced.Session, StepTry, "try-c3")
+	assertOpeningActivity(t, advanced.Session, ActivityDecision, "try-c3")
 	if len(advanced.AppliedMoves) != 6 || advanced.FinalFEN != fixture.compiled.Positions["after-bc5"].FEN {
 		t.Fatalf("watch advance = %+v", advanced)
 	}
@@ -223,7 +223,7 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 	if !revealed.StepCompleted || revealed.Feedback != FeedbackExpected || len(revealed.AppliedMoves) != 1 {
 		t.Fatalf("reveal result = %+v", revealed)
 	}
-	assertOpeningStep(t, revealed.Session, StepBranch, "branch-giuoco")
+	assertOpeningActivity(t, revealed.Session, ActivityDecision, "branch-giuoco")
 	var attemptIncorrect, attemptAlternatives, attemptHints, attemptRevealed int
 	if err := fixture.userDB.QueryRow(
 		`SELECT incorrect_moves, alternatives_tried, hints_used, revealed
@@ -248,7 +248,7 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 	if expected.Feedback != FeedbackExpected || expected.FinalFEN != fixture.compiled.Positions["after-c3"].FEN {
 		t.Fatalf("expected branch result = %+v", expected)
 	}
-	assertOpeningStep(t, expected.Session, StepRecall, "recall-c3-step")
+	assertOpeningActivity(t, expected.Session, ActivityDecision, "recall-c3-step")
 
 	if err := fixture.service.Pause(ctx, started.SessionID); err != nil {
 		t.Fatal(err)
@@ -261,20 +261,18 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 	if err != nil || resumed == nil {
 		t.Fatalf("resume = %+v err=%v", resumed, err)
 	}
-	assertOpeningStep(t, *resumed, StepRecall, "recall-c3-step")
+	assertOpeningActivity(t, *resumed, ActivityDecision, "recall-c3-step")
 
 	completed, err := fixture.service.PlayMove(ctx, started.SessionID, "c2c3")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed.Session.Status != OpeningStatusCompleted || completed.Session.Current != nil || completed.Session.Summary == nil {
+	if completed.Session.Status != OpeningStatusCompleted || completed.Session.Current != nil ||
+		completed.Session.Summary != nil || completed.Checkpoint == nil {
 		t.Fatalf("completed session = %+v", completed.Session)
 	}
-	summary := *completed.Session.Summary
-	if summary.TotalPrompts != 3 || summary.PositionsRecalled != 2 ||
-		summary.BranchesRecognized != 1 || summary.Retried != 1 ||
-		summary.UsedHint != 1 || summary.Revealed != 1 {
-		t.Fatalf("summary = %+v", summary)
+	if completed.Checkpoint.CompletedLessonID != "giuoco-c3" {
+		t.Fatalf("checkpoint = %+v", completed.Checkpoint)
 	}
 	var rating float64
 	if err := fixture.userDB.QueryRow(`SELECT learner_rating FROM profile WHERE id = 1`).Scan(&rating); err != nil || rating != 1432 {
@@ -328,10 +326,10 @@ func TestOpeningServiceStartReviewPersistsOrderedQueue(t *testing.T) {
 	}
 }
 
-func assertOpeningStep(t *testing.T, session OpeningSessionView, kind StepKind, stepID string) {
+func assertOpeningActivity(t *testing.T, session OpeningSessionView, kind ActivityKind, activityID string) {
 	t.Helper()
 	if session.Status != OpeningStatusActive || session.Current == nil ||
-		session.Current.Kind != kind || session.Current.StepID != stepID {
-		t.Fatalf("session current = %+v, want %s %s", session, kind, stepID)
+		session.Current.Kind != kind || session.Current.ActivityID != activityID {
+		t.Fatalf("session current = %+v, want %s %s", session, kind, activityID)
 	}
 }

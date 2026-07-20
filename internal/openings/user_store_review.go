@@ -29,6 +29,49 @@ func (s *UserStore) CompletePrompt(
 	}
 	defer tx.Rollback()
 
+	if err := recordAttemptAndReviewTx(ctx, tx, completion, now); err != nil {
+		return err
+	}
+	if len(completion.CompletedActivityIDs) != 0 {
+		if err := upsertLessonProgress(
+			ctx, tx, completion.Session.CourseID, completion.Session.LessonID,
+			completion.CompletedActivityIDs, now,
+		); err != nil {
+			return err
+		}
+	}
+	result, err := tx.ExecContext(
+		ctx,
+		`UPDATE opening_sessions
+		 SET status = ?, depth = ?, activity_index = ?, state_json = ?, updated_at = ?
+		 WHERE session_id = ? AND course_id = ? AND generation_id = ?
+		   AND lesson_id = ? AND mode = ?`,
+		completion.Session.Status,
+		completion.Session.Depth,
+		completion.Session.ActivityIndex,
+		stateJSON,
+		now.UnixMilli(),
+		completion.Session.ID,
+		completion.Session.CourseID,
+		completion.Session.GenerationID,
+		completion.Session.LessonID,
+		completion.Session.Mode,
+	)
+	if err != nil {
+		return fmt.Errorf("update opening session after prompt: %w", err)
+	}
+	if err := requireOneSessionRow(result, completion.Session.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func recordAttemptAndReviewTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	completion PromptCompletion,
+	now time.Time,
+) error {
 	attempt := completion.Attempt
 	if _, err := tx.ExecContext(
 		ctx,
@@ -69,41 +112,7 @@ func (s *UserStore) CompletePrompt(
 	); err != nil {
 		return fmt.Errorf("update opening prompt progress: %w", err)
 	}
-	if err := upsertOpeningReview(ctx, tx, completion, now); err != nil {
-		return err
-	}
-	if len(completion.CompletedActivityIDs) != 0 {
-		if err := upsertLessonProgress(
-			ctx, tx, completion.Session.CourseID, completion.Session.LessonID,
-			completion.CompletedActivityIDs, now,
-		); err != nil {
-			return err
-		}
-	}
-	result, err := tx.ExecContext(
-		ctx,
-		`UPDATE opening_sessions
-		 SET status = ?, depth = ?, activity_index = ?, state_json = ?, updated_at = ?
-		 WHERE session_id = ? AND course_id = ? AND generation_id = ?
-		   AND lesson_id = ? AND mode = ?`,
-		completion.Session.Status,
-		completion.Session.Depth,
-		completion.Session.ActivityIndex,
-		stateJSON,
-		now.UnixMilli(),
-		completion.Session.ID,
-		completion.Session.CourseID,
-		completion.Session.GenerationID,
-		completion.Session.LessonID,
-		completion.Session.Mode,
-	)
-	if err != nil {
-		return fmt.Errorf("update opening session after prompt: %w", err)
-	}
-	if err := requireOneSessionRow(result, completion.Session.ID); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return upsertOpeningReview(ctx, tx, completion, now)
 }
 
 func upsertOpeningReview(

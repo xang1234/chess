@@ -172,7 +172,7 @@ func TestNormalControllerOpeningBindingsDelegateThroughOpeningService(t *testing
 		t.Fatalf("GetOpeningPosition() = %+v err=%v", position, err)
 	}
 	session, err := controller.StartOpeningLesson(pack.CourseID, "giuoco-c3")
-	if err != nil || session.Current == nil || session.Current.Kind != openings.StepExplain {
+	if err != nil || session.Current == nil || session.Current.Kind != openings.ActivityConcept {
 		t.Fatalf("StartOpeningLesson() = %+v err=%v", session, err)
 	}
 	if err := services.OpeningStore.SetSessionStatus(
@@ -188,7 +188,7 @@ func TestNormalControllerOpeningBindingsDelegateThroughOpeningService(t *testing
 		t.Fatal(err)
 	}
 	advanced, err := controller.AdvanceOpeningStep(session.SessionID)
-	if err != nil || advanced.Session.Current == nil || advanced.Session.Current.Kind != openings.StepTry {
+	if err != nil || advanced.Session.Current == nil || advanced.Session.Current.Kind != openings.ActivityDecision {
 		t.Fatalf("AdvanceOpeningStep() = %+v err=%v", advanced, err)
 	}
 	hint, err := controller.UseOpeningHint(session.SessionID)

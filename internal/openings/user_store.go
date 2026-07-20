@@ -85,12 +85,13 @@ type StoredSession struct {
 }
 
 type SessionSeed struct {
-	CourseID     string
-	GenerationID string
-	LessonID     string
-	Mode         OpeningSessionMode
-	Depth        Depth
-	State        SessionState
+	CourseID      string
+	GenerationID  string
+	LessonID      string
+	Mode          OpeningSessionMode
+	Depth         Depth
+	ActivityIndex int
+	State         SessionState
 }
 
 type LessonProgress struct {
@@ -119,6 +120,17 @@ type ActivityProgressUpdate struct {
 	LessonID            string
 	CompletedActivityID string
 	RequiredActivityIDs []string
+	Now                 time.Time
+}
+
+type LessonActivityCompletion struct {
+	Session             StoredSession
+	Journey             CourseJourney
+	ActivityID          string
+	RequiredActivityIDs []string
+	Attempt             *AttemptRecord
+	SemanticFingerprint string
+	Outcome             ReviewOutcome
 	Now                 time.Time
 }
 

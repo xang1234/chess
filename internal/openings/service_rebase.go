@@ -111,7 +111,7 @@ func (s *Service) resumeCurrentGeneration(
 	} else if err := s.applyCourseRevision(ctx, course, nil); err != nil {
 		return nil, err
 	}
-	view, err := s.sessionView(course, session)
+	view, err := s.sessionView(ctx, course, session)
 	return &view, err
 }
 
@@ -144,7 +144,7 @@ func (s *Service) rebaseLesson(
 			}); err != nil {
 				return nil, err
 			}
-			view, err := s.sessionView(newCourse, session)
+			view, err := s.sessionView(ctx, newCourse, session)
 			return &view, err
 		}
 	}
@@ -209,7 +209,7 @@ func (s *Service) rebaseReview(
 		}); err != nil {
 			return nil, err
 		}
-		view, err := s.sessionView(newCourse, session)
+		view, err := s.sessionView(ctx, newCourse, session)
 		view.Notice = "The private course was updated; no queued review positions remain."
 		return &view, err
 	}
@@ -232,7 +232,7 @@ func (s *Service) rebaseReview(
 	}); err != nil {
 		return nil, err
 	}
-	view, err := s.sessionView(newCourse, session)
+	view, err := s.sessionView(ctx, newCourse, session)
 	return &view, err
 }
 
@@ -284,7 +284,7 @@ func (s *Service) Restart(ctx context.Context, sessionID string) (OpeningSession
 	}); err != nil {
 		return OpeningSessionView{}, err
 	}
-	return s.sessionView(course, session)
+	return s.sessionView(ctx, course, session)
 }
 
 func (s *Service) restartReview(
@@ -326,7 +326,7 @@ func (s *Service) restartReview(
 	}); err != nil {
 		return OpeningSessionView{}, err
 	}
-	return s.sessionView(course, session)
+	return s.sessionView(ctx, course, session)
 }
 
 func (s *Service) requirePrivateReimport(

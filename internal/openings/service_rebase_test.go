@@ -66,7 +66,7 @@ func TestOpeningLessonSessionRebasesUnchangedPromptInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resumed == nil || resumed.GenerationID != v2.GenerationID || resumed.Status != OpeningStatusActive ||
-		resumed.Current == nil || resumed.Current.StepID != "recall-c3-step" {
+		resumed.Current == nil || resumed.Current.ActivityID != "recall-c3-step" {
 		t.Fatalf("resumed = %+v", resumed)
 	}
 	stored, err := fixture.store.LoadSession(ctx, paused.SessionID)
@@ -106,7 +106,7 @@ func TestOpeningLessonChangedPromptRequiresCheckpointRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	if restarted.GenerationID != v2.GenerationID || restarted.Status != OpeningStatusActive ||
-		restarted.Current == nil || restarted.Current.StepID != "watch-setup" {
+		restarted.Current == nil || restarted.Current.ActivityID != "watch-setup" {
 		t.Fatalf("restarted = %+v", restarted)
 	}
 	var attemptsAfter int
@@ -139,7 +139,7 @@ func TestOpeningRemovedLessonRestartsAtFirstVisibleLesson(t *testing.T) {
 		t.Fatal(err)
 	}
 	if restarted.GenerationID != v2.GenerationID || restarted.LessonID != "replacement-lesson" ||
-		restarted.Current == nil || restarted.Current.StepID != "explain-plan" {
+		restarted.Current == nil || restarted.Current.ActivityID != "explain-plan" {
 		t.Fatalf("replacement restart = %+v", restarted)
 	}
 }

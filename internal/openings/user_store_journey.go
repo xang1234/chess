@@ -62,11 +62,19 @@ func (s *UserStore) SaveJourney(ctx context.Context, journey CourseJourney) erro
 	if err := validateCourseJourney(journey); err != nil {
 		return err
 	}
+	return saveJourneyTx(ctx, s.db, journey)
+}
+
+type contextExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func saveJourneyTx(ctx context.Context, execer contextExecer, journey CourseJourney) error {
 	pathJSON, err := json.Marshal(journey.PathLessonIDs)
 	if err != nil {
 		return fmt.Errorf("encode opening course journey path: %w", err)
 	}
-	_, err = s.db.ExecContext(
+	_, err = execer.ExecContext(
 		ctx,
 		`INSERT INTO opening_course_journeys(
 		   course_id, depth, current_lesson_id, current_activity_id,

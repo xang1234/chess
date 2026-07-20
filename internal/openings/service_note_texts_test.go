@@ -1,14 +1,21 @@
 package openings
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
+
+	"chess-trainer/internal/chessrules"
 )
 
-func TestBuildStepViewSeparatesTeachingNotesFromReferenceNotes(t *testing.T) {
+func TestBuildActivityViewSeparatesTeachingNotesFromReferenceNotes(t *testing.T) {
 	course := CompiledCourse{
-		Pack: CoursePack{Perspective: PerspectiveWhite},
+		Pack: CoursePack{
+			CourseID: "course", Perspective: PerspectiveWhite, RootPositionID: "position",
+			RootFEN: "reference-fen",
+		},
 		Positions: map[string]CompiledPosition{
 			"position": {
 				ID:      "position",
@@ -22,18 +29,32 @@ func TestBuildStepViewSeparatesTeachingNotesFromReferenceNotes(t *testing.T) {
 			"reference-note": {NoteID: "reference-note", Text: "Keep this detailed note in the reference section."},
 		},
 	}
-	step := LessonStep{
-		StepID: "explain", Kind: StepExplain, PositionID: "position",
+	activity := LessonActivity{
+		ActivityID: "concept", Kind: ActivityConcept, Required: true, PositionID: "position",
 		Title: "Plan", Instruction: "Learn the plan.", NoteIDs: []string{"teaching-note"},
 	}
-	session := StoredSession{State: SessionState{Position: PositionState{CurrentFEN: "current-fen"}}}
+	lesson := Lesson{LessonID: "lesson", Activities: []LessonActivity{activity}}
+	db := openOpeningUserTestDB(t)
+	store := NewUserStore(db)
+	if err := store.RecordActivityProgress(context.Background(), ActivityProgressUpdate{
+		CourseID: "course", LessonID: "lesson", CompletedActivityID: "concept",
+		RequiredActivityIDs: []string{"concept"}, Now: time.Unix(1, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	session := StoredSession{
+		CourseID: "course", LessonID: "lesson", Depth: DepthQuick,
+		State: SessionState{Position: PositionState{PositionID: "position", CurrentFEN: "current-fen"}},
+	}
 
-	view, err := (&Service{}).buildStepView(course, step, session, 1, 1)
+	view, err := (&Service{store: store, rules: chessrules.Rules{}}).lessonActivityView(
+		context.Background(), course, lesson, session,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"Keep this teaching note visible."}; !reflect.DeepEqual(view.NoteTexts, want) {
-		t.Fatalf("teaching notes = %v, want %v", view.NoteTexts, want)
+	if want := []string{"Keep this teaching note visible."}; !reflect.DeepEqual(view.TeachingNoteTexts, want) {
+		t.Fatalf("teaching notes = %v, want %v", view.TeachingNoteTexts, want)
 	}
 
 	encoded, err := json.Marshal(view)

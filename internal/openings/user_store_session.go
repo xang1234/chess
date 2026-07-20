@@ -48,7 +48,7 @@ func (s *UserStore) CreateSession(
 	session := StoredSession{
 		ID: uuid.NewString(), CourseID: seed.CourseID, GenerationID: seed.GenerationID,
 		LessonID: seed.LessonID, Mode: seed.Mode, Status: OpeningStatusActive,
-		Depth: seed.Depth, State: seed.State,
+		Depth: seed.Depth, ActivityIndex: seed.ActivityIndex, State: seed.State,
 	}
 	if err := validateStoredSession(session); err != nil {
 		return StoredSession{}, err
@@ -58,7 +58,7 @@ func (s *UserStore) CreateSession(
 		`INSERT INTO opening_sessions(
 		   session_id, course_id, generation_id, lesson_id, mode, status,
 		   depth, activity_index, state_json, created_at, updated_at
-		 ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		session.ID,
 		session.CourseID,
 		session.GenerationID,
@@ -66,6 +66,7 @@ func (s *UserStore) CreateSession(
 		session.Mode,
 		session.Status,
 		session.Depth,
+		session.ActivityIndex,
 		stateJSON,
 		now.UnixMilli(),
 		now.UnixMilli(),
@@ -232,6 +233,9 @@ func validateSessionSeed(seed SessionSeed) error {
 	}
 	if _, ok := depthRank(seed.Depth); !ok {
 		return fmt.Errorf("invalid opening depth %q", seed.Depth)
+	}
+	if seed.ActivityIndex < 0 {
+		return errors.New("opening session activity index cannot be negative")
 	}
 	return nil
 }

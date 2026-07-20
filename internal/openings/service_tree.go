@@ -163,6 +163,26 @@ func openingPathItems(course CompiledCourse, lessonIDs []string) []OpeningPathIt
 	return items
 }
 
+func teachingPathLessonIDs(course CompiledCourse, lessonID string) []string {
+	if _, exists := course.Lessons[lessonID]; !exists {
+		return []string{}
+	}
+	reversed := []string{lessonID}
+	for lessonID != course.RootLessonID {
+		edge, exists := course.LessonParent[lessonID]
+		if !exists {
+			break
+		}
+		lessonID = edge.FromLessonID
+		reversed = append(reversed, lessonID)
+	}
+	path := make([]string, len(reversed))
+	for index := range reversed {
+		path[len(reversed)-1-index] = reversed[index]
+	}
+	return path
+}
+
 func validJourneyLessonID(course CompiledCourse, lessonID string) string {
 	if _, exists := course.Lessons[lessonID]; exists {
 		return lessonID
