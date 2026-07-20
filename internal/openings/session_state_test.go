@@ -46,7 +46,7 @@ func TestValidateStoredSessionRejectsImpossibleStateCombinations(t *testing.T) {
 			name: "restart required with attempt",
 			mutate: func(session *StoredSession) {
 				session.Status = OpeningStatusRestartRequired
-				session.State.Restart = &RestartCheckpoint{StepIndex: 1}
+				session.State.Restart = &RestartCheckpoint{ActivityIndex: 1}
 			},
 			wantErr: "restart-required session cannot carry an attempt",
 		},
@@ -70,9 +70,9 @@ func TestValidateStoredSessionRejectsImpossibleStateCombinations(t *testing.T) {
 			name: "negative restart checkpoint",
 			mutate: func(session *StoredSession) {
 				session.State.Attempt = nil
-				session.State.Restart = &RestartCheckpoint{StepIndex: -1}
+				session.State.Restart = &RestartCheckpoint{ActivityIndex: -1}
 			},
-			wantErr: "opening restart step index cannot be negative",
+			wantErr: "opening restart activity index cannot be negative",
 		},
 	}
 

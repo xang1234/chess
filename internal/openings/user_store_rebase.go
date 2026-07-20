@@ -70,13 +70,13 @@ func rebaseSessionTx(
 		ctx,
 		`UPDATE opening_sessions
 		 SET generation_id = ?, lesson_id = ?, status = ?, depth = ?,
-		     step_index = ?, state_json = ?, updated_at = ?
+		     activity_index = ?, state_json = ?, updated_at = ?
 		 WHERE session_id = ? AND course_id = ? AND generation_id = ? AND mode = ?`,
 		rebase.Session.GenerationID,
 		rebase.Session.LessonID,
 		rebase.Session.Status,
 		rebase.Session.Depth,
-		rebase.Session.StepIndex,
+		rebase.Session.ActivityIndex,
 		stateJSON,
 		now.UnixMilli(),
 		rebase.Session.ID,

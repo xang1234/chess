@@ -72,10 +72,10 @@ func (s *UserStore) CompletePrompt(
 	if err := upsertOpeningReview(ctx, tx, completion, now); err != nil {
 		return err
 	}
-	if len(completion.CompletedStepIDs) != 0 {
+	if len(completion.CompletedActivityIDs) != 0 {
 		if err := upsertLessonProgress(
 			ctx, tx, completion.Session.CourseID, completion.Session.LessonID,
-			completion.CompletedStepIDs, now,
+			completion.CompletedActivityIDs, now,
 		); err != nil {
 			return err
 		}
@@ -83,12 +83,12 @@ func (s *UserStore) CompletePrompt(
 	result, err := tx.ExecContext(
 		ctx,
 		`UPDATE opening_sessions
-		 SET status = ?, depth = ?, step_index = ?, state_json = ?, updated_at = ?
+		 SET status = ?, depth = ?, activity_index = ?, state_json = ?, updated_at = ?
 		 WHERE session_id = ? AND course_id = ? AND generation_id = ?
 		   AND lesson_id = ? AND mode = ?`,
 		completion.Session.Status,
 		completion.Session.Depth,
-		completion.Session.StepIndex,
+		completion.Session.ActivityIndex,
 		stateJSON,
 		now.UnixMilli(),
 		completion.Session.ID,
@@ -277,11 +277,11 @@ func validatePromptCompletion(completion PromptCompletion, now time.Time) error 
 	default:
 		return fmt.Errorf("invalid opening review outcome %q", completion.Outcome)
 	}
-	if len(completion.CompletedStepIDs) != 0 {
+	if len(completion.CompletedActivityIDs) != 0 {
 		if completion.Session.Mode != OpeningModeLesson {
 			return errors.New("review sessions cannot complete a lesson")
 		}
-		if err := validateStepIDs(completion.CompletedStepIDs); err != nil {
+		if err := validateActivityIDs(completion.CompletedActivityIDs); err != nil {
 			return err
 		}
 	}

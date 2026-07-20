@@ -53,6 +53,76 @@ func mustAttemptRecord(t *testing.T, attempt *AttemptState) AttemptRecord {
 	return record
 }
 
+func TestUserStoreJourneyRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
+	store := NewUserStore(openOpeningUserTestDB(t))
+	want := CourseJourney{
+		CourseID: "italian-white", Depth: DepthStandard,
+		CurrentLessonID: "giuoco-plan", CurrentActivityID: "giuoco-c3-decision",
+		PathLessonIDs:           []string{"foundations", "giuoco-plan"},
+		LastRecommendedLessonID: "two-knights-plan", ActiveSessionID: "session-1",
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := store.SaveJourney(ctx, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Journey(ctx, want.CourseID, DepthReference)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got=%#v want=%#v err=%v", got, want, err)
+	}
+}
+
+func TestUserStoreJourneyReturnsInitializedFallback(t *testing.T) {
+	store := NewUserStore(openOpeningUserTestDB(t))
+	got, err := store.Journey(context.Background(), "italian-white", DepthQuick)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CourseID != "italian-white" || got.Depth != DepthQuick || got.PathLessonIDs == nil {
+		t.Fatalf("journey = %#v", got)
+	}
+}
+
+func TestCompletedOpeningNodeStaysCompleteWhenRequirementsGrow(t *testing.T) {
+	ctx := context.Background()
+	store := NewUserStore(openOpeningUserTestDB(t))
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
+	err := store.RecordActivityProgress(ctx, ActivityProgressUpdate{
+		CourseID: "italian-white", LessonID: "giuoco-plan",
+		CompletedActivityID: "decision-c3", RequiredActivityIDs: []string{"decision-c3"}, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress, err := store.LessonProgress(ctx, "italian-white", "giuoco-plan", []string{"decision-c3", "new-required"})
+	if err != nil || !progress.Completed {
+		t.Fatalf("progress=%+v err=%v", progress, err)
+	}
+}
+
+func TestUserStoreRecordsPartialActivityProgressInAuthoredOrder(t *testing.T) {
+	ctx := context.Background()
+	store := NewUserStore(openOpeningUserTestDB(t))
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
+	required := []string{"concept", "decision", "recap"}
+	for _, activityID := range []string{"decision", "concept", "decision"} {
+		if err := store.RecordActivityProgress(ctx, ActivityProgressUpdate{
+			CourseID: "italian-white", LessonID: "giuoco-plan",
+			CompletedActivityID: activityID, RequiredActivityIDs: required, Now: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	progress, err := store.LessonProgress(ctx, "italian-white", "giuoco-plan", required)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progress.Completed || !reflect.DeepEqual(progress.CompletedActivityIDs, []string{"concept", "decision"}) {
+		t.Fatalf("progress = %#v", progress)
+	}
+}
+
 func TestUserStoreDepthAndSessionRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
@@ -74,7 +144,7 @@ func TestUserStoreDepthAndSessionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session.StepIndex = 3
+	session.ActivityIndex = 3
 	session.State.Position.CurrentFEN = "fen-after-c3"
 	session.State.Position.PlayedMoveIDs = append(session.State.Position.PlayedMoveIDs, "white-c3")
 	if err := store.SaveSession(ctx, session, now.Add(time.Minute)); err != nil {
@@ -133,9 +203,9 @@ func TestUserStoreRebasesSessionGenerationAndCheckpointExactly(t *testing.T) {
 	session.GenerationID = "generation-2"
 	session.LessonID = "replacement-lesson"
 	session.Status = OpeningStatusRestartRequired
-	session.StepIndex = 2
+	session.ActivityIndex = 2
 	session.State.Attempt = nil
-	session.State.Restart = &RestartCheckpoint{StepIndex: 1}
+	session.State.Restart = &RestartCheckpoint{ActivityIndex: 1}
 	if err := store.ApplyCourseRevision(ctx, CourseRevision{
 		CourseID: session.CourseID, PromptFingerprints: map[string]string{},
 		SessionRebase: &SessionRebase{
@@ -254,7 +324,7 @@ func TestUserStoreCourseRevisionArchivesOnlyRemovedOrChangedPrompts(t *testing.T
 	}
 }
 
-func TestOpeningLessonProgressProjectsStableStepIDs(t *testing.T) {
+func TestOpeningLessonProgressProjectsStableActivityIDsAndKeepsCompletion(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 19, 12, 0, 0, 0, time.UTC)
 	store := NewUserStore(openOpeningUserTestDB(t))
@@ -268,23 +338,23 @@ func TestOpeningLessonProgressProjectsStableStepIDs(t *testing.T) {
 	completed := []string{"explain", "watch", "try", "branch", "recall"}
 	if err := store.CompletePrompt(ctx, PromptCompletion{
 		Session: session, Attempt: attempt, SemanticFingerprint: "semantic-v1",
-		Outcome: ReviewClean, CompletedStepIDs: completed,
+		Outcome: ReviewClean, CompletedActivityIDs: completed,
 	}, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 
 	progress, err := store.LessonProgress(ctx, "italian-white", "giuoco-c3", completed)
-	if err != nil || !progress.Completed || progress.CompletedSteps != 5 || progress.TotalSteps != 5 {
+	if err != nil || !progress.Completed || progress.CompletedActivities != 5 || progress.TotalActivities != 5 {
 		t.Fatalf("original progress = %+v err=%v", progress, err)
 	}
 	updated := []string{"explain", "watch", "inserted", "try", "branch", "recall"}
 	progress, err = store.LessonProgress(ctx, "italian-white", "giuoco-c3", updated)
-	if err != nil || progress.Completed || progress.CompletedSteps != 5 || progress.TotalSteps != 6 {
+	if err != nil || !progress.Completed || progress.CompletedActivities != 5 || progress.TotalActivities != 6 {
 		t.Fatalf("updated progress = %+v err=%v", progress, err)
 	}
 	shortened := []string{"explain", "watch", "try", "branch"}
 	progress, err = store.LessonProgress(ctx, "italian-white", "giuoco-c3", shortened)
-	if err != nil || progress.Completed || progress.CompletedSteps != 4 || progress.TotalSteps != 4 {
+	if err != nil || !progress.Completed || progress.CompletedActivities != 4 || progress.TotalActivities != 4 {
 		t.Fatalf("shortened progress = %+v err=%v", progress, err)
 	}
 }
@@ -298,7 +368,7 @@ func TestOpeningCompletePromptUpdatesAttemptReviewProgressAndSessionAtomically(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	session.StepIndex = 5
+	session.ActivityIndex = 5
 	session.Status = OpeningStatusCompleted
 	attempt := mustAttemptRecord(t, session.State.Attempt)
 	session.State.Attempt = nil
@@ -306,7 +376,7 @@ func TestOpeningCompletePromptUpdatesAttemptReviewProgressAndSessionAtomically(t
 	if err := store.CompletePrompt(ctx, PromptCompletion{
 		Session: session, Attempt: attempt,
 		SemanticFingerprint: "semantic-v1", Outcome: ReviewClean,
-		CompletedStepIDs: completedSteps,
+		CompletedActivityIDs: completedSteps,
 	}, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +417,7 @@ func TestOpeningCompletePromptUpdatesAttemptReviewProgressAndSessionAtomically(t
 		t.Fatalf("lesson progress = %+v err=%v", progress, err)
 	}
 	loaded, err := store.LoadSession(ctx, session.ID)
-	if err != nil || loaded.Status != OpeningStatusCompleted || loaded.StepIndex != 5 {
+	if err != nil || loaded.Status != OpeningStatusCompleted || loaded.ActivityIndex != 5 {
 		t.Fatalf("completed session = %+v err=%v", loaded, err)
 	}
 

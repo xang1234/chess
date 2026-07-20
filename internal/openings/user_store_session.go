@@ -57,7 +57,7 @@ func (s *UserStore) CreateSession(
 		ctx,
 		`INSERT INTO opening_sessions(
 		   session_id, course_id, generation_id, lesson_id, mode, status,
-		   depth, step_index, state_json, created_at, updated_at
+		   depth, activity_index, state_json, created_at, updated_at
 		 ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
 		session.ID,
 		session.CourseID,
@@ -88,7 +88,7 @@ func (s *UserStore) LoadSession(
 	return scanOpeningSession(s.db.QueryRowContext(
 		ctx,
 		`SELECT session_id, course_id, generation_id, lesson_id, mode, status,
-		        depth, step_index, state_json
+		        depth, activity_index, state_json
 		 FROM opening_sessions WHERE session_id = ?`,
 		sessionID,
 	))
@@ -98,7 +98,7 @@ func (s *UserStore) ResumableSession(ctx context.Context) (*StoredSession, error
 	session, err := scanOpeningSession(s.db.QueryRowContext(
 		ctx,
 		`SELECT session_id, course_id, generation_id, lesson_id, mode, status,
-		        depth, step_index, state_json
+		        depth, activity_index, state_json
 		 FROM opening_sessions
 		 WHERE status IN ('active','paused','restart_required')
 		 ORDER BY updated_at DESC LIMIT 1`,
@@ -127,12 +127,12 @@ func (s *UserStore) SaveSession(
 	result, err := s.db.ExecContext(
 		ctx,
 		`UPDATE opening_sessions
-		 SET status = ?, depth = ?, step_index = ?, state_json = ?, updated_at = ?
+		 SET status = ?, depth = ?, activity_index = ?, state_json = ?, updated_at = ?
 		 WHERE session_id = ? AND course_id = ? AND generation_id = ?
 		   AND lesson_id = ? AND mode = ?`,
 		session.Status,
 		session.Depth,
-		session.StepIndex,
+		session.ActivityIndex,
 		stateJSON,
 		now.UnixMilli(),
 		session.ID,
@@ -195,7 +195,7 @@ func scanOpeningSession(row rowScanner) (StoredSession, error) {
 		&session.Mode,
 		&session.Status,
 		&session.Depth,
-		&session.StepIndex,
+		&session.ActivityIndex,
 		&stateJSON,
 	); err != nil {
 		return StoredSession{}, err
@@ -249,8 +249,8 @@ func validateStoredSession(session StoredSession) error {
 	if !validOpeningStatus(session.Status) {
 		return fmt.Errorf("invalid opening session status %q", session.Status)
 	}
-	if session.StepIndex < 0 {
-		return errors.New("opening session step index cannot be negative")
+	if session.ActivityIndex < 0 {
+		return errors.New("opening session activity index cannot be negative")
 	}
 	if session.Mode == OpeningModeLesson && session.State.Review != nil {
 		return errors.New("lesson session cannot carry a review cursor")
@@ -269,8 +269,8 @@ func validateStoredSession(session StoredSession) error {
 		session.State.Attempt.HintsUsed < 0) {
 		return errors.New("opening attempt metrics cannot be negative")
 	}
-	if session.State.Restart != nil && session.State.Restart.StepIndex < 0 {
-		return errors.New("opening restart step index cannot be negative")
+	if session.State.Restart != nil && session.State.Restart.ActivityIndex < 0 {
+		return errors.New("opening restart activity index cannot be negative")
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 		migrations int
 	}{
 		{schema: "puzzles", table: "puzzle_cores", migrations: 1},
-		{schema: "user", table: "profile", migrations: 4},
+		{schema: "user", table: "profile", migrations: 5},
 		{schema: "library", table: "library_metadata", migrations: 1},
 		{schema: "courses", table: "course_generations", migrations: 2},
 	}
@@ -62,7 +63,7 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestUserMigration004CreatesOpeningLearningState(t *testing.T) {
+func TestUserMigration005CreatesOpeningLearningState(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "user.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +75,7 @@ func TestUserMigration004CreatesOpeningLearningState(t *testing.T) {
 
 	for _, name := range []string{
 		"opening_preferences",
+		"opening_course_journeys",
 		"opening_sessions",
 		"opening_lesson_progress",
 		"opening_attempts",
@@ -91,6 +93,126 @@ func TestUserMigration004CreatesOpeningLearningState(t *testing.T) {
 		).Scan(&found); err != nil {
 			t.Fatalf("schema object %q: %v", name, err)
 		}
+	}
+}
+
+func TestUserMigration005BackfillsOpeningJourneyAndActivityProgress(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "user.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	for version, name := range []string{"001.sql", "002.sql", "003.sql", "004.sql"} {
+		body, err := os.ReadFile(filepath.Join("migrations", "user", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version) VALUES (?)`, version+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const createdAt = int64(1_753_003_200)
+	const updatedAt = int64(1_753_006_800)
+	if _, err := db.Exec(
+		`INSERT INTO opening_preferences(course_id, depth, updated_at) VALUES
+		 ('italian-white', 'quick', ?),
+		 ('preference-only', 'reference', ?)`,
+		updatedAt, updatedAt,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO opening_sessions(
+		   session_id, course_id, generation_id, lesson_id, mode, status, depth,
+		   step_index, state_json, created_at, updated_at
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"session-1", "italian-white", "generation-1", "giuoco-plan", "lesson", "active",
+		"standard", 2, `{"restart":{"stepIndex":2}}`, createdAt, updatedAt,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO opening_lesson_progress(
+		   course_id, lesson_id, completed_step_ids_json, completed_steps,
+		   total_steps, completed_at, updated_at
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"italian-white", "foundations", `["concept","decision"]`, 2, 2, updatedAt, updatedAt,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Migrate(db, "user"); err != nil {
+		t.Fatal(err)
+	}
+
+	var activityIndex int
+	var stateJSON string
+	if err := db.QueryRow(
+		`SELECT activity_index, state_json FROM opening_sessions WHERE session_id = ?`,
+		"session-1",
+	).Scan(&activityIndex, &stateJSON); err != nil {
+		t.Fatal(err)
+	}
+	if activityIndex != 2 || !strings.Contains(stateJSON, `"activityIndex":2`) || strings.Contains(stateJSON, `"stepIndex":`) {
+		t.Fatalf("migrated session activity_index=%d state_json=%s", activityIndex, stateJSON)
+	}
+
+	var completedIDs string
+	var completedActivities, totalActivities int
+	var completedAt int64
+	if err := db.QueryRow(
+		`SELECT completed_activity_ids_json, completed_activities, total_activities, completed_at
+		 FROM opening_lesson_progress WHERE course_id = ? AND lesson_id = ?`,
+		"italian-white", "foundations",
+	).Scan(&completedIDs, &completedActivities, &totalActivities, &completedAt); err != nil {
+		t.Fatal(err)
+	}
+	if completedIDs != `["concept","decision"]` || completedActivities != 2 || totalActivities != 2 || completedAt != updatedAt {
+		t.Fatalf(
+			"migrated progress ids=%s completed=%d total=%d completed_at=%d",
+			completedIDs, completedActivities, totalActivities, completedAt,
+		)
+	}
+
+	var depth, lessonID, activityID, pathJSON, recommendedID, sessionID string
+	var journeyCreatedAt, journeyUpdatedAt int64
+	if err := db.QueryRow(
+		`SELECT depth, current_lesson_id, current_activity_id, path_lesson_ids_json,
+		        last_recommended_lesson_id, active_session_id, created_at, updated_at
+		 FROM opening_course_journeys WHERE course_id = ?`,
+		"italian-white",
+	).Scan(
+		&depth, &lessonID, &activityID, &pathJSON, &recommendedID, &sessionID,
+		&journeyCreatedAt, &journeyUpdatedAt,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if depth != "standard" || lessonID != "giuoco-plan" || activityID != "" ||
+		pathJSON != `["giuoco-plan"]` || recommendedID != "" || sessionID != "session-1" ||
+		journeyCreatedAt != createdAt || journeyUpdatedAt != updatedAt {
+		t.Fatalf(
+			"migrated journey depth=%s lesson=%s activity=%s path=%s recommended=%s session=%s created=%d updated=%d",
+			depth, lessonID, activityID, pathJSON, recommendedID, sessionID, journeyCreatedAt, journeyUpdatedAt,
+		)
+	}
+
+	var preferenceDepth, preferencePath string
+	if err := db.QueryRow(
+		`SELECT depth, path_lesson_ids_json FROM opening_course_journeys WHERE course_id = ?`,
+		"preference-only",
+	).Scan(&preferenceDepth, &preferencePath); err != nil {
+		t.Fatal(err)
+	}
+	if preferenceDepth != "reference" || preferencePath != `[]` {
+		t.Fatalf("preference-only journey depth=%s path=%s", preferenceDepth, preferencePath)
 	}
 }
 

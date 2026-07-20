@@ -124,8 +124,8 @@ func (s *Service) rebaseLesson(
 ) (*OpeningSessionView, error) {
 	oldLesson, oldExists := oldCourse.Lessons[session.LessonID]
 	newLesson, newExists := newCourse.Lessons[session.LessonID]
-	if oldExists && newExists && session.StepIndex >= 0 && session.StepIndex < len(oldLesson.Steps) {
-		oldStep := oldLesson.Steps[session.StepIndex]
+	if oldExists && newExists && session.ActivityIndex >= 0 && session.ActivityIndex < len(oldLesson.Steps) {
+		oldStep := oldLesson.Steps[session.ActivityIndex]
 		if newIndex, newStep, exists := lessonStepByID(newLesson, oldStep.StepID); exists &&
 			oldStep.Kind == newStep.Kind &&
 			sameStepPosition(oldCourse, oldStep, newCourse, newStep) &&
@@ -134,7 +134,7 @@ func (s *Service) rebaseLesson(
 			previousGenerationID := session.GenerationID
 			session.GenerationID = activeGenerationID
 			session.Status = OpeningStatusActive
-			session.StepIndex = newIndex
+			session.ActivityIndex = newIndex
 			session.State.Position.PositionID = newStep.PositionID
 			session.State.Position.CurrentFEN = newCourse.Positions[newStep.PositionID].FEN
 			session.State.Restart = nil
@@ -152,7 +152,7 @@ func (s *Service) rebaseLesson(
 	session.Status = OpeningStatusRestartRequired
 	session.State.Attempt = nil
 	session.State.Restart = compatibleCheckpoint(
-		oldCourse, oldLesson, newCourse, newLesson, session.StepIndex,
+		oldCourse, oldLesson, newCourse, newLesson, session.ActivityIndex,
 	)
 	if err := s.applyCourseRevision(ctx, newCourse, &SessionRebase{
 		PreviousGenerationID: session.GenerationID,
@@ -198,7 +198,7 @@ func (s *Service) rebaseReview(
 	session.GenerationID = activeGenerationID
 	session.State.Review.PromptIDs = pending
 	session.State.Review.Index = 0
-	session.StepIndex = 0
+	session.ActivityIndex = 0
 	session.State.Restart = nil
 	if len(pending) == 0 {
 		session.Status = OpeningStatusCompleted
@@ -265,8 +265,8 @@ func (s *Service) Restart(ctx context.Context, sessionID string) (OpeningSession
 		session.State.Restart = nil
 	}
 	stepIndex := 0
-	if session.State.Restart != nil && session.State.Restart.StepIndex < len(lesson.Steps) {
-		stepIndex = session.State.Restart.StepIndex
+	if session.State.Restart != nil && session.State.Restart.ActivityIndex < len(lesson.Steps) {
+		stepIndex = session.State.Restart.ActivityIndex
 	}
 	state, err := s.stateForLessonStep(course, lesson.Steps[stepIndex], SessionState{
 		Position: PositionState{PlayedMoveIDs: []string{}},
@@ -276,7 +276,7 @@ func (s *Service) Restart(ctx context.Context, sessionID string) (OpeningSession
 	}
 	session.GenerationID = activeGenerationID
 	session.Status = OpeningStatusActive
-	session.StepIndex = stepIndex
+	session.ActivityIndex = stepIndex
 	session.State = state
 	if err := s.applyCourseRevision(ctx, course, &SessionRebase{
 		PreviousGenerationID: previousGenerationID,
@@ -318,7 +318,7 @@ func (s *Service) restartReview(
 	}
 	session.GenerationID = activeGenerationID
 	session.Status = OpeningStatusActive
-	session.StepIndex = 0
+	session.ActivityIndex = 0
 	session.State = state
 	if err := s.applyCourseRevision(ctx, course, &SessionRebase{
 		PreviousGenerationID: previousGenerationID,
@@ -433,7 +433,7 @@ func compatibleCheckpoint(
 		}
 		newIndex, newStep, exists := lessonStepByID(newLesson, oldStep.StepID)
 		if exists && newStep.Kind == oldStep.Kind && sameStepPosition(oldCourse, oldStep, newCourse, newStep) {
-			return &RestartCheckpoint{StepIndex: newIndex}
+			return &RestartCheckpoint{ActivityIndex: newIndex}
 		}
 	}
 	return nil

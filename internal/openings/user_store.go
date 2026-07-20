@@ -61,7 +61,7 @@ type SessionSummary struct {
 }
 
 type RestartCheckpoint struct {
-	StepIndex int `json:"stepIndex"`
+	ActivityIndex int `json:"activityIndex"`
 }
 
 type SessionState struct {
@@ -73,15 +73,15 @@ type SessionState struct {
 }
 
 type StoredSession struct {
-	ID           string
-	CourseID     string
-	GenerationID string
-	LessonID     string
-	Mode         OpeningSessionMode
-	Status       OpeningSessionStatus
-	Depth        Depth
-	StepIndex    int
-	State        SessionState
+	ID            string
+	CourseID      string
+	GenerationID  string
+	LessonID      string
+	Mode          OpeningSessionMode
+	Status        OpeningSessionStatus
+	Depth         Depth
+	ActivityIndex int
+	State         SessionState
 }
 
 type SessionSeed struct {
@@ -94,12 +94,32 @@ type SessionSeed struct {
 }
 
 type LessonProgress struct {
-	CourseID         string
-	LessonID         string
-	CompletedStepIDs []string
-	CompletedSteps   int
-	TotalSteps       int
-	Completed        bool
+	CourseID             string
+	LessonID             string
+	CompletedActivityIDs []string
+	CompletedActivities  int
+	TotalActivities      int
+	Completed            bool
+}
+
+type CourseJourney struct {
+	CourseID                string
+	Depth                   Depth
+	CurrentLessonID         string
+	CurrentActivityID       string
+	PathLessonIDs           []string
+	LastRecommendedLessonID string
+	ActiveSessionID         string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
+type ActivityProgressUpdate struct {
+	CourseID            string
+	LessonID            string
+	CompletedActivityID string
+	RequiredActivityIDs []string
+	Now                 time.Time
 }
 
 type ReviewOutcome = spacedreview.Outcome
@@ -123,11 +143,11 @@ type ReviewState struct {
 }
 
 type PromptCompletion struct {
-	Session             StoredSession
-	Attempt             AttemptRecord
-	SemanticFingerprint string
-	Outcome             ReviewOutcome
-	CompletedStepIDs    []string
+	Session              StoredSession
+	Attempt              AttemptRecord
+	SemanticFingerprint  string
+	Outcome              ReviewOutcome
+	CompletedActivityIDs []string
 }
 
 type AttemptRecord struct {

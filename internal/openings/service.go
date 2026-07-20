@@ -103,8 +103,8 @@ func (s *Service) courseSummary(
 			}
 			lessonView := OpeningLessonSummary{
 				LessonID: lesson.LessonID, Title: lesson.Title,
-				CompletedSteps: progress.CompletedSteps,
-				TotalSteps:     progress.TotalSteps,
+				CompletedSteps: progress.CompletedActivities,
+				TotalSteps:     progress.TotalActivities,
 				Completed:      progress.Completed,
 			}
 			chapterView.Lessons = append(chapterView.Lessons, lessonView)

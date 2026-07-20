@@ -28,11 +28,11 @@ func (s *Service) Advance(ctx context.Context, sessionID string) (OpeningStepRes
 		result.FinalFEN = finalFEN
 		session.State.Position.PlayedMoveIDs = append(session.State.Position.PlayedMoveIDs, step.MoveIDs...)
 	}
-	session.StepIndex++
-	if session.StepIndex >= len(lesson.Steps) {
+	session.ActivityIndex++
+	if session.ActivityIndex >= len(lesson.Steps) {
 		return OpeningStepResult{}, errors.New("opening lesson ended without a recall step")
 	}
-	session.State, err = s.stateForLessonStep(course, lesson.Steps[session.StepIndex], session.State, s.now().UTC())
+	session.State, err = s.stateForLessonStep(course, lesson.Steps[session.ActivityIndex], session.State, s.now().UTC())
 	if err != nil {
 		return OpeningStepResult{}, err
 	}
@@ -172,22 +172,22 @@ func (s *Service) completePrimary(
 	completedStepIDs := []string(nil)
 	if session.Mode == OpeningModeLesson {
 		lesson := course.Lessons[session.LessonID]
-		session.StepIndex++
-		if session.StepIndex >= len(lesson.Steps) {
+		session.ActivityIndex++
+		if session.ActivityIndex >= len(lesson.Steps) {
 			session.Status = OpeningStatusCompleted
 			session.State.Position.CurrentFEN = finalFEN
 			session.State.Position.PositionID = finalPositionID
 			session.State.Attempt = nil
 			completedStepIDs = lessonStepIDs(lesson)
 		} else {
-			session.State, err = s.stateForLessonStep(course, lesson.Steps[session.StepIndex], session.State, s.now().UTC())
+			session.State, err = s.stateForLessonStep(course, lesson.Steps[session.ActivityIndex], session.State, s.now().UTC())
 			if err != nil {
 				return OpeningStepResult{}, err
 			}
 		}
 	} else {
 		session.State.Review.Index++
-		session.StepIndex = session.State.Review.Index
+		session.ActivityIndex = session.State.Review.Index
 		if session.State.Review.Index >= len(session.State.Review.PromptIDs) {
 			session.Status = OpeningStatusCompleted
 			session.State.Position.CurrentFEN = finalFEN
@@ -204,7 +204,7 @@ func (s *Service) completePrimary(
 	if err := s.store.CompletePrompt(ctx, PromptCompletion{
 		Session: session, Attempt: attempt,
 		SemanticFingerprint: prompt.SemanticFingerprint,
-		Outcome:             outcome, CompletedStepIDs: completedStepIDs,
+		Outcome:             outcome, CompletedActivityIDs: completedStepIDs,
 	}, s.now().UTC()); err != nil {
 		return OpeningStepResult{}, err
 	}
@@ -234,10 +234,10 @@ func (s *Service) loadLessonStep(
 		return StoredSession{}, CompiledCourse{}, Lesson{}, LessonStep{}, err
 	}
 	lesson, exists := course.Lessons[session.LessonID]
-	if !exists || session.StepIndex < 0 || session.StepIndex >= len(lesson.Steps) {
+	if !exists || session.ActivityIndex < 0 || session.ActivityIndex >= len(lesson.Steps) {
 		return StoredSession{}, CompiledCourse{}, Lesson{}, LessonStep{}, errors.New("opening session lesson step is unavailable")
 	}
-	return session, course, lesson, lesson.Steps[session.StepIndex], nil
+	return session, course, lesson, lesson.Steps[session.ActivityIndex], nil
 }
 
 func (s *Service) loadPromptStep(
@@ -258,10 +258,10 @@ func (s *Service) loadPromptStep(
 	var step LessonStep
 	if session.Mode == OpeningModeLesson {
 		lesson, exists := course.Lessons[session.LessonID]
-		if !exists || session.StepIndex < 0 || session.StepIndex >= len(lesson.Steps) {
+		if !exists || session.ActivityIndex < 0 || session.ActivityIndex >= len(lesson.Steps) {
 			return StoredSession{}, CompiledCourse{}, LessonStep{}, CompiledPrompt{}, errors.New("opening session lesson step is unavailable")
 		}
-		step = lesson.Steps[session.StepIndex]
+		step = lesson.Steps[session.ActivityIndex]
 	} else {
 		if session.State.Review == nil || session.State.Review.Index < 0 || session.State.Review.Index >= len(session.State.Review.PromptIDs) {
 			return StoredSession{}, CompiledCourse{}, LessonStep{}, CompiledPrompt{}, errors.New("opening review prompt is unavailable")
@@ -385,7 +385,7 @@ func (s *Service) sessionView(course CompiledCourse, session StoredSession) (Ope
 	var err error
 	if session.Mode == OpeningModeLesson {
 		lesson, exists := course.Lessons[session.LessonID]
-		if !exists || session.StepIndex < 0 || session.StepIndex >= len(lesson.Steps) {
+		if !exists || session.ActivityIndex < 0 || session.ActivityIndex >= len(lesson.Steps) {
 			return OpeningSessionView{}, errors.New("opening session lesson step is unavailable")
 		}
 		stepView, err = s.lessonStepView(course, lesson, session)
@@ -404,8 +404,8 @@ func (s *Service) lessonStepView(
 	lesson Lesson,
 	session StoredSession,
 ) (OpeningStepView, error) {
-	step := lesson.Steps[session.StepIndex]
-	return s.buildStepView(course, step, session, session.StepIndex+1, len(lesson.Steps))
+	step := lesson.Steps[session.ActivityIndex]
+	return s.buildStepView(course, step, session, session.ActivityIndex+1, len(lesson.Steps))
 }
 
 func (s *Service) reviewStepView(

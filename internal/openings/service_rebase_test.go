@@ -94,7 +94,7 @@ func TestOpeningLessonChangedPromptRequiresCheckpointRestart(t *testing.T) {
 	}
 	stored, err := fixture.store.LoadSession(ctx, paused.SessionID)
 	if err != nil || stored.GenerationID == v2.GenerationID || stored.State.Restart == nil ||
-		stored.State.Restart.StepIndex != 1 {
+		stored.State.Restart.ActivityIndex != 1 {
 		t.Fatalf("restart checkpoint = %+v err=%v", stored, err)
 	}
 	var attemptsBefore int
