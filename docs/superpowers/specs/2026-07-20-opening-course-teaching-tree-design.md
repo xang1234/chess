@@ -3,6 +3,34 @@
 Date: 2026-07-20
 Status: Approved on 2026-07-20
 
+## Quality-remediation addendum
+
+The implementation review approved for remediation on 2026-07-20 narrows the
+persistence and projection boundaries described below without changing the
+learner experience:
+
+- `opening_preferences` is the sole owner of selected course depth.
+- A course journey stores only durable cross-session position: the current
+  lesson and its teaching-tree path. It does not mirror the active activity,
+  recommendation, or session identifier.
+- An opening session owns its activity cursor and exact board state. The
+  service derives the current activity and resumable flags from the one
+  resumable session.
+- Backend session responses include course title and the canonical teaching
+  path required by the lesson screen. The frontend does not rebuild the lesson
+  graph or patch a partial copy of opening-home state.
+- Relational columns are authoritative for lesson-activity identity, kind,
+  required state, and position. JSON stores only the activity-specific payload.
+- Teaching-tree validation and runtime indexing share one index builder.
+- The frontend maintains an explicit selected course ID. Italian remains the
+  only authored course in this release, but generic screens do not select
+  `courses[0]` or hard-code an Italian label.
+
+User-schema migration preserves the effective depth already shown by the app:
+an existing journey depth is copied into `opening_preferences` before redundant
+journey columns are removed. Course generations remain replaceable caches, so
+the activity storage correction requires no in-place course-schema migration.
+
 ## Summary
 
 Redesign Learn Openings around a persistent teaching tree and flexible,
