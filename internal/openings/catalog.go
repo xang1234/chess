@@ -201,6 +201,9 @@ func (c *SQLiteCatalog) insertCompiledCourse(
 	if err := c.insertCourseLessons(ctx, tx, generationID, compiled); err != nil {
 		return err
 	}
+	if err := c.insertCourseLessonEdges(ctx, tx, generationID, compiled); err != nil {
+		return err
+	}
 	return c.insertCoursePrompts(ctx, tx, generationID, compiled)
 }
 

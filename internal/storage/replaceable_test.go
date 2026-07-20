@@ -39,8 +39,8 @@ func TestOpenReplaceableQuarantinesCorruptStoreAndRecreatesSchema(t *testing.T) 
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&migrations); err != nil {
 		t.Fatal(err)
 	}
-	if migrations != 1 {
-		t.Fatalf("migrations = %d, want 1", migrations)
+	if migrations != 2 {
+		t.Fatalf("migrations = %d, want 2", migrations)
 	}
 	var table string
 	if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE name='course_generations'`).Scan(&table); err != nil {

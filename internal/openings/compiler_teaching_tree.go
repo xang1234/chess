@@ -96,11 +96,45 @@ func (c *courseCompiler) validateTeachingTree() {
 	if len(roots) == 1 {
 		c.validateTeachingTreeReachability(roots[0], children)
 	}
-	c.compiled.LessonChildren = children
-	c.compiled.LessonParent = map[string]LessonEdge{}
-	for lessonID, edges := range incoming {
-		if len(edges) == 1 {
-			c.compiled.LessonParent[lessonID] = edges[0]
+	indexCompiledTeachingTree(&c.compiled)
+}
+
+func indexCompiledTeachingTree(compiled *CompiledCourse) {
+	compiled.RootLessonID = ""
+	compiled.LessonChildren = map[string][]LessonEdge{}
+	compiled.LessonParent = map[string]LessonEdge{}
+	incoming := map[string]int{}
+	for _, edge := range compiled.Pack.LessonEdges {
+		if _, fromOK := compiled.Lessons[edge.FromLessonID]; !fromOK {
+			continue
+		}
+		if _, toOK := compiled.Lessons[edge.ToLessonID]; !toOK {
+			continue
+		}
+		compiled.LessonChildren[edge.FromLessonID] = append(compiled.LessonChildren[edge.FromLessonID], edge)
+		incoming[edge.ToLessonID]++
+		if incoming[edge.ToLessonID] == 1 {
+			compiled.LessonParent[edge.ToLessonID] = edge
+		} else {
+			delete(compiled.LessonParent, edge.ToLessonID)
+		}
+	}
+	for lessonID := range compiled.LessonChildren {
+		sort.SliceStable(compiled.LessonChildren[lessonID], func(left, right int) bool {
+			children := compiled.LessonChildren[lessonID]
+			if children[left].Ordinal != children[right].Ordinal {
+				return children[left].Ordinal < children[right].Ordinal
+			}
+			return children[left].EdgeID < children[right].EdgeID
+		})
+	}
+	for _, lesson := range compiled.Pack.Lessons {
+		if incoming[lesson.LessonID] == 0 {
+			if compiled.RootLessonID != "" {
+				compiled.RootLessonID = ""
+				return
+			}
+			compiled.RootLessonID = lesson.LessonID
 		}
 	}
 }

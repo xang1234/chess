@@ -136,6 +136,7 @@ func (c *SQLiteCatalog) insertCourseLessons(
 	compiled CompiledCourse,
 ) error {
 	stepOrdinal := 0
+	activityOrdinal := 0
 	for index, lesson := range compiled.Pack.Lessons {
 		objectivesJSON, err := marshalStoredJSON(lesson.Objectives)
 		if err != nil {
@@ -161,30 +162,99 @@ func (c *SQLiteCatalog) insertCourseLessons(
 		if err := c.afterCourseInsert(ctx, "course_lessons", index+1); err != nil {
 			return err
 		}
-		for lessonStepOrdinal, step := range lesson.Steps {
-			dataJSON, err := marshalStoredJSON(step)
+		if compiled.Pack.SchemaVersion == 1 {
+			for lessonStepOrdinal, step := range lesson.Steps {
+				dataJSON, err := marshalStoredJSON(step)
+				if err != nil {
+					return fmt.Errorf("marshal lesson step %q: %w", step.StepID, err)
+				}
+				if _, err := tx.ExecContext(
+					ctx,
+					`INSERT INTO course_lesson_steps(
+					   generation_id, lesson_id, ordinal, step_id, kind, position_id, data_json
+					 ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+					generationID,
+					lesson.LessonID,
+					lessonStepOrdinal+1,
+					step.StepID,
+					step.Kind,
+					step.PositionID,
+					dataJSON,
+				); err != nil {
+					return fmt.Errorf("insert course lesson step %q: %w", step.StepID, err)
+				}
+				stepOrdinal++
+				if err := c.afterCourseInsert(ctx, "course_lesson_steps", stepOrdinal); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		for lessonActivityOrdinal, activity := range lesson.Activities {
+			dataJSON, err := marshalStoredJSON(activity)
 			if err != nil {
-				return fmt.Errorf("marshal lesson step %q: %w", step.StepID, err)
+				return fmt.Errorf("marshal lesson activity %q: %w", activity.ActivityID, err)
+			}
+			var positionID any
+			if activity.PositionID != "" {
+				positionID = activity.PositionID
 			}
 			if _, err := tx.ExecContext(
 				ctx,
-				`INSERT INTO course_lesson_steps(
-				   generation_id, lesson_id, ordinal, step_id, kind, position_id, data_json
-				 ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO course_lesson_activities(
+				   generation_id, lesson_id, ordinal, activity_id, kind, required,
+				   position_id, data_json
+				 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 				generationID,
 				lesson.LessonID,
-				lessonStepOrdinal+1,
-				step.StepID,
-				step.Kind,
-				step.PositionID,
+				lessonActivityOrdinal+1,
+				activity.ActivityID,
+				activity.Kind,
+				activity.Required,
+				positionID,
 				dataJSON,
 			); err != nil {
-				return fmt.Errorf("insert course lesson step %q: %w", step.StepID, err)
+				return fmt.Errorf("insert course lesson activity %q: %w", activity.ActivityID, err)
 			}
-			stepOrdinal++
-			if err := c.afterCourseInsert(ctx, "course_lesson_steps", stepOrdinal); err != nil {
+			activityOrdinal++
+			if err := c.afterCourseInsert(ctx, "course_lesson_activities", activityOrdinal); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func (c *SQLiteCatalog) insertCourseLessonEdges(
+	ctx context.Context,
+	tx *sql.Tx,
+	generationID string,
+	compiled CompiledCourse,
+) error {
+	if compiled.Pack.SchemaVersion != 2 {
+		return nil
+	}
+	for index, edge := range compiled.Pack.LessonEdges {
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO course_lesson_edges(
+			   generation_id, edge_id, from_lesson_id, to_lesson_id, ordinal,
+			   kind, label, minimum_depth
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			generationID,
+			edge.EdgeID,
+			edge.FromLessonID,
+			edge.ToLessonID,
+			edge.Ordinal,
+			edge.Kind,
+			edge.Label,
+			edge.MinimumDepth,
+		); err != nil {
+			return fmt.Errorf("insert course lesson edge %q: %w", edge.EdgeID, err)
+		}
+		if err := c.afterCourseInsert(ctx, "course_lesson_edges", index+1); err != nil {
+			return err
 		}
 	}
 	return nil

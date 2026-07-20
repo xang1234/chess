@@ -16,7 +16,7 @@ func TestMigrateCreatesEachSchemaAndIsIdempotent(t *testing.T) {
 		{schema: "puzzles", table: "puzzle_cores", migrations: 1},
 		{schema: "user", table: "profile", migrations: 4},
 		{schema: "library", table: "library_metadata", migrations: 1},
-		{schema: "courses", table: "course_generations", migrations: 1},
+		{schema: "courses", table: "course_generations", migrations: 2},
 	}
 
 	for _, tt := range tests {

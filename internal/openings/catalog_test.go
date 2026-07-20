@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 	"testing"
 
 	"chess-trainer/internal/chessrules"
@@ -31,6 +32,26 @@ func compileMiniCourse(t *testing.T) CompiledCourse {
 		t.Fatal(err)
 	}
 	return compiled
+}
+
+func TestSQLiteCatalogRoundTripsTeachingTree(t *testing.T) {
+	ctx := context.Background()
+	catalog := NewSQLiteCatalog(openCourseCatalogTestDB(t))
+	want := compileTreeCourse(t)
+	result, err := catalog.Replace(ctx, want, "/private/tree.ctcourse", "sha-tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := catalog.LoadGeneration(ctx, result.GenerationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RootLessonID != "giuoco-plan" || len(got.LessonChildren["giuoco-plan"]) != 1 {
+		t.Fatalf("tree=%+v", got)
+	}
+	if !reflect.DeepEqual(got.Lessons["giuoco-plan"].Activities, want.Lessons["giuoco-plan"].Activities) {
+		t.Fatalf("activities=%#v", got.Lessons["giuoco-plan"].Activities)
+	}
 }
 
 func TestSQLiteCatalogReplacesHeadAtomicallyAndRetainsOldGeneration(t *testing.T) {
@@ -85,6 +106,9 @@ func TestSQLiteCatalogReplacesHeadAtomicallyAndRetainsOldGeneration(t *testing.T
 	}
 	if len(loaded.Lessons["giuoco-c3"].Steps) != 5 {
 		t.Fatalf("loaded lesson steps = %#v", loaded.Lessons["giuoco-c3"].Steps)
+	}
+	if len(loaded.Lessons["giuoco-c3"].Activities) != 5 || loaded.RootLessonID != "giuoco-c3" {
+		t.Fatalf("loaded legacy teaching model = lesson %#v root %q", loaded.Lessons["giuoco-c3"], loaded.RootLessonID)
 	}
 	summaries, err := catalog.ListActive(ctx)
 	if err != nil {

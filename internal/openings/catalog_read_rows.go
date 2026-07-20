@@ -217,7 +217,28 @@ func loadCourseLessons(
 		return err
 	}
 
-	stepRows, err := query.QueryContext(
+	if compiled.Pack.SchemaVersion == 1 {
+		if err := loadCourseLessonSteps(ctx, query, generationID, compiled); err != nil {
+			return err
+		}
+	} else {
+		if err := loadCourseLessonActivities(ctx, query, generationID, compiled); err != nil {
+			return err
+		}
+	}
+	for index := range compiled.Pack.Lessons {
+		compiled.Pack.Lessons[index] = compiled.Lessons[compiled.Pack.Lessons[index].LessonID]
+	}
+	return nil
+}
+
+func loadCourseLessonSteps(
+	ctx context.Context,
+	query courseQuerier,
+	generationID string,
+	compiled *CompiledCourse,
+) error {
+	rows, err := query.QueryContext(
 		ctx,
 		`SELECT lesson_id, data_json
 		 FROM course_lesson_steps
@@ -227,10 +248,10 @@ func loadCourseLessons(
 	if err != nil {
 		return fmt.Errorf("query course lesson steps: %w", err)
 	}
-	defer stepRows.Close()
-	for stepRows.Next() {
+	defer rows.Close()
+	for rows.Next() {
 		var lessonID, dataJSON string
-		if err := stepRows.Scan(&lessonID, &dataJSON); err != nil {
+		if err := rows.Scan(&lessonID, &dataJSON); err != nil {
 			return fmt.Errorf("scan course lesson step: %w", err)
 		}
 		var step LessonStep
@@ -244,13 +265,81 @@ func loadCourseLessons(
 		lesson.Steps = append(lesson.Steps, step)
 		compiled.Lessons[lessonID] = lesson
 	}
-	if err := stepRows.Err(); err != nil {
-		return err
+	return rows.Err()
+}
+
+func loadCourseLessonActivities(
+	ctx context.Context,
+	query courseQuerier,
+	generationID string,
+	compiled *CompiledCourse,
+) error {
+	rows, err := query.QueryContext(
+		ctx,
+		`SELECT lesson_id, data_json
+		 FROM course_lesson_activities
+		 WHERE generation_id = ? ORDER BY lesson_id, ordinal`,
+		generationID,
+	)
+	if err != nil {
+		return fmt.Errorf("query course lesson activities: %w", err)
 	}
-	for index := range compiled.Pack.Lessons {
-		compiled.Pack.Lessons[index] = compiled.Lessons[compiled.Pack.Lessons[index].LessonID]
+	defer rows.Close()
+	for rows.Next() {
+		var lessonID, dataJSON string
+		if err := rows.Scan(&lessonID, &dataJSON); err != nil {
+			return fmt.Errorf("scan course lesson activity: %w", err)
+		}
+		var activity LessonActivity
+		if err := decodeStoredJSON(dataJSON, &activity, "lesson activity"); err != nil {
+			return err
+		}
+		lesson, exists := compiled.Lessons[lessonID]
+		if !exists {
+			return fmt.Errorf("stored lesson activity references missing lesson %q", lessonID)
+		}
+		lesson.Activities = append(lesson.Activities, activity)
+		compiled.Lessons[lessonID] = lesson
 	}
-	return nil
+	return rows.Err()
+}
+
+func loadCourseLessonEdges(
+	ctx context.Context,
+	query courseQuerier,
+	generationID string,
+	compiled *CompiledCourse,
+) error {
+	if compiled.Pack.SchemaVersion != 2 {
+		return nil
+	}
+	rows, err := query.QueryContext(
+		ctx,
+		`SELECT edge_id, from_lesson_id, to_lesson_id, ordinal, kind, label, minimum_depth
+		 FROM course_lesson_edges WHERE generation_id = ?
+		 ORDER BY from_lesson_id, ordinal, edge_id`,
+		generationID,
+	)
+	if err != nil {
+		return fmt.Errorf("query course lesson edges: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var edge LessonEdge
+		if err := rows.Scan(
+			&edge.EdgeID,
+			&edge.FromLessonID,
+			&edge.ToLessonID,
+			&edge.Ordinal,
+			&edge.Kind,
+			&edge.Label,
+			&edge.MinimumDepth,
+		); err != nil {
+			return fmt.Errorf("scan course lesson edge: %w", err)
+		}
+		compiled.Pack.LessonEdges = append(compiled.Pack.LessonEdges, edge)
+	}
+	return rows.Err()
 }
 
 func loadCoursePrompts(

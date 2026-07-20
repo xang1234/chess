@@ -130,14 +130,16 @@ func loadCourseGeneration(
 	generationID string,
 ) (CompiledCourse, error) {
 	compiled := CompiledCourse{
-		Positions: map[string]CompiledPosition{},
-		Moves:     map[string]CompiledMove{},
-		Notes:     map[string]Note{},
-		Chapters:  map[string]Chapter{},
-		Lessons:   map[string]Lesson{},
-		Prompts:   map[string]CompiledPrompt{},
-		Outgoing:  map[string][]string{},
-		Incoming:  map[string][]string{},
+		Positions:      map[string]CompiledPosition{},
+		Moves:          map[string]CompiledMove{},
+		Notes:          map[string]Note{},
+		Chapters:       map[string]Chapter{},
+		Lessons:        map[string]Lesson{},
+		Prompts:        map[string]CompiledPrompt{},
+		Outgoing:       map[string][]string{},
+		Incoming:       map[string][]string{},
+		LessonChildren: map[string][]LessonEdge{},
+		LessonParent:   map[string]LessonEdge{},
 	}
 	var sourceJSON, coverageJSON string
 	if err := query.QueryRowContext(
@@ -194,9 +196,22 @@ func loadCourseGeneration(
 	if err := loadCourseLessons(ctx, query, generationID, &compiled); err != nil {
 		return CompiledCourse{}, err
 	}
+	if err := loadCourseLessonEdges(ctx, query, generationID, &compiled); err != nil {
+		return CompiledCourse{}, err
+	}
 	if err := loadCoursePrompts(ctx, query, generationID, &compiled); err != nil {
 		return CompiledCourse{}, err
 	}
+	normalized, err := NormalizeCoursePack(compiled.Pack)
+	if err != nil {
+		return CompiledCourse{}, fmt.Errorf("normalize stored course: %w", err)
+	}
+	compiled.Pack = normalized
+	compiled.Lessons = make(map[string]Lesson, len(normalized.Lessons))
+	for _, lesson := range normalized.Lessons {
+		compiled.Lessons[lesson.LessonID] = lesson
+	}
+	indexCompiledTeachingTree(&compiled)
 	return compiled, nil
 }
 
