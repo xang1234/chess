@@ -9,11 +9,8 @@ import {
   squarePoint,
   touchTapMove
 } from './board-driver'
-import {
-  backendState,
-  installTestBackend,
-  observeSemanticFrames
-} from './test-backend'
+import { installTestBackend } from './test-backend'
+import { backendState, observeSemanticFrames } from './test-backend-state'
 import type {
   BoardScenario,
   ContinueResponse,

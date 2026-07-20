@@ -1,10 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { chessgroundBoard, mouseClickMove } from './board-driver'
-import {
-  backendState,
-  installTestBackend,
-  selectedCoursePath
-} from './test-backend'
+import { installTestBackend } from './test-backend'
+import { backendState, selectedCoursePath } from './test-backend-state'
 
 test.beforeEach(async ({ page }) => {
   await installTestBackend(page, { kind: 'openings' })
