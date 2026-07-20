@@ -685,6 +685,7 @@ export namespace openings {
 	    orientation: string;
 	    legalMoves: string[];
 	    noteTexts: string[];
+	    referenceNoteTexts: string[];
 	    stepNumber: number;
 	    stepTotal: number;
 	    hintLevel: number;
@@ -706,6 +707,7 @@ export namespace openings {
 	        this.orientation = source["orientation"];
 	        this.legalMoves = source["legalMoves"];
 	        this.noteTexts = source["noteTexts"];
+	        this.referenceNoteTexts = source["referenceNoteTexts"];
 	        this.stepNumber = source["stepNumber"];
 	        this.stepTotal = source["stepTotal"];
 	        this.hintLevel = source["hintLevel"];

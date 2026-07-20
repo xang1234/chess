@@ -611,13 +611,15 @@ export async function installTestBackend(
             stepId: 'review-recall-c3', kind: 'recall', title: 'Review the Giuoco Piano',
             instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
             positionId: 'after-bc5', currentFen: promptFen, orientation: 'white',
-            legalMoves: ['b2b4', 'c2c3', 'd2d3'], noteTexts: [], stepNumber: 1,
+            legalMoves: ['b2b4', 'c2c3', 'd2d3'], noteTexts: [],
+            referenceNoteTexts: ['The quiet c3 move supports a later d4.'], stepNumber: 1,
             stepTotal: 1, hintLevel: openingHintLevel, canReveal: openingHintLevel >= 4
           }
         }
         const common = {
           orientation: 'white',
           noteTexts: ['Develop quickly and prepare the centre.'],
+          referenceNoteTexts: ['Reference lines remain available without crowding the lesson.'],
           stepTotal: 5,
           hintLevel: openingHintLevel,
           canReveal: openingHintLevel >= 4

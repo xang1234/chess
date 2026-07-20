@@ -92,7 +92,8 @@ test('renders a board-first teaching step and defers the next step until Continu
   const explain = active('explain', {
     title: 'The central plan',
     instruction: 'Prepare d4 without blocking the bishop.',
-    noteTexts: ['The quiet c3 move supports a later d4.']
+    noteTexts: ['The quiet c3 move supports a later d4.'],
+    referenceNoteTexts: ['A detailed reference remains available on demand.']
   })
   const watch = active('watch', { stepId: 'watch-c3', stepNumber: 2, title: 'Watch c3' })
   const advanceOpeningStep = vi.fn(async (): Promise<OpeningStepResult> => ({
@@ -128,6 +129,30 @@ test('renders a board-first teaching step and defers the next step until Continu
 
   expect(await screen.findByRole('heading', { name: 'Watch c3' })).toBeInTheDocument()
   expect(changes).toEqual([watch])
+})
+
+test('keeps detailed reference notes collapsed until the learner opens them', async () => {
+  const current = active('explain', {
+    noteTexts: ['Keep this teaching note visible.'],
+    referenceNoteTexts: [
+      'Source note a records a detailed private reference.',
+      'Source note b records another detailed private reference.'
+    ]
+  })
+  render(OpeningLessonScreen, {
+    session: current,
+    effects: effects(),
+    boardAdapterFactory: boardHarness().factory
+  }, withNormalAPI(fakeAPI()))
+
+  expect(await screen.findByText('Keep this teaching note visible.')).toBeVisible()
+  const firstReference = screen.getByText('Source note a records a detailed private reference.')
+  expect(firstReference).not.toBeVisible()
+
+  await fireEvent.click(screen.getByText('Reference notes'))
+
+  expect(firstReference).toBeVisible()
+  expect(screen.getByText('Source note b records another detailed private reference.')).toBeVisible()
 })
 
 test('shows progressive hints and the reveal action only when allowed', async () => {

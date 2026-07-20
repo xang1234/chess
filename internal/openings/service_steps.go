@@ -448,12 +448,14 @@ func (s *Service) buildStepView(
 	if !exists {
 		return OpeningStepView{}, fmt.Errorf("opening position %q is unavailable", step.PositionID)
 	}
+	teachingNotes := s.noteTexts(course, step)
 	view := OpeningStepView{
 		StepID: step.StepID, Kind: step.Kind, Title: step.Title,
 		Instruction: step.Instruction, PositionID: step.PositionID,
 		CurrentFEN: session.State.Position.CurrentFEN, Orientation: course.Pack.Perspective,
-		LegalMoves: []string{}, NoteTexts: s.noteTexts(course, step),
-		StepNumber: number, StepTotal: total,
+		LegalMoves: []string{}, NoteTexts: teachingNotes,
+		ReferenceNoteTexts: s.referenceNoteTexts(course, step, teachingNotes),
+		StepNumber:         number, StepTotal: total,
 	}
 	if session.State.Attempt != nil {
 		view.HintLevel = session.State.Attempt.HintLevel
@@ -478,7 +480,15 @@ func (s *Service) buildStepView(
 }
 
 func (s *Service) noteTexts(course CompiledCourse, step LessonStep) []string {
-	ids := append([]string{}, step.NoteIDs...)
+	return noteTextsForIDs(course, step.NoteIDs, nil)
+}
+
+func (s *Service) referenceNoteTexts(
+	course CompiledCourse,
+	step LessonStep,
+	teachingNotes []string,
+) []string {
+	ids := []string{}
 	if position, exists := course.Positions[step.PositionID]; exists {
 		ids = append(ids, position.NoteIDs...)
 	}
@@ -487,11 +497,19 @@ func (s *Service) noteTexts(course CompiledCourse, step LessonStep) []string {
 			ids = append(ids, primary.NoteIDs...)
 		}
 	}
+	excluded := make(map[string]bool, len(teachingNotes))
+	for _, text := range teachingNotes {
+		excluded[text] = true
+	}
+	return noteTextsForIDs(course, ids, excluded)
+}
+
+func noteTextsForIDs(course CompiledCourse, ids []string, excluded map[string]bool) []string {
 	texts := []string{}
 	seen := map[string]bool{}
 	for _, id := range ids {
 		note, exists := course.Notes[id]
-		if exists && !seen[note.Text] {
+		if exists && !excluded[note.Text] && !seen[note.Text] {
 			seen[note.Text] = true
 			texts = append(texts, note.Text)
 		}
@@ -502,6 +520,7 @@ func (s *Service) noteTexts(course CompiledCourse, step LessonStep) []string {
 func (s *Service) planHint(course CompiledCourse, prompt CompiledPrompt) string {
 	step := LessonStep{PositionID: prompt.PositionID, PromptID: prompt.PromptID, NoteIDs: []string{}}
 	texts := s.noteTexts(course, step)
+	texts = append(texts, s.referenceNoteTexts(course, step, texts)...)
 	if len(texts) > 0 {
 		return texts[0]
 	}

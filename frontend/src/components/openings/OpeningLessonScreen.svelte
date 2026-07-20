@@ -53,6 +53,11 @@
   $: hintTarget = optionalSquare(hint?.targetSquare)
   $: canReveal = Boolean(hint?.canReveal || current?.canReveal)
   $: teachingStep = current?.kind === 'explain' || current?.kind === 'watch'
+  $: referenceNotes = current
+    ? teachingStep
+      ? current.referenceNoteTexts
+      : [...current.noteTexts, ...current.referenceNoteTexts]
+    : []
 
   afterUpdate(() => controller.receiveSession(session))
   onMount(() => controller.mount(session))
@@ -161,14 +166,12 @@
               {#each current.noteTexts as note}<p>{note}</p>{/each}
             </div>
           {/if}
-          <details>
-            <summary>Reference notes</summary>
-            {#if !teachingStep && current.noteTexts.length > 0}
-              {#each current.noteTexts as note}<p>{note}</p>{/each}
-            {:else}
-              <p>These notes are retained from the private course reference for this position.</p>
-            {/if}
-          </details>
+          {#if referenceNotes.length > 0}
+            <details>
+              <summary>Reference notes</summary>
+              {#each referenceNotes as note}<p>{note}</p>{/each}
+            </details>
+          {/if}
         </div>
 
         <div class="opening-feedback" aria-live="polite" aria-atomic="true">

@@ -59,6 +59,7 @@ export type OpeningStepView = {
   orientation: OpeningPerspective
   legalMoves: string[]
   noteTexts: string[]
+  referenceNoteTexts: string[]
   stepNumber: number
   stepTotal: number
   hintLevel: number
@@ -212,6 +213,7 @@ function decodeOpeningStep(value: unknown, path: string): OpeningStepView {
     orientation: enumeration(raw.orientation, ['white', 'black'], `${path}.orientation`),
     legalMoves: array(raw.legalMoves, `${path}.legalMoves`, string),
     noteTexts: array(raw.noteTexts, `${path}.noteTexts`, string),
+    referenceNoteTexts: array(raw.referenceNoteTexts, `${path}.referenceNoteTexts`, string),
     stepNumber,
     stepTotal,
     hintLevel: nonNegativeInteger(raw.hintLevel, `${path}.hintLevel`),

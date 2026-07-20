@@ -143,6 +143,7 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningSt
       instruction: 'Play the course move from memory.', variationName: 'Giuoco Piano',
       positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
       orientation: 'white', legalMoves: ['b2b4', 'c2c3', 'd2d3'], noteTexts: [],
+      referenceNoteTexts: ['The quiet c3 move supports a later d4.'],
       stepNumber: 1, stepTotal: 1, hintLevel: previewOpeningHintLevel,
       canReveal: previewOpeningHintLevel >= 4
     }
@@ -150,6 +151,7 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningSt
   const common = {
     orientation: 'white' as const,
     noteTexts: ['Develop quickly and prepare the centre.'],
+    referenceNoteTexts: ['Reference lines remain available without crowding the lesson.'],
     stepTotal: 5,
     hintLevel: previewOpeningHintLevel,
     canReveal: previewOpeningHintLevel >= 4

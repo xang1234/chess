@@ -58,20 +58,21 @@ type OpeningSessionView struct {
 }
 
 type OpeningStepView struct {
-	StepID        string      `json:"stepId"`
-	Kind          StepKind    `json:"kind"`
-	Title         string      `json:"title"`
-	Instruction   string      `json:"instruction"`
-	VariationName string      `json:"variationName,omitempty"`
-	PositionID    string      `json:"positionId"`
-	CurrentFEN    string      `json:"currentFen"`
-	Orientation   Perspective `json:"orientation"`
-	LegalMoves    []string    `json:"legalMoves"`
-	NoteTexts     []string    `json:"noteTexts"`
-	StepNumber    int         `json:"stepNumber"`
-	StepTotal     int         `json:"stepTotal"`
-	HintLevel     int         `json:"hintLevel"`
-	CanReveal     bool        `json:"canReveal"`
+	StepID             string      `json:"stepId"`
+	Kind               StepKind    `json:"kind"`
+	Title              string      `json:"title"`
+	Instruction        string      `json:"instruction"`
+	VariationName      string      `json:"variationName,omitempty"`
+	PositionID         string      `json:"positionId"`
+	CurrentFEN         string      `json:"currentFen"`
+	Orientation        Perspective `json:"orientation"`
+	LegalMoves         []string    `json:"legalMoves"`
+	NoteTexts          []string    `json:"noteTexts"`
+	ReferenceNoteTexts []string    `json:"referenceNoteTexts"`
+	StepNumber         int         `json:"stepNumber"`
+	StepTotal          int         `json:"stepTotal"`
+	HintLevel          int         `json:"hintLevel"`
+	CanReveal          bool        `json:"canReveal"`
 }
 
 type OpeningSummary struct {

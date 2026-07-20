@@ -92,6 +92,7 @@ export const fakeOpeningSession: ActiveOpeningSessionView = {
     orientation: 'white',
     legalMoves: [],
     noteTexts: ['Develop quickly and prepare the centre.'],
+    referenceNoteTexts: [],
     stepNumber: 1,
     stepTotal: 5,
     hintLevel: 0,

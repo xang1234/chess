@@ -14,7 +14,7 @@ func TestOpeningSessionViewJSONUsesStrictDiscriminatingFields(t *testing.T) {
 		Current: &OpeningStepView{
 			StepID: "step-1", Kind: StepExplain, Title: "The centre",
 			Instruction: "Learn the plan.", PositionID: "root", CurrentFEN: "fen",
-			Orientation: PerspectiveWhite, LegalMoves: []string{}, NoteTexts: []string{},
+			Orientation: PerspectiveWhite, LegalMoves: []string{}, NoteTexts: []string{}, ReferenceNoteTexts: []string{},
 			StepNumber: 1, StepTotal: 5,
 		},
 	}
@@ -23,7 +23,7 @@ func TestOpeningSessionViewJSONUsesStrictDiscriminatingFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(encoded)
-	for _, want := range []string{`"mode":"lesson"`, `"status":"active"`, `"legalMoves":[]`, `"noteTexts":[]`} {
+	for _, want := range []string{`"mode":"lesson"`, `"status":"active"`, `"legalMoves":[]`, `"noteTexts":[]`, `"referenceNoteTexts":[]`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("json = %s, want %s", text, want)
 		}

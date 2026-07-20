@@ -124,6 +124,7 @@ const openingStepPayload = {
   orientation: 'white',
   legalMoves: ['c2c3', 'd2d3'],
   noteTexts: ['Prepare d4.'],
+  referenceNoteTexts: ['A detailed source line.'],
   stepNumber: 3,
   stepTotal: 5,
   hintLevel: 0,
@@ -267,7 +268,8 @@ test.each([
   [{ ...openingStepPayload, stepNumber: 0 }, 'stepNumber'],
   [{ ...openingStepPayload, stepTotal: 1.5 }, 'stepTotal'],
   [{ ...openingStepPayload, legalMoves: ['c2c3', 42] }, 'legalMoves[1]'],
-  [{ ...openingStepPayload, noteTexts: undefined }, 'noteTexts']
+  [{ ...openingStepPayload, noteTexts: undefined }, 'noteTexts'],
+  [{ ...openingStepPayload, referenceNoteTexts: undefined }, 'referenceNoteTexts']
 ])('opening step decoder rejects malformed exact fields', (current, message) => {
   expect(() => decodeOpeningSession({ ...activeOpeningPayload, current })).toThrow(message)
 })
