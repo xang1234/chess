@@ -21,6 +21,12 @@ func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
 		len(started.Current.MovesToHere) != 6 {
 		t.Fatalf("started activity=%+v", started.Current)
 	}
+	if started.CourseTitle != fixture.compiled.Pack.Title ||
+		!reflect.DeepEqual(started.Path, []OpeningPathItem{{
+			LessonID: "giuoco-plan", Title: fixture.compiled.Lessons["giuoco-plan"].Title,
+		}}) {
+		t.Fatalf("started navigation title=%q path=%+v", started.CourseTitle, started.Path)
+	}
 	movesToHere := make([]string, len(started.Current.MovesToHere))
 	for index, move := range started.Current.MovesToHere {
 		movesToHere[index] = move.UCI
@@ -50,6 +56,10 @@ func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
 		done.Checkpoint.CompletedLessonID != "giuoco-plan" ||
 		!reflect.DeepEqual(done.Checkpoint.AvailableLessonIDs, []string{"two-knights-plan"}) {
 		t.Fatalf("done=%+v", done)
+	}
+	if done.Session.CourseTitle != fixture.compiled.Pack.Title ||
+		!reflect.DeepEqual(done.Session.Path, started.Path) {
+		t.Fatalf("completed navigation title=%q path=%+v", done.Session.CourseTitle, done.Session.Path)
 	}
 	journey, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
 	if err != nil || journey.CurrentLessonID != "giuoco-plan" ||

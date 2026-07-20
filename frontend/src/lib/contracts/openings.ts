@@ -147,6 +147,8 @@ type OpeningSessionBase = {
   courseId: string
   generationId: string
   lessonId: string
+  courseTitle: string
+  path: OpeningPathItem[]
   depth: OpeningDepth
 }
 
@@ -388,6 +390,8 @@ export function decodeOpeningSession(value: unknown, path = 'opening session'): 
     courseId: string(raw.courseId, `${path}.courseId`),
     generationId: string(raw.generationId, `${path}.generationId`),
     lessonId: string(raw.lessonId, `${path}.lessonId`),
+    courseTitle: string(raw.courseTitle, `${path}.courseTitle`),
+    path: array(raw.path, `${path}.path`, decodePathItem),
     depth: enumeration(raw.depth, depths, `${path}.depth`)
   }
   const notice = optionalString(raw.notice, `${path}.notice`)

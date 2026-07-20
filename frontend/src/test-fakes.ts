@@ -102,6 +102,8 @@ export const fakeOpeningSession: ActiveOpeningSessionView = {
   courseId: 'synthetic-italian',
   generationId: 'generation-1',
   lessonId: 'giuoco-c3',
+  courseTitle: 'Italian Game for White',
+  path: [{ lessonId: 'giuoco-c3', title: 'Giuoco Piano' }],
   depth: 'reference',
   current: {
     activityId: 'explain-plan',

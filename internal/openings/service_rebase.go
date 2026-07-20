@@ -98,7 +98,7 @@ func (s *Service) resumeCurrentGeneration(
 		if err := s.applyCourseRevision(ctx, course, nil, nil); err != nil {
 			return nil, err
 		}
-		view := restartRequiredView(session, updatedCourseNotice)
+		view := restartRequiredView(course, session, updatedCourseNotice)
 		return &view, nil
 	}
 	if session.Status == OpeningStatusPaused {
@@ -183,7 +183,7 @@ func (s *Service) rebaseLesson(
 	if !newExists {
 		notice = removedLessonNotice
 	}
-	view := restartRequiredView(session, notice)
+	view := restartRequiredView(newCourse, session, notice)
 	return &view, nil
 }
 
@@ -389,14 +389,16 @@ func (s *Service) requirePrivateReimport(
 	if err := s.store.SaveSession(ctx, session, s.now().UTC()); err != nil {
 		return nil, err
 	}
-	view := restartRequiredView(session, missingCourseNotice)
+	view := restartRequiredView(CompiledCourse{}, session, missingCourseNotice)
 	return &view, nil
 }
 
-func restartRequiredView(session StoredSession, notice string) OpeningSessionView {
+func restartRequiredView(course CompiledCourse, session StoredSession, notice string) OpeningSessionView {
 	return OpeningSessionView{
 		SessionID: session.ID, Mode: session.Mode, Status: OpeningStatusRestartRequired,
 		CourseID: session.CourseID, GenerationID: session.GenerationID,
-		LessonID: session.LessonID, Depth: session.Depth, Notice: notice,
+		LessonID: session.LessonID, CourseTitle: course.Pack.Title,
+		Path:  openingPathItems(course, teachingPathLessonIDs(course, session.LessonID)),
+		Depth: session.Depth, Notice: notice,
 	}
 }

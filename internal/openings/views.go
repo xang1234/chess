@@ -101,6 +101,8 @@ type OpeningSessionView struct {
 	CourseID     string               `json:"courseId"`
 	GenerationID string               `json:"generationId"`
 	LessonID     string               `json:"lessonId"`
+	CourseTitle  string               `json:"courseTitle"`
+	Path         []OpeningPathItem    `json:"path"`
 	Depth        Depth                `json:"depth"`
 	Current      *OpeningActivityView `json:"current,omitempty"`
 	Summary      *OpeningSummary      `json:"summary,omitempty"`

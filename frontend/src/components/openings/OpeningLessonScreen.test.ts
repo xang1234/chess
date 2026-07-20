@@ -42,6 +42,8 @@ function completed(): CompletedOpeningSessionView {
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: fakeOpeningSession.lessonId,
+    courseTitle: fakeOpeningSession.courseTitle,
+    path: fakeOpeningSession.path,
     depth: fakeOpeningSession.depth
   }
 }
@@ -282,6 +284,8 @@ test('renders update restart and completion summaries', async () => {
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: fakeOpeningSession.lessonId,
+    courseTitle: fakeOpeningSession.courseTitle,
+    path: fakeOpeningSession.path,
     depth: fakeOpeningSession.depth,
     notice: 'The course changed since this lesson began.'
   }
@@ -315,6 +319,8 @@ test('keeps review results separate and returns to the course tree', async () =>
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: 'review',
+    courseTitle: fakeOpeningSession.courseTitle,
+    path: [],
     depth: fakeOpeningSession.depth,
     summary: {
       totalPrompts: 2,

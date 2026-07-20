@@ -229,7 +229,9 @@ func (s *Service) sessionView(
 	view := OpeningSessionView{
 		SessionID: session.ID, Mode: session.Mode, Status: session.Status,
 		CourseID: session.CourseID, GenerationID: session.GenerationID,
-		LessonID: session.LessonID, Depth: session.Depth,
+		LessonID: session.LessonID, CourseTitle: course.Pack.Title,
+		Path:  openingPathItems(course, teachingPathLessonIDs(course, session.LessonID)),
+		Depth: session.Depth,
 	}
 	if session.Status == OpeningStatusCompleted {
 		if session.Mode == OpeningModeReview {

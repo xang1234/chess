@@ -196,10 +196,13 @@ function previewActiveOpening(
   index: number,
   mode: 'lesson' | 'review' = 'lesson'
 ): ActiveOpeningSessionView {
-  return {
-    sessionId: 'preview-opening-session', mode, status: 'active',
-    courseId: 'synthetic-italian', generationId: 'preview-generation',
-    lessonId: mode === 'review' ? 'review' : 'giuoco-c3', depth: previewOpeningDepth,
+	return {
+		sessionId: 'preview-opening-session', mode, status: 'active',
+		courseId: 'synthetic-italian', generationId: 'preview-generation',
+		lessonId: mode === 'review' ? 'review' : 'giuoco-c3',
+		courseTitle: 'Synthetic Italian for White',
+		path: mode === 'review' ? [] : [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
+		depth: previewOpeningDepth,
     current: previewOpeningStep(index, mode)
   }
 }
@@ -208,14 +211,15 @@ function previewCompletedOpening(mode: 'lesson' | 'review'): OpeningSessionView 
   if (mode === 'lesson') {
     return {
       sessionId: 'preview-opening-session', mode, status: 'completed',
-      courseId: 'synthetic-italian', generationId: 'preview-generation',
-      lessonId: 'giuoco-c3', depth: previewOpeningDepth
+			courseId: 'synthetic-italian', generationId: 'preview-generation',
+			lessonId: 'giuoco-c3', courseTitle: 'Synthetic Italian for White',
+			path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }], depth: previewOpeningDepth
     }
   }
   return {
     sessionId: 'preview-opening-session', mode, status: 'completed',
-    courseId: 'synthetic-italian', generationId: 'preview-generation',
-    lessonId: 'review', depth: previewOpeningDepth,
+		courseId: 'synthetic-italian', generationId: 'preview-generation',
+		lessonId: 'review', courseTitle: 'Synthetic Italian for White', path: [], depth: previewOpeningDepth,
     summary: {
       totalPrompts: 1,
       positionsRecalled: 1,

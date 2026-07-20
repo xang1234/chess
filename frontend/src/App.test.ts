@@ -364,6 +364,8 @@ function completedOpening(): CompletedOpeningSessionView {
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: fakeOpeningSession.lessonId,
+    courseTitle: fakeOpeningSession.courseTitle,
+    path: fakeOpeningSession.path,
     depth: fakeOpeningSession.depth
   }
 }

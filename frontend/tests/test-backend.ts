@@ -604,6 +604,8 @@ export async function installTestBackend(
         courseId: 'synthetic-italian',
         generationId: 'synthetic-generation-1',
         lessonId: mode === 'review' ? 'review-c3' : lessonId,
+        courseTitle: 'Synthetic Italian for White',
+        path: mode === 'review' ? [] : lessonPath(lessonId),
         depth: openingDepth,
         current: openingActivity(lessonId, index, mode)
       })
@@ -614,7 +616,9 @@ export async function installTestBackend(
         sessionId: mode === 'review' ? 'opening-review-session' : 'opening-lesson-session',
         mode, status: 'completed', courseId: 'synthetic-italian',
         generationId: 'synthetic-generation-1',
-        lessonId: mode === 'review' ? 'review-c3' : lessonId, depth: openingDepth,
+        lessonId: mode === 'review' ? 'review-c3' : lessonId,
+        courseTitle: 'Synthetic Italian for White',
+        path: mode === 'review' ? [] : lessonPath(lessonId), depth: openingDepth,
         ...(mode === 'review' ? { summary: {
           totalPrompts: 1,
           positionsRecalled: 1,

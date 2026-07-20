@@ -43,6 +43,8 @@ function completed(): CompletedOpeningSessionView {
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: fakeOpeningSession.lessonId,
+    courseTitle: fakeOpeningSession.courseTitle,
+    path: fakeOpeningSession.path,
     depth: fakeOpeningSession.depth
   }
 }
@@ -353,6 +355,8 @@ test('pauses without discarding persisted state and restarts from a checkpoint',
     courseId: fakeOpeningSession.courseId,
     generationId: fakeOpeningSession.generationId,
     lessonId: fakeOpeningSession.lessonId,
+    courseTitle: fakeOpeningSession.courseTitle,
+    path: fakeOpeningSession.path,
     depth: fakeOpeningSession.depth,
     notice: 'Course updated. Restart from a safe checkpoint.'
   }

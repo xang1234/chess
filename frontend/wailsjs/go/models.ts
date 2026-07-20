@@ -578,20 +578,6 @@ export namespace openings {
 	        this.moves = source["moves"];
 	    }
 	}
-	export class OpeningPathItem {
-	    lessonId: string;
-	    title: string;
-
-	    static createFrom(source: any = {}) {
-	        return new OpeningPathItem(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.lessonId = source["lessonId"];
-	        this.title = source["title"];
-	    }
-	}
 	export class OpeningRoadmapCheckpoint {
 	    completedLessonId: string;
 	    path: OpeningPathItem[];
@@ -768,6 +754,20 @@ export namespace openings {
 		    return a;
 		}
 	}
+	export class OpeningPathItem {
+	    lessonId: string;
+	    title: string;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningPathItem(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lessonId = source["lessonId"];
+	        this.title = source["title"];
+	    }
+	}
 	export class OpeningSessionView {
 	    sessionId: string;
 	    mode: string;
@@ -775,6 +775,8 @@ export namespace openings {
 	    courseId: string;
 	    generationId: string;
 	    lessonId: string;
+	    courseTitle: string;
+	    path: OpeningPathItem[];
 	    depth: string;
 	    current?: OpeningActivityView;
 	    summary?: OpeningSummary;
@@ -792,6 +794,8 @@ export namespace openings {
 	        this.courseId = source["courseId"];
 	        this.generationId = source["generationId"];
 	        this.lessonId = source["lessonId"];
+	        this.courseTitle = source["courseTitle"];
+	        this.path = this.convertValues(source["path"], OpeningPathItem);
 	        this.depth = source["depth"];
 	        this.current = this.convertValues(source["current"], OpeningActivityView);
 	        this.summary = this.convertValues(source["summary"], OpeningSummary);

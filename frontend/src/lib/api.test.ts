@@ -146,9 +146,18 @@ const activeOpeningPayload = {
   courseId: 'italian-white',
   generationId: 'generation-1',
   lessonId: 'giuoco-c3',
+  courseTitle: 'Italian Game for White',
+  path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
   depth: 'reference',
   current: openingStepPayload
 }
+
+test('opening session decoder retains backend-owned course navigation', () => {
+  expect(decodeOpeningSession(activeOpeningPayload)).toMatchObject({
+    courseTitle: 'Italian Game for White',
+    path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }]
+  })
+})
 
 const openingHomePayload = {
   notice: 'Private course notice',
