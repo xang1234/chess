@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import type { OpeningDepth, OpeningHomeView } from '../../lib/api'
+  import OpeningTeachingTree from './OpeningTeachingTree.svelte'
 
   export let home: OpeningHomeView
 
@@ -14,6 +15,12 @@
   }>()
 
   $: course = home.courses[0]
+  $: continuationLessonId = course?.hasResumable
+    ? course.currentLessonId
+    : course?.recommendedLessonId || course?.nextLessonId
+  $: continuationTitle = course?.hasResumable
+    ? course.currentPath.at(-1)?.title || course.nextLessonTitle
+    : course?.recommendedLessonTitle || course?.nextLessonTitle
 
   function changeDepth(event: Event): void {
     if (!course) return
@@ -23,6 +30,15 @@
 
   function reviewLabel(count: number): string {
     return `Review ${count} due ${count === 1 ? 'position' : 'positions'}`
+  }
+
+  function continueLearning(): void {
+    if (!course) return
+    if (course.hasResumable) {
+      dispatch('resume')
+    } else if (continuationLessonId) {
+      dispatch('lesson', { courseId: course.courseId, lessonId: continuationLessonId })
+    }
   }
 </script>
 
@@ -64,9 +80,9 @@
     </div>
 
     <div class="opening-actions">
-      {#if course.hasResumable}
-        <button class="primary" type="button" on:click={() => dispatch('resume')}>
-          Continue {course.nextLessonTitle || 'lesson'}
+      {#if course.hasResumable || continuationLessonId}
+        <button class="primary" type="button" on:click={continueLearning}>
+          Continue learning{continuationTitle ? ` — ${continuationTitle}` : ''}
         </button>
       {/if}
       {#if course.dueReviews > 0}
@@ -84,38 +100,13 @@
       >Explore variations</button>
     </div>
 
-    <div class="opening-chapters">
-      {#each course.chapters as chapter (chapter.chapterId)}
-        <section class="opening-chapter" aria-labelledby={`chapter-${chapter.chapterId}`}>
-          <h3 id={`chapter-${chapter.chapterId}`}>{chapter.title}</h3>
-          {#if chapter.lessons.length === 0}
-            <p class="muted">No lessons at this depth.</p>
-          {:else}
-            <div class="lesson-list">
-              {#each chapter.lessons as lesson (lesson.lessonId)}
-                <article class="lesson-row">
-                  <div>
-                    <strong>{lesson.title}</strong>
-                    <span class="muted">
-                      {lesson.completed
-                        ? 'Complete'
-                        : `${lesson.completedSteps} of ${lesson.totalSteps} steps`}
-                    </span>
-                  </div>
-                  <button
-                    class="secondary"
-                    type="button"
-                    on:click={() => dispatch('lesson', {
-                      courseId: course.courseId,
-                      lessonId: lesson.lessonId
-                    })}
-                  >{lesson.completed ? 'Study' : 'Start'} {lesson.title}</button>
-                </article>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      {/each}
-    </div>
+    <OpeningTeachingTree
+      tree={course.tree}
+      courseTitle={course.title}
+      on:lesson={(event) => dispatch('lesson', {
+        courseId: course.courseId,
+        lessonId: event.detail
+      })}
+    />
   {/if}
 </section>

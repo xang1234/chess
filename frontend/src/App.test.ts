@@ -171,7 +171,7 @@ test('opens the course hub and starts a visible opening lesson', async () => {
   await waitFor(() => expect(setOpeningDepth).toHaveBeenCalledWith('synthetic-italian', 'quick'))
   expect(getOpeningHome).toHaveBeenCalledTimes(2)
 
-  await fireEvent.click(screen.getByRole('button', { name: 'Start Giuoco Piano' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Study Giuoco Piano' }))
   expect(startOpeningLesson).toHaveBeenCalledWith('synthetic-italian', 'giuoco-c3')
   expect(await screen.findByRole('heading', { name: 'The central plan' })).toBeInTheDocument()
   expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
@@ -268,7 +268,7 @@ async function openAndRevealOpening(
   })
   render(App, { loadAPI: async () => normalApplication(api) })
   await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Start Giuoco Piano' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
 }
 
@@ -279,7 +279,7 @@ test('keeps the persisted next opening step resumable when Home leaves its solve
   await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
 
   expect(await screen.findByRole('button', { name: 'Learn Openings' }))
-    .toHaveTextContent('Continue your Italian lesson')
+    .toHaveTextContent('Continue your Italian course')
 })
 
 test('finishing an opening lesson does not clear an active puzzle session', async () => {
@@ -290,7 +290,7 @@ test('finishing an opening lesson does not clear an active puzzle session', asyn
 
   expect(await screen.findByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Learn Openings' }))
-    .not.toHaveTextContent('Continue your Italian lesson')
+    .not.toHaveTextContent('Continue your Italian course')
 })
 
 test('uses catalogued learner bounds on the parent settings screen', async () => {

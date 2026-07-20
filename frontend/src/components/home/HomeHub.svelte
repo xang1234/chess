@@ -16,9 +16,9 @@
   $: openingCopy = !openingCourse
     ? 'Import a private course'
     : openingCourse.hasResumable
-      ? 'Continue your Italian lesson'
-      : openingCourse.dueReviews > 0
-        ? `${openingCourse.dueReviews} opening reviews due`
+      ? 'Continue your Italian course'
+      : openingCourse.recommendedLessonTitle || openingCourse.nextLessonTitle
+        ? `Next: ${openingCourse.recommendedLessonTitle || openingCourse.nextLessonTitle}`
         : 'Explore your repertoire'
 </script>
 

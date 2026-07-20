@@ -18,10 +18,12 @@ test('shows depth, progress, ordered lessons, review, and explorer actions', asy
   const resume = vi.fn()
   const review = vi.fn()
   const explore = vi.fn()
+  const lesson = vi.fn()
   component.$on('depth', depth)
   component.$on('resume', resume)
   component.$on('review', review)
   component.$on('explore', explore)
+  component.$on('lesson', lesson)
 
   expect(screen.getByRole('heading', { name: 'Italian Game for White' })).toBeInTheDocument()
   expect(screen.getByLabelText('Course depth')).toHaveValue('reference')
@@ -31,7 +33,7 @@ test('shows depth, progress, ordered lessons, review, and explorer actions', asy
     detail: { courseId: 'synthetic-italian', depth: 'quick' }
   }))
 
-  await fireEvent.click(screen.getByRole('button', { name: 'Continue Giuoco Piano' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Continue learning — Giuoco Piano' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Review 3 due positions' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Explore variations' }))
   expect(resume).toHaveBeenCalledOnce()
@@ -39,7 +41,21 @@ test('shows depth, progress, ordered lessons, review, and explorer actions', asy
   expect(explore).toHaveBeenCalledWith(expect.objectContaining({
     detail: { courseId: 'synthetic-italian', positionId: 'initial' }
   }))
-  expect(screen.getByRole('button', { name: 'Start Giuoco Piano' })).toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'Study Giuoco Piano' }))
+  expect(lesson).toHaveBeenCalledWith(expect.objectContaining({
+    detail: { courseId: 'synthetic-italian', lessonId: 'giuoco-c3' }
+  }))
+})
+
+test('starts the recommended lesson when there is no resumable activity', async () => {
+  const { component } = render(OpeningHub, { home: fakeOpeningHome })
+  const lesson = vi.fn()
+  component.$on('lesson', lesson)
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Continue learning — Giuoco Piano' }))
+  expect(lesson).toHaveBeenCalledWith(expect.objectContaining({
+    detail: { courseId: 'synthetic-italian', lessonId: 'giuoco-c3' }
+  }))
 })
 
 test('shows private import guidance when no course is installed', () => {

@@ -24,7 +24,7 @@ test('summarises resumable and due opening work without replacing puzzle trainin
     }
   })
   expect(screen.getByRole('button', { name: 'Learn Openings' }))
-    .toHaveTextContent('Continue your Italian lesson')
+    .toHaveTextContent('Continue your Italian course')
   expect(screen.getByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
 
   component.$set({
@@ -35,6 +35,6 @@ test('summarises resumable and due opening work without replacing puzzle trainin
   })
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Learn Openings' }))
-      .toHaveTextContent('3 opening reviews due')
+      .toHaveTextContent('Next: Giuoco Piano')
   })
 })
