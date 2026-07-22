@@ -3,6 +3,7 @@ package openings
 import (
 	"bytes"
 	"errors"
+	"os"
 	"slices"
 	"testing"
 
@@ -61,6 +62,30 @@ func TestCompileAllowsAlternativeBranchMoveAsPromptPrimary(t *testing.T) {
 	}
 	if compiled.Prompts["recall-c3"].PrimaryMoveID != "white-b4" {
 		t.Fatalf("primary move = %q", compiled.Prompts["recall-c3"].PrimaryMoveID)
+	}
+}
+
+func TestCompileAcceptsBlackPerspectiveRepertoireMoves(t *testing.T) {
+	contents, err := os.ReadFile("testdata/black_tree.ctcourse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack, err := DecodeCoursePack(bytes.NewReader(contents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := Compile(pack, chessrules.Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled.Pack.Perspective != PerspectiveBlack {
+		t.Fatalf("perspective = %q", compiled.Pack.Perspective)
+	}
+	if got := compiled.Moves["black-c6"].SAN; got != "c6" {
+		t.Fatalf("black-c6 SAN = %q, want c6", got)
+	}
+	if got := compiled.Prompts["prompt-caro-c6"].PrimaryMoveID; got != "black-c6" {
+		t.Fatalf("primary move = %q", got)
 	}
 }
 

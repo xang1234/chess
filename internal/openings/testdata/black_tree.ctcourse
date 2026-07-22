@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 2,
+  "courseId": "synthetic-caro-black",
+  "contentVersion": "2.0.0",
+  "title": "Synthetic Caro-Kann for Black",
+  "description": "An original miniature Black repertoire used to verify schema-v2 course behavior.",
+  "perspective": "black",
+  "defaultDepth": "reference",
+  "rootPositionId": "initial",
+  "rootFen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+  "source": {
+    "title": "Original synthetic fixture",
+    "edition": "Synthetic",
+    "privateUseNotice": "Original test material; no book text is included."
+  },
+  "sourceCoverage": {
+    "printedPages": [1],
+    "expectedReferences": [
+      "p1-overview",
+      "p1-e4",
+      "p1-c6",
+      "p1-d4",
+      "p1-d5",
+      "p1-e5",
+      "p1-c5"
+    ]
+  },
+  "positions": [
+    {"positionId": "initial", "label": "Initial position", "evaluation": {"code": "none"}, "noteIds": []},
+    {"positionId": "after-e4", "label": "White opens with e4", "evaluation": {"code": "equal"}, "noteIds": ["caro-overview"]},
+    {"positionId": "after-c6", "label": "Caro-Kann setup", "evaluation": {"code": "equal"}, "noteIds": ["caro-overview"]},
+    {"positionId": "after-d4", "label": "White claims the centre", "evaluation": {"code": "equal"}, "noteIds": []},
+    {"positionId": "after-d5", "label": "Black challenges e4", "evaluation": {"code": "equal"}, "noteIds": []},
+    {"positionId": "after-e5", "label": "Advance structure", "evaluation": {"code": "equal"}, "noteIds": []},
+    {"positionId": "after-c5", "label": "Black hits the chain", "evaluation": {"code": "equal"}, "noteIds": []}
+  ],
+  "moves": [
+    {"moveId": "white-e4", "fromPositionId": "initial", "toPositionId": "after-e4", "uci": "e2e4", "minimumDepth": "quick", "trainingRole": "opponent", "variationName": "King pawn", "evaluation": {"code": "equal"}, "noteIds": [], "sourceRef": {"printedPage": 1, "coverageId": "p1-e4"}},
+    {"moveId": "black-c6", "fromPositionId": "after-e4", "toPositionId": "after-c6", "uci": "c7c6", "minimumDepth": "quick", "trainingRole": "repertoire", "variationName": "Caro-Kann", "evaluation": {"code": "equal"}, "noteIds": ["caro-overview"], "sourceRef": {"printedPage": 1, "coverageId": "p1-c6"}},
+    {"moveId": "white-d4", "fromPositionId": "after-c6", "toPositionId": "after-d4", "uci": "d2d4", "minimumDepth": "quick", "trainingRole": "opponent", "variationName": "Main centre", "evaluation": {"code": "equal"}, "noteIds": [], "sourceRef": {"printedPage": 1, "coverageId": "p1-d4"}},
+    {"moveId": "black-d5", "fromPositionId": "after-d4", "toPositionId": "after-d5", "uci": "d7d5", "minimumDepth": "quick", "trainingRole": "repertoire", "variationName": "Caro-Kann centre", "evaluation": {"code": "equal"}, "noteIds": [], "sourceRef": {"printedPage": 1, "coverageId": "p1-d5"}},
+    {"moveId": "white-e5", "fromPositionId": "after-d5", "toPositionId": "after-e5", "uci": "e4e5", "minimumDepth": "standard", "trainingRole": "opponent", "variationName": "Advance", "evaluation": {"code": "equal"}, "noteIds": [], "sourceRef": {"printedPage": 1, "coverageId": "p1-e5"}},
+    {"moveId": "black-c5", "fromPositionId": "after-e5", "toPositionId": "after-c5", "uci": "c6c5", "minimumDepth": "standard", "trainingRole": "repertoire", "variationName": "Counter the chain", "evaluation": {"code": "equal"}, "noteIds": [], "sourceRef": {"printedPage": 1, "coverageId": "p1-c5"}}
+  ],
+  "notes": [
+    {"noteId": "caro-overview", "kind": "overview", "text": "Black builds a compact centre and challenges White before committing the pieces.", "sourceRef": {"printedPage": 1, "noteLabel": "overview", "coverageId": "p1-overview"}}
+  ],
+  "lessonEdges": [
+    {"edgeId": "caro-foundation-to-caro-centre", "fromLessonId": "caro-foundation", "toLessonId": "caro-centre", "ordinal": 1, "kind": "continuation", "minimumDepth": "quick"},
+    {"edgeId": "caro-centre-to-caro-advance", "fromLessonId": "caro-centre", "toLessonId": "caro-advance", "ordinal": 1, "kind": "alternative", "label": "Advance structure", "minimumDepth": "standard"}
+  ],
+  "chapters": [
+    {"chapterId": "foundations", "ordinal": 1, "title": "Foundations", "overview": "Answer e4 with a compact setup.", "minimumDepth": "quick"},
+    {"chapterId": "advance", "ordinal": 2, "title": "Advance", "overview": "Challenge the advanced pawn chain.", "minimumDepth": "standard"}
+  ],
+  "lessons": [
+    {
+      "lessonId": "caro-foundation",
+      "chapterId": "foundations",
+      "ordinal": 1,
+      "title": "Answer e4 with c6",
+      "objectives": ["Use c6 as Black's compact reply."],
+      "minimumDepth": "quick",
+      "startPositionId": "after-e4",
+      "activities": [
+        {"activityId": "caro-c6-concept", "kind": "concept", "title": "Compact first move", "instruction": "Prepare to challenge White's centre with d5.", "required": true, "positionId": "after-e4", "noteIds": ["caro-overview"], "moveIds": []},
+        {"activityId": "caro-c6-decision", "kind": "decision", "title": "Choose Black's setup", "instruction": "Play Black's compact reply to e4.", "required": true, "positionId": "after-e4", "noteIds": [], "moveIds": [], "promptId": "prompt-caro-c6"},
+        {"activityId": "caro-c6-recap", "kind": "recap", "title": "Keep the structure", "instruction": "Caro-Kann structure begins with c6 and a later d5.", "required": true, "positionId": "after-c6", "noteIds": [], "moveIds": []}
+      ]
+    },
+    {
+      "lessonId": "caro-centre",
+      "chapterId": "foundations",
+      "ordinal": 2,
+      "title": "Challenge the centre",
+      "objectives": ["Answer d4 with d5."],
+      "minimumDepth": "quick",
+      "startPositionId": "after-d4",
+      "activities": [
+        {"activityId": "caro-d5-decision", "kind": "decision", "title": "Strike back", "instruction": "Challenge White's centre immediately.", "required": true, "positionId": "after-d4", "noteIds": [], "moveIds": [], "promptId": "prompt-caro-d5"}
+      ]
+    },
+    {
+      "lessonId": "caro-advance",
+      "chapterId": "advance",
+      "ordinal": 1,
+      "title": "Hit the pawn chain",
+      "objectives": ["Use c5 against the advanced centre."],
+      "minimumDepth": "standard",
+      "startPositionId": "after-e5",
+      "activities": [
+        {"activityId": "caro-c5-decision", "kind": "decision", "title": "Challenge the chain", "instruction": "Use the c-pawn to attack the advanced centre.", "required": true, "positionId": "after-e5", "noteIds": [], "moveIds": [], "promptId": "prompt-caro-c5"}
+      ]
+    }
+  ],
+  "prompts": [
+    {"promptId": "prompt-caro-c6", "positionId": "after-e4", "primaryMoveId": "black-c6", "acceptedAlternativeMoveIds": []},
+    {"promptId": "prompt-caro-d5", "positionId": "after-d4", "primaryMoveId": "black-d5", "acceptedAlternativeMoveIds": []},
+    {"promptId": "prompt-caro-c5", "positionId": "after-e5", "primaryMoveId": "black-c5", "acceptedAlternativeMoveIds": []}
+  ]
+}

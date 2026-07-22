@@ -1,8 +1,10 @@
 package openings
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -42,6 +44,23 @@ func newOpeningServiceFixture(t *testing.T) openingServiceFixture {
 	}
 }
 
+func compileBlackTreeCourse(t *testing.T) CompiledCourse {
+	t.Helper()
+	contents, err := os.ReadFile("testdata/black_tree.ctcourse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack, err := DecodeCoursePack(bytes.NewReader(contents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := Compile(pack, chessrules.Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compiled
+}
+
 func TestOpeningServiceHomeFiltersCourseAtSelectedDepth(t *testing.T) {
 	ctx := context.Background()
 	fixture := newOpeningServiceFixture(t)
@@ -76,6 +95,40 @@ func TestOpeningServiceHomeFiltersCourseAtSelectedDepth(t *testing.T) {
 		if chapter.ChapterID == "alternatives" {
 			t.Fatal("reference-only chapter leaked into quick depth")
 		}
+	}
+}
+
+func TestOpeningServiceHomeKeepsMultipleCoursesSeparate(t *testing.T) {
+	ctx := context.Background()
+	fixture := newOpeningServiceFixture(t)
+	black := compileBlackTreeCourse(t)
+	if _, err := fixture.catalog.Replace(ctx, black, "/private/synthetic-caro-black.ctcourse", "sha-black"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.SetDepth(ctx, black.Pack.CourseID, DepthQuick); err != nil {
+		t.Fatal(err)
+	}
+
+	home, err := fixture.service.Home(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(home.Courses) != 2 {
+		t.Fatalf("courses = %+v", home.Courses)
+	}
+	byID := map[string]OpeningCourseSummary{}
+	for _, course := range home.Courses {
+		byID[course.CourseID] = course
+	}
+	if byID["synthetic-italian"].Perspective != PerspectiveWhite ||
+		byID["synthetic-italian"].Depth != DepthReference ||
+		byID["synthetic-italian"].RecommendedLessonID != "giuoco-c3" {
+		t.Fatalf("white course summary = %+v", byID["synthetic-italian"])
+	}
+	if byID["synthetic-caro-black"].Perspective != PerspectiveBlack ||
+		byID["synthetic-caro-black"].Depth != DepthQuick ||
+		byID["synthetic-caro-black"].RecommendedLessonID != "caro-foundation" {
+		t.Fatalf("black course summary = %+v", byID["synthetic-caro-black"])
 	}
 }
 
