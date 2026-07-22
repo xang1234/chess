@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte'
   import type { OpeningDepth, OpeningHomeView } from '../../lib/api'
   import OpeningTeachingTree from './OpeningTeachingTree.svelte'
+  import { groupOpeningCourses, perspectiveLabel } from './opening-course-groups'
 
   export let home: OpeningHomeView
   export let selectedCourseId = ''
@@ -18,6 +19,7 @@
 
   $: onlyCourse = singleCourse(home)
   $: course = home.courses.find((candidate) => candidate.courseId === selectedCourseId) ?? onlyCourse
+  $: courseGroups = groupOpeningCourses(home.courses)
   $: continuationLessonId = course?.hasResumable
     ? course.currentLessonId
     : course?.recommendedLessonId || course?.nextLessonId
@@ -64,7 +66,7 @@
       <p class="eyebrow">Learn openings</p>
       <h2 id="opening-hub-title">{course?.title ?? 'Opening courses'}</h2>
       {#if course}
-        <p class="muted">A repertoire for {course.perspective === 'white' ? 'White' : 'Black'}</p>
+        <p class="muted">A repertoire for {perspectiveLabel(course.perspective)}</p>
       {/if}
     </div>
   </div>
@@ -78,8 +80,12 @@
       Opening course
       <select value={course?.courseId ?? ''} on:change={changeCourse}>
         <option value="" disabled>Choose a course</option>
-        {#each home.courses as candidate (candidate.courseId)}
-          <option value={candidate.courseId}>{candidate.title}</option>
+        {#each courseGroups as group (group.label)}
+          <optgroup label={group.label}>
+            {#each group.courses as candidate (candidate.courseId)}
+              <option value={candidate.courseId}>{candidate.title}</option>
+            {/each}
+          </optgroup>
         {/each}
       </select>
     </label>

@@ -130,3 +130,24 @@ test('renders the explicitly selected course when several courses are available'
 	})
 	expect(select).toHaveBeenCalledWith(expect.objectContaining({ detail: 'synthetic-italian' }))
 })
+
+test('groups multiple courses by learner perspective', async () => {
+  const black = {
+    ...fakeOpeningHome.courses[0],
+    courseId: 'caro-kann-black',
+    title: 'Caro-Kann for Black',
+    perspective: 'black' as const,
+    recommendedLessonTitle: 'Answer e4 with c6'
+  }
+  const { container } = render(OpeningHub, {
+    home: { courses: [fakeOpeningHome.courses[0], black] },
+    selectedCourseId: black.courseId
+  })
+
+  expect(screen.getByRole('heading', { name: 'Caro-Kann for Black' })).toBeInTheDocument()
+  expect(screen.getByText('A repertoire for Black')).toBeInTheDocument()
+  expect(container.querySelector('optgroup[label="White repertoires"]')).not.toBeNull()
+  expect(container.querySelector('optgroup[label="Black repertoires"]')).not.toBeNull()
+  expect(screen.getByRole('option', { name: 'Italian Game for White' })).toBeInTheDocument()
+  expect(screen.getByRole('option', { name: 'Caro-Kann for Black' })).toBeInTheDocument()
+})
