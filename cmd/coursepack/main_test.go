@@ -149,13 +149,25 @@ func TestRunSANLineConvertsSANMovesFromNonInitialBlackToMoveFEN(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	gotUCI := []string{}
+	gotSAN := []string{}
+	gotIndexes := []int{}
 	gotFEN := []string{}
 	for _, move := range result.Moves {
 		gotUCI = append(gotUCI, move.UCI)
+		gotSAN = append(gotSAN, move.SAN)
+		gotIndexes = append(gotIndexes, move.Index)
 		gotFEN = append(gotFEN, move.FEN)
-		if move.Index == 0 || strings.TrimSpace(move.FEN) == "" {
+		if strings.TrimSpace(move.FEN) == "" {
 			t.Fatalf("move metadata not populated: %#v", move)
 		}
+	}
+	wantSAN := []string{"c6", "d4", "d5"}
+	if !reflect.DeepEqual(gotSAN, wantSAN) {
+		t.Fatalf("SAN line = %#v, want %#v", gotSAN, wantSAN)
+	}
+	wantIndexes := []int{1, 2, 3}
+	if !reflect.DeepEqual(gotIndexes, wantIndexes) {
+		t.Fatalf("move indexes = %#v, want %#v", gotIndexes, wantIndexes)
 	}
 	wantUCI := []string{"c7c6", "d2d4", "d7d5"}
 	if !reflect.DeepEqual(gotUCI, wantUCI) {
@@ -174,6 +186,43 @@ func TestRunSANLineConvertsSANMovesFromNonInitialBlackToMoveFEN(t *testing.T) {
 	}
 	if result.FinalFEN != wantFEN[len(wantFEN)-1] {
 		t.Fatalf("final FEN = %q, want %q", result.FinalFEN, wantFEN[len(wantFEN)-1])
+	}
+	var repeated bytes.Buffer
+	if code := run([]string{
+		"sanline",
+		"--fen", "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+		"c6", "d4", "d5",
+	}, &repeated, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("repeated run code = %d", code)
+	}
+	if repeated.String() != stdout.String() {
+		t.Fatalf("SAN line output changed between runs")
+	}
+}
+
+func TestRunSANLineRejectsInvalidFEN(t *testing.T) {
+	var stderr bytes.Buffer
+	code := run([]string{"sanline", "--fen", "not a FEN", "e4"}, &bytes.Buffer{}, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "invalid FEN") {
+		t.Fatalf("stderr = %q, want invalid FEN message", stderr.String())
+	}
+}
+
+func TestRunSANLineRejectsEmptySANWithMoveIndex(t *testing.T) {
+	var stderr bytes.Buffer
+	code := run([]string{
+		"sanline",
+		"--fen", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		"e4", " ",
+	}, &bytes.Buffer{}, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "move 2") || !strings.Contains(stderr.String(), "empty") {
+		t.Fatalf("stderr = %q, want indexed empty SAN error", stderr.String())
 	}
 }
 

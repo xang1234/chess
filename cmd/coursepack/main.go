@@ -122,7 +122,7 @@ func runSANLine(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		uci := uciNotation.Encode(game.Position(), move)
-		if err := game.PushMove(san, nil); err != nil {
+		if err := game.Move(move, nil); err != nil {
 			_, _ = fmt.Fprintf(stderr, "move %d %q: %v\n", index+1, san, err)
 			return 1
 		}
