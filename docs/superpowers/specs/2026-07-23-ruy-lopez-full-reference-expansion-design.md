@@ -1,7 +1,7 @@
 # Ruy Lopez Full-Reference Expansion Design
 
 Date: 2026-07-23
-Status: Approved design direction, awaiting written-spec review
+Status: Approved written spec
 
 ## Summary
 
@@ -116,19 +116,19 @@ Existing top-level lessons should remain stable where possible:
 - `ruy-foundations`
 - `ruy-black-third-move`
 - `ruy-morphy-a6`
+- `ruy-preserve-bishop`
+- `ruy-castle-re1`
+- `ruy-central-plan`
 - `ruy-exchange`
-- `ruy-closed-centre`
-- `ruy-marshall-crossroads`
-- `ruy-open-defence`
+- `ruy-open`
 - `ruy-berlin`
 - `ruy-steinitz`
-- `ruy-deferred-systems`
+- `ruy-closed-main`
 - `ruy-anti-marshall`
-- `ruy-schliemann`
-- `ruy-closed-mainline`
-- `ruy-maneuvering`
-- `ruy-endgame-signals`
-- `ruy-reference-systems`
+- `ruy-marshall-warning`
+- `ruy-delayed-systems`
+- `ruy-closed-systems`
+- `ruy-side-systems`
 
 These IDs are progress anchors. If a lesson's meaning is unchanged, keep its
 ID and deepen it with demonstrations, comparisons, optional Reference
