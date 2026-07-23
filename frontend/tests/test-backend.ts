@@ -510,6 +510,43 @@ export async function installTestBackend(
         progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: 8192 },
         report: { accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {} }
       }
+      const deepExplorerLength = configured.deepExplorerLength ?? 0
+      const deepExplorerPosition = (courseId: string, positionId: string) => {
+        const sideBranch = positionId.startsWith('deep-side-')
+        const match = positionId.match(/^deep-(?:position|side)-(\d+)/)
+        const depth = positionId === 'initial' ? 0 : Number(match?.[1])
+        if (!Number.isInteger(depth) || depth < 0 || depth > deepExplorerLength) {
+          throw new Error(`unexpected deep opening position ${positionId}`)
+        }
+        const terminal = sideBranch || depth >= deepExplorerLength
+        const branchCount = depth >= 5 ? 7 : 1
+        return {
+          courseId,
+          positionId,
+          fen: depth % 2 === 0 ? initialFen : 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+          label: depth === 0 ? 'Initial position' : `Deep explorer position ${depth}`,
+          evaluation: { code: 'equal' },
+          notes: Array.from({ length: depth >= 6 ? 10 : 1 }, (_value, index) => ({
+            kind: 'overview',
+            text: `Scrollable reference note ${index + 1} for explorer depth ${depth}.`,
+            sourceRef: {
+              printedPage: 1, noteLabel: `deep-${depth}-${index + 1}`,
+              coverageId: `synthetic-deep-note-${depth}-${index + 1}`
+            }
+          })),
+          moves: terminal ? [] : Array.from({ length: branchCount }, (_value, index) => ({
+            moveId: `deep-${depth}-${index}`,
+            uci: depth % 2 === 0 ? 'e2e4' : 'e7e5',
+            san: index === 0 ? `M${depth + 1}` : `S${depth + 1}.${index}`,
+            toPositionId: index === 0 ? `deep-position-${depth + 1}` : `deep-side-${depth + 1}-${index}`,
+            role: 'repertoire',
+            variationName: index === 0 ? 'Main continuation' : 'Side branch',
+            evaluation: { code: 'equal' },
+            sourceRef: { printedPage: 1, coverageId: `synthetic-deep-move-${depth}-${index}` }
+          })),
+          incomingPaths: 1
+        }
+      }
 
       const referenceSections = () => openingDepth === 'reference' ? [{
         activityId: 'giuoco-reference',
@@ -918,6 +955,7 @@ export async function installTestBackend(
         },
         GetOpeningPosition: async (courseId: string, positionId: string) => {
           if (courseId !== 'synthetic-italian') throw new Error(`unexpected course ${courseId}`)
+          if (deepExplorerLength > 0) return deepExplorerPosition(courseId, positionId)
           if (positionId === 'initial') {
             return {
               courseId, positionId, fen: initialFen, label: 'Initial position',

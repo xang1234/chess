@@ -44,7 +44,7 @@ export type BoardScenario = {
 }
 
 export type TrainerScenario = { kind: 'trainer' }
-export type OpeningScenario = { kind: 'openings' }
+export type OpeningScenario = { kind: 'openings'; deepExplorerLength?: number }
 export type TestBackendScenario = BoardScenario | TrainerScenario | OpeningScenario
 
 export type TrustedInput = { type: string; trusted: boolean }

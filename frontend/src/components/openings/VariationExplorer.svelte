@@ -231,11 +231,16 @@
   .explorer-notes {
     display: grid;
     gap: 22px;
+    max-height: min(760px, calc(100vh - 160px));
+    max-height: min(760px, calc(100dvh - 160px));
+    min-height: 0;
     padding: 20px;
+    overflow-y: auto;
     border: 1px solid var(--ivory-200);
     border-radius: var(--radius-medium);
     background: var(--ivory-50);
     box-shadow: var(--shadow-soft);
+    scrollbar-gutter: stable;
   }
   .explorer-history { display: grid; margin: 10px 0 0; padding-left: 22px; gap: 5px; }
   .explorer-history button {

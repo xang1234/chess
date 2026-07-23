@@ -3,11 +3,8 @@ import { chessgroundBoard, mouseClickMove } from './board-driver'
 import { installTestBackend } from './test-backend'
 import { backendState, selectedCoursePath } from './test-backend-state'
 
-test.beforeEach(async ({ page }) => {
-  await installTestBackend(page, { kind: 'openings' })
-})
-
 test('learns a private two-node teaching tree and preserves the journey', async ({ page }) => {
+  await installTestBackend(page, { kind: 'openings' })
   await page.goto('/')
 
   await page.getByLabel('Starting rating').fill('1250')
@@ -157,4 +154,37 @@ test('learns a private two-node teaching tree and preserves the journey', async 
     .toEqual(['c2c3', 'd2d3', 'c2c3'])
   await expect.poll(() => backendState<number[]>(page, 'openingHints'))
     .toEqual([])
+})
+
+test('keeps the variation explorer board visible on deep branches', async ({ page }) => {
+  await installTestBackend(page, { kind: 'openings', deepExplorerLength: 12 })
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('/')
+
+  await page.getByLabel('Starting rating').fill('1250')
+  await page.getByLabel('Puzzles per session').selectOption('5')
+  await page.getByRole('button', { name: 'Save and continue' }).click()
+  await page.getByRole('button', { name: 'Parent settings' }).click()
+  await page.getByRole('button', { name: 'Import content' }).click()
+  await page.getByRole('button', { name: 'Choose opening course' }).click()
+  await page.getByRole('button', { name: 'Import course' }).click()
+  await page.getByRole('button', { name: 'Chess Trainer home' }).click()
+  await page.getByRole('button', { name: 'Learn Openings' }).click()
+  await page.getByRole('button', { name: 'Explore variations' }).click()
+  await expect(page.getByRole('heading', { name: 'Variation explorer' })).toBeVisible()
+
+  for (let step = 0; step < 10; step++) {
+    await page.locator('button.branch-button').first().click()
+  }
+
+  const board = await chessgroundBoard(page).boundingBox()
+  const viewport = page.viewportSize()
+  if (!board || !viewport) throw new Error('variation explorer layout has no visible board')
+  expect(board.y).toBeGreaterThanOrEqual(0)
+  expect(board.y + board.height).toBeLessThanOrEqual(viewport.height)
+
+  const branchPanel = page.getByRole('complementary', { name: 'Move history and branches' })
+  await expect.poll(() => branchPanel.evaluate(
+    (element) => element.scrollHeight > element.clientHeight
+  )).toBe(true)
 })
