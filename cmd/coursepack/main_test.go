@@ -122,12 +122,12 @@ func TestRunRejectsUnsupportedCommand(t *testing.T) {
 	}
 }
 
-func TestRunSANLineConvertsSANMovesFromFEN(t *testing.T) {
+func TestRunSANLineConvertsSANMovesFromNonInitialBlackToMoveFEN(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
 		"sanline",
-		"--fen", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-		"e4", "c6", "d4", "d5",
+		"--fen", "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+		"c6", "d4", "d5",
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run() code = %d stderr = %s", code, stderr.String())
@@ -149,18 +149,31 @@ func TestRunSANLineConvertsSANMovesFromFEN(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 	gotUCI := []string{}
+	gotFEN := []string{}
 	for _, move := range result.Moves {
 		gotUCI = append(gotUCI, move.UCI)
+		gotFEN = append(gotFEN, move.FEN)
 		if move.Index == 0 || strings.TrimSpace(move.FEN) == "" {
 			t.Fatalf("move metadata not populated: %#v", move)
 		}
 	}
-	wantUCI := []string{"e2e4", "c7c6", "d2d4", "d7d5"}
+	wantUCI := []string{"c7c6", "d2d4", "d7d5"}
 	if !reflect.DeepEqual(gotUCI, wantUCI) {
 		t.Fatalf("uci line = %#v, want %#v", gotUCI, wantUCI)
 	}
-	if result.StartFEN == "" || result.FinalFEN == "" {
-		t.Fatalf("missing FENs: %#v", result)
+	wantFEN := []string{
+		"rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+		"rnbqkbnr/pp1ppppp/2p5/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq d3 0 2",
+		"rnbqkbnr/pp2pppp/2p5/3p4/3PP3/8/PPP2PPP/RNBQKBNR w KQkq d6 0 3",
+	}
+	if !reflect.DeepEqual(gotFEN, wantFEN) {
+		t.Fatalf("FEN line = %#v, want %#v", gotFEN, wantFEN)
+	}
+	if result.StartFEN != "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1" {
+		t.Fatalf("start FEN = %q", result.StartFEN)
+	}
+	if result.FinalFEN != wantFEN[len(wantFEN)-1] {
+		t.Fatalf("final FEN = %q, want %q", result.FinalFEN, wantFEN[len(wantFEN)-1])
 	}
 }
 
