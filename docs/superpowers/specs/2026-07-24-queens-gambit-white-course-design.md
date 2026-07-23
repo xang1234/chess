@@ -11,9 +11,9 @@ Add a new private schema-v2 opening course:
 - Title: `Queen's Gambit for White`
 - Perspective: `white`
 - Target content version: `1.0.0`
-- Source scope: the Queen's Gambit family from the double queen-pawn section of the MCO-15 PDF, printed pages 389-492.
+- Source scope: the Queen's Gambit family from the double queen-pawn section of the MCO-15 PDF, starting at printed page 389 and ending before the next section.
 
-This is a large v1 course, not a small teaser. It should cover the Queen's Gambit family only: Queen's Gambit Declined, Tarrasch Defence, Queen's Gambit Accepted, Slav/Semi-Slav, and Chigorin Defence. The course should feel like a White repertoire first and a reference tree second.
+This is a large v1 course, not a small teaser. It should cover the Queen's Gambit family only: Queen's Gambit Declined, Tarrasch Defence, Queen's Gambit Accepted, Slav/Semi-Slav, and Chigorin Defence. Offset verification found the section beginning on PDF page 406 and useful Queen's Gambit content ending before the next-section title/blank pages. The course should feel like a White repertoire first and a reference tree second.
 
 The public app should be reused as much as possible. The implementation is primarily private course authoring plus validation/import work. App code changes are allowed only for generic defects discovered while importing or using the new course.
 
@@ -141,7 +141,7 @@ Reference depth should cover the selected printed-page scope more completely whi
 - include source-backed move graph branches for the selected pages;
 - use optional reference activities for dense side notes;
 - keep rare or very deep continuations available in the variation explorer;
-- avoid placeholder warning text such as generic source-note spam;
+- avoid generic warning text such as source-note spam;
 - maintain strict source coverage for every included page, note, variation, and move path.
 
 Reference can be substantial, but it should still be navigable as a tree.
@@ -193,7 +193,7 @@ Private validation must confirm:
 - zero unexpected coverage;
 - legal move graph;
 - no repeated forced decisions from the same position;
-- no warning-spam placeholder text.
+- no warning-spam generic text.
 
 App import acceptance:
 
