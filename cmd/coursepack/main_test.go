@@ -117,7 +117,64 @@ func TestRunRejectsUnsupportedCommand(t *testing.T) {
 	if code := run([]string{"inspect"}, &bytes.Buffer{}, &stderr); code != 2 {
 		t.Fatalf("run() code = %d, want 2", code)
 	}
-	if stderr.String() != "usage: coursepack validate <path>\n" {
+	if stderr.String() != "usage: coursepack validate <path>\n       coursepack sanline --fen <fen> <san>...\n" {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunSANLineConvertsSANMovesFromFEN(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"sanline",
+		"--fen", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		"e4", "c6", "d4", "d5",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run() code = %d stderr = %s", code, stderr.String())
+	}
+	var result struct {
+		StartFEN string `json:"startFen"`
+		Moves    []struct {
+			Index int    `json:"index"`
+			SAN   string `json:"san"`
+			UCI   string `json:"uci"`
+			FEN   string `json:"fen"`
+		} `json:"moves"`
+		FinalFEN string `json:"finalFen"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode stdout %q: %v", stdout.String(), err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	gotUCI := []string{}
+	for _, move := range result.Moves {
+		gotUCI = append(gotUCI, move.UCI)
+		if move.Index == 0 || strings.TrimSpace(move.FEN) == "" {
+			t.Fatalf("move metadata not populated: %#v", move)
+		}
+	}
+	wantUCI := []string{"e2e4", "c7c6", "d2d4", "d7d5"}
+	if !reflect.DeepEqual(gotUCI, wantUCI) {
+		t.Fatalf("uci line = %#v, want %#v", gotUCI, wantUCI)
+	}
+	if result.StartFEN == "" || result.FinalFEN == "" {
+		t.Fatalf("missing FENs: %#v", result)
+	}
+}
+
+func TestRunSANLineReportsIllegalSAN(t *testing.T) {
+	var stderr bytes.Buffer
+	code := run([]string{
+		"sanline",
+		"--fen", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+		"e5",
+	}, &bytes.Buffer{}, &stderr)
+	if code != 1 {
+		t.Fatalf("run() code = %d stderr = %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "move 1") || !strings.Contains(stderr.String(), "e5") {
+		t.Fatalf("stderr = %q, want indexed SAN error", stderr.String())
 	}
 }
