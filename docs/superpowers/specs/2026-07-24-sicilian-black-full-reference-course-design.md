@@ -1,6 +1,6 @@
 # Sicilian Defence for Black full-reference course design
 
-Status: approved in chat, implementation plan written
+Status: approved in chat and implemented as private v1.0.0 local course pack
 Date: 2026-07-24
 
 ## Goal
