@@ -1,6 +1,6 @@
 # Sicilian Defence for Black full-reference course design
 
-Status: approved architecture in chat, pending written-spec review
+Status: approved in chat, implementation plan written
 Date: 2026-07-24
 
 ## Goal
