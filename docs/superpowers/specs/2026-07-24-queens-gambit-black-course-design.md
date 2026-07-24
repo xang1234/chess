@@ -1,6 +1,6 @@
 # Queen's Gambit Defences for Black course design
 
-Status: approved in chat, pending written-spec review
+Status: approved in chat and implemented as private v1.0.0 local course pack
 Date: 2026-07-24
 
 ## Goal
