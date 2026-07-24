@@ -104,6 +104,7 @@ const whiteInventoryPath = '/Users/admin/Documents/Private Chess Courses/mco15-q
 const white = JSON.parse(fs.readFileSync(whiteInventoryPath, 'utf8'))
 const pages = white.inventory.pages ?? []
 const coverage = white.inventory.coverageRecords ?? []
+const printedPages = pages.map((page) => page.printedPage).filter((page) => page > 0)
 const summary = {
   sourcePdf: '/Users/admin/Downloads/kupdf.net_modern-chess-openings-15th-edition.pdf',
   reusedFrom: whiteInventoryPath,
@@ -111,8 +112,8 @@ const summary = {
   targetContentVersion: '1.0.0',
   pdfFirst: Math.min(...pages.map((page) => page.pdfPage)),
   pdfLastRendered: Math.max(...pages.map((page) => page.pdfPage)),
-  printedFirst: Math.min(...pages.map((page) => page.printedPage)),
-  printedLast: Math.max(...pages.map((page) => page.printedPage)),
+  printedFirst: Math.min(...printedPages),
+  printedLast: Math.max(...printedPages),
   excludedPdfPages: white.scope.excludedPdfPages ?? [],
   families: white.scope.families,
   coverageRecords: coverage.length,
