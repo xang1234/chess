@@ -1429,3 +1429,16 @@ Expected:
 
 - The commit contains only public docs.
 - The worktree is clean except ignored private or temporary files.
+
+## Implementation status
+
+- Private course pack: `/Users/admin/Documents/Private Chess Courses/mco15-french-black.ctcourse`
+- Private authoring file: `/Users/admin/Documents/Private Chess Courses/mco15-french-black.authoring.json`
+- Content version: `1.0.0`
+- Final validation: passed
+- Final private audit: passed
+- Disposable import smoke: passed
+- Default catalogue import: passed
+- Automated app verification: passed via real French app-service smoke plus Chromium/WebKit Playwright opening E2E
+- Manual live app verification: not performed (no claimable in-app browser tab or controllable Wails desktop session was available)
+- Implementation state: course content is implemented and automated verification passed; live manual Learn Openings acceptance remains outstanding until a claimable app/browser or controllable Wails session is available.
