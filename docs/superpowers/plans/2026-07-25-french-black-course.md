@@ -679,7 +679,7 @@ Expected:
 - `contentVersion` is `1.0.0`.
 - `counts.lessons` is `9`.
 - `counts.prompts` is at least `4`.
-- `diagnostics` is `[]`.
+- The validator command exits `0`; the `diagnostics` projection is `null` or `[]`, meaning there are no validation diagnostics.
 - `missing` is `0`.
 - `unexpected` is `0`.
 
@@ -786,7 +786,7 @@ Expected:
 - `counts.lessons` is `21`.
 - `counts.prompts` is at least `12`.
 - `counts.warnings` is `0`.
-- `diagnostics` is `[]`.
+- The validator command exits `0`; the `diagnostics` projection is `null` or `[]`, meaning there are no validation diagnostics.
 - `missing` is `0`.
 - `unexpected` is `0`.
 
@@ -882,7 +882,7 @@ Expected:
 - `counts.warnings` is `0`.
 - `missing` is `0`.
 - `unexpected` is `0`.
-- `diagnostics` is `[]`.
+- The validator command exits `0`; the `diagnostics` projection is `null` or `[]`, meaning there are no validation diagnostics.
 
 - [ ] **Step 4: Checkpoint Reference layer**
 
@@ -1056,7 +1056,7 @@ Expected:
 - `counts.warnings` is `0`.
 - `missing` is `0`.
 - `unexpected` is `0`.
-- `diagnostics` is `[]`.
+- The validator command exits `0`; the `diagnostics` projection is `null` or `[]`, meaning there are no validation diagnostics.
 
 - [ ] **Step 4: Checkpoint audited final pack**
 
