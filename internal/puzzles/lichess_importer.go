@@ -2,6 +2,7 @@ package puzzles
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -18,6 +19,8 @@ import (
 )
 
 var lichessZstandardMagic = [4]byte{0x28, 0xb5, 0x2f, 0xfd}
+
+const zstandardSkippableFrameMagic = 0x184d2a50
 
 var lichessColumns = []string{
 	"PuzzleId",
@@ -60,14 +63,11 @@ func (lichessAdapter) Inspect(
 	}
 	defer file.Close()
 
-	var magic [len(lichessZstandardMagic)]byte
-	if _, err := io.ReadFull(contextReader{ctx: ctx, reader: file}, magic[:]); err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			return importing.Inspection{}, false, nil
-		}
+	matchedZstandard, err := seekFirstZstandardFrame(ctx, file)
+	if err != nil {
 		return importing.Inspection{}, false, err
 	}
-	if magic != lichessZstandardMagic {
+	if !matchedZstandard {
 		return importing.Inspection{}, false, nil
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
@@ -91,6 +91,40 @@ func (lichessAdapter) Inspect(
 		SourceID:       "lichess",
 		SourceIDOrigin: SourceIDFixed,
 	}, true, nil
+}
+
+func seekFirstZstandardFrame(ctx context.Context, reader io.ReadSeeker) (bool, error) {
+	for {
+		var magic [len(lichessZstandardMagic)]byte
+		if _, err := io.ReadFull(contextReader{ctx: ctx, reader: reader}, magic[:]); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				return false, nil
+			}
+			return false, err
+		}
+		if magic == lichessZstandardMagic {
+			return true, nil
+		}
+		if !isZstandardSkippableFrameMagic(magic) {
+			return false, nil
+		}
+		var sizeBytes [4]byte
+		if _, err := io.ReadFull(contextReader{ctx: ctx, reader: reader}, sizeBytes[:]); err != nil {
+			return false, err
+		}
+		size := int64(binary.LittleEndian.Uint32(sizeBytes[:]))
+		if _, err := reader.Seek(size, io.SeekCurrent); err != nil {
+			return false, err
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+	}
+}
+
+func isZstandardSkippableFrameMagic(magic [4]byte) bool {
+	value := binary.LittleEndian.Uint32(magic[:])
+	return value&0xfffffff0 == zstandardSkippableFrameMagic
 }
 
 func (a lichessAdapter) NewDecoder(

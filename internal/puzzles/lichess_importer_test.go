@@ -94,6 +94,18 @@ func writeZstandardFixture(t *testing.T, contents string) string {
 	return path
 }
 
+func prependZstandardSkippableFrame(t *testing.T, path string) {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := []byte{0x50, 0x2a, 0x4d, 0x18, 0x04, 0x00, 0x00, 0x00, 0xc2, 0x8e, 0x8a, 0x00}
+	if err := os.WriteFile(path, append(prefix, contents...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newLichessCollectionImporter(
 	catalog CatalogWriter,
 	catalogDirectory string,
@@ -136,6 +148,26 @@ func TestLichessAdapterInspectsCompressedHeaderRegardlessOfFilename(t *testing.T
 	}
 	if adapter.Descriptor().Format != FormatLichess {
 		t.Fatalf("descriptor = %+v, want Lichess", adapter.Descriptor())
+	}
+	if inspection.SourceID != "lichess" || inspection.SourceIDOrigin != SourceIDFixed {
+		t.Fatalf("inspection source identity = %q/%q, want lichess/fixed", inspection.SourceID, inspection.SourceIDOrigin)
+	}
+}
+
+func TestLichessAdapterInspectsCompressedHeaderAfterSkippableFrame(t *testing.T) {
+	path := writeZstandardFixture(t, `PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags
+`)
+	prependZstandardSkippableFrame(t, path)
+
+	inspection, matched, err := NewLichessAdapter(chessrules.Rules{}).Inspect(
+		context.Background(),
+		path,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matched {
+		t.Fatal("Inspect() did not match a Lichess header after a zstd skippable frame")
 	}
 	if inspection.SourceID != "lichess" || inspection.SourceIDOrigin != SourceIDFixed {
 		t.Fatalf("inspection source identity = %q/%q, want lichess/fixed", inspection.SourceID, inspection.SourceIDOrigin)
