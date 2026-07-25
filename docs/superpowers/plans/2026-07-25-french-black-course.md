@@ -395,7 +395,7 @@ Expected:
 Create `/private/tmp/mco15-french-inventory-check.mjs` with this exact content:
 
 ```javascript
-const fs = require('fs')
+import fs from 'node:fs'
 
 const authoringPath = '/Users/admin/Documents/Private Chess Courses/mco15-french-black.authoring.json'
 const authoring = JSON.parse(fs.readFileSync(authoringPath, 'utf8'))
@@ -921,7 +921,7 @@ Expected: checkpoint files are present and private.
 Create `/private/tmp/mco15-french-course-audit.mjs` with this exact content:
 
 ```javascript
-const fs = require('fs')
+import fs from 'node:fs'
 
 const packPath = process.argv[2] || '/Users/admin/Documents/Private Chess Courses/mco15-french-black.ctcourse'
 const pack = JSON.parse(fs.readFileSync(packPath, 'utf8'))
