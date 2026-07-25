@@ -258,7 +258,7 @@ Run:
 
 ```bash
 node - <<'JS'
-const fs = require('fs')
+import fs from 'node:fs'
 const scope = JSON.parse(fs.readFileSync('/private/tmp/mco15-french-source-scope.json', 'utf8'))
 const teachingNodes = [
   { nodeId: 'foundations-why-e6-d5', title: 'Why ...e6 and ...d5', chapterId: 'foundations', minimumDepth: 'quick' },
