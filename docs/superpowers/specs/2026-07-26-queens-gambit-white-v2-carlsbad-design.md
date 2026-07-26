@@ -1,6 +1,6 @@
 # Queen's Gambit White v2 Carlsbad Deepening Design
 
-Status: draft for user review
+Status: approved for implementation planning
 Date: 2026-07-26
 
 ## Goal
