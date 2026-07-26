@@ -1,6 +1,6 @@
 # Sicilian White Open Course Design
 
-Status: approved in chat; awaiting written-spec review
+Status: approved for implementation planning
 Date: 2026-07-26
 
 ## Goal
