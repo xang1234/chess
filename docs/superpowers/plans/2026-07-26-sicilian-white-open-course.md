@@ -1789,3 +1789,16 @@ Expected:
 
 - The commit contains only public docs.
 - No private course artifacts are staged or committed.
+
+## Implementation status
+
+- Private course pack: `/Users/admin/Documents/Private Chess Courses/mco15-sicilian-white.ctcourse`
+- Private authoring file: `/Users/admin/Documents/Private Chess Courses/mco15-sicilian-white.authoring.json`
+- Content version: `1.0.0`
+- Final validation: passed
+- Final private audit: passed
+- Disposable import smoke: passed
+- Default catalogue import: passed
+- App-service journey smoke: passed
+- Automated app verification: passed via real Sicilian White app-service smoke plus Chromium/WebKit Playwright opening E2E
+- Manual live app verification: not performed; live visual Learn Openings acceptance remains outstanding
