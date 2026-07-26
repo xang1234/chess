@@ -258,7 +258,7 @@ Run:
 
 ```bash
 node - <<'JS'
-const fs = require('fs')
+import fs from 'node:fs'
 const scope = JSON.parse(fs.readFileSync('/private/tmp/mco15-french-source-scope.json', 'utf8'))
 const teachingNodes = [
   { nodeId: 'foundations-why-e6-d5', title: 'Why ...e6 and ...d5', chapterId: 'foundations', minimumDepth: 'quick' },
@@ -395,7 +395,7 @@ Expected:
 Create `/private/tmp/mco15-french-inventory-check.mjs` with this exact content:
 
 ```javascript
-const fs = require('fs')
+import fs from 'node:fs'
 
 const authoringPath = '/Users/admin/Documents/Private Chess Courses/mco15-french-black.authoring.json'
 const authoring = JSON.parse(fs.readFileSync(authoringPath, 'utf8'))
@@ -679,7 +679,7 @@ Expected:
 - `contentVersion` is `1.0.0`.
 - `counts.lessons` is `9`.
 - `counts.prompts` is at least `4`.
-- `diagnostics` is `[]`.
+- The validator command exits `0`; the `diagnostics` projection is `null` or `[]`, meaning there are no validation diagnostics.
 - `missing` is `0`.
 - `unexpected` is `0`.
 
@@ -786,7 +786,7 @@ Expected:
 - `counts.lessons` is `21`.
 - `counts.prompts` is at least `12`.
 - `counts.warnings` is `0`.
-- `diagnostics` is `[]`.
+- The validator command exits `0`; the `diagnostics` projection is `null` or `[]`, meaning there are no validation diagnostics.
 - `missing` is `0`.
 - `unexpected` is `0`.
 
@@ -882,7 +882,7 @@ Expected:
 - `counts.warnings` is `0`.
 - `missing` is `0`.
 - `unexpected` is `0`.
-- `diagnostics` is `[]`.
+- The validator command exits `0`; the `diagnostics` projection is `null` or `[]`, meaning there are no validation diagnostics.
 
 - [ ] **Step 4: Checkpoint Reference layer**
 
@@ -921,7 +921,7 @@ Expected: checkpoint files are present and private.
 Create `/private/tmp/mco15-french-course-audit.mjs` with this exact content:
 
 ```javascript
-const fs = require('fs')
+import fs from 'node:fs'
 
 const packPath = process.argv[2] || '/Users/admin/Documents/Private Chess Courses/mco15-french-black.ctcourse'
 const pack = JSON.parse(fs.readFileSync(packPath, 'utf8'))
@@ -1056,7 +1056,7 @@ Expected:
 - `counts.warnings` is `0`.
 - `missing` is `0`.
 - `unexpected` is `0`.
-- `diagnostics` is `[]`.
+- The validator command exits `0`; the `diagnostics` projection is `null` or `[]`, meaning there are no validation diagnostics.
 
 - [ ] **Step 4: Checkpoint audited final pack**
 
@@ -1429,3 +1429,16 @@ Expected:
 
 - The commit contains only public docs.
 - The worktree is clean except ignored private or temporary files.
+
+## Implementation status
+
+- Private course pack: `/Users/admin/Documents/Private Chess Courses/mco15-french-black.ctcourse`
+- Private authoring file: `/Users/admin/Documents/Private Chess Courses/mco15-french-black.authoring.json`
+- Content version: `1.0.0`
+- Final validation: passed
+- Final private audit: passed
+- Disposable import smoke: passed
+- Default catalogue import: passed
+- Automated app verification: passed via real French app-service smoke plus Chromium/WebKit Playwright opening E2E
+- Manual live app verification: not performed (no claimable in-app browser tab or controllable Wails desktop session was available)
+- Implementation state: course content is implemented and automated verification passed; live manual Learn Openings acceptance remains outstanding until a claimable app/browser or controllable Wails session is available.

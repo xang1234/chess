@@ -1,6 +1,6 @@
 # French Defence for Black full-reference course design
 
-Status: approved in chat, awaiting written-spec review
+Status: implemented; automated verification passed; live manual Learn Openings acceptance outstanding
 Date: 2026-07-25
 
 ## Goal
@@ -361,4 +361,3 @@ should prove generic behavior, not French-specific content:
 - No MCO-derived private course content is added to the repository.
 - Required validation, repository tests, and manual app checks pass before the
   implementation is considered complete.
-
