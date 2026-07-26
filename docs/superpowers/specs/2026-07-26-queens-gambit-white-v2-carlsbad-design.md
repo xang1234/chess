@@ -1,6 +1,6 @@
 # Queen's Gambit White v2 Carlsbad Deepening Design
 
-Status: approved for implementation planning
+Status: implemented; automated verification passed; live manual Learn Openings acceptance outstanding
 Date: 2026-07-26
 
 ## Goal

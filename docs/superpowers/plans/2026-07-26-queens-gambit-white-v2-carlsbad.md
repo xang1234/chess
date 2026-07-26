@@ -90,6 +90,7 @@ Private files outside Git:
 - Read: `/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.ctcourse`
 - Read: `/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.authoring.json`
 - Create: `/private/tmp/qgw-v2-source-scope.json`
+- Create: `/private/tmp/qgw-v2-current-validation.json`
 - Create: `/private/tmp/qgw-v2-current-pack-audit.json`
 - Create: `/Users/admin/Documents/Private Chess Courses/checkpoints/queens-gambit-white-v2-baseline/`
 
@@ -121,7 +122,8 @@ Run:
 go run ./cmd/coursepack validate \
   "/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.ctcourse" \
   > /private/tmp/qgw-v2-current-validation.json
-jq '{courseId,contentVersion,title,perspective,defaultDepth,counts,missing:(.coverage.missing|length),unexpected:(.coverage.unexpected|length),warnings:.counts.warnings}' \
+jq --slurpfile pack "/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.ctcourse" \
+  '{courseId,contentVersion,title:$pack[0].title,perspective:$pack[0].perspective,defaultDepth:$pack[0].defaultDepth,counts,missing:(.coverage.missing|length),unexpected:(.coverage.unexpected|length),warnings:.counts.warnings}' \
   /private/tmp/qgw-v2-current-validation.json
 ```
 
@@ -247,7 +249,7 @@ cp -p /private/tmp/qgw-v2-current-pack-audit.json "$CHECKPOINT/"
 cp -p /private/tmp/qgw-v2-source-scope.json "$CHECKPOINT/"
 (
   cd "$CHECKPOINT"
-  shasum -a 256 * > SHA256SUMS
+  find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 ```
@@ -368,7 +370,7 @@ const authoring = JSON.parse(fs.readFileSync(authoringPath, 'utf8'))
 const scope = JSON.parse(fs.readFileSync(scopePath, 'utf8'))
 const failures = []
 
-const teachingNodes = new Set((authoring.teachingNodes || []).map((node) => node.nodeId))
+const teachingNodes = new Set((authoring.teachingNodes || []).map((node) => node.nodeId || node.lessonId))
 const requiredNodeIds = [
   'carlsbad-recognize-structure',
   'carlsbad-choose-plan',
@@ -395,7 +397,11 @@ for (const chapterId of ['carlsbad-foundations', 'carlsbad-strategy', 'branch-re
 }
 
 const expected = new Set(scope.sourceCoverage.expectedReferences || [])
-const inventory = authoring.inventory || authoring.sourceInventory || []
+const inventory = Array.isArray(authoring.inventory)
+  ? authoring.inventory
+  : Array.isArray(authoring.inventory?.coverageRecords)
+    ? authoring.inventory.coverageRecords
+    : authoring.sourceInventory || []
 const captured = new Set()
 for (const record of inventory) {
   const coverageId = record.coverageId || record.sourceRef?.coverageId
@@ -465,7 +471,7 @@ cp -p /private/tmp/qgw-v2-source-scope.json "$CHECKPOINT/"
 cp -p /private/tmp/qgw-v2-inventory-check.json "$CHECKPOINT/"
 (
   cd "$CHECKPOINT"
-  shasum -a 256 * > SHA256SUMS
+  find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 ```
@@ -586,7 +592,7 @@ cp -p "/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.ct
 cp -p /private/tmp/qgw-v2-quick-validation.json "$CHECKPOINT/"
 (
   cd "$CHECKPOINT"
-  shasum -a 256 * > SHA256SUMS
+  find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 ```
@@ -724,7 +730,7 @@ cp -p "/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.ct
 cp -p /private/tmp/qgw-v2-standard-validation.json "$CHECKPOINT/"
 (
   cd "$CHECKPOINT"
-  shasum -a 256 * > SHA256SUMS
+  find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 ```
@@ -863,7 +869,7 @@ cp -p "/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.ct
 cp -p /private/tmp/qgw-v2-reference-validation.json "$CHECKPOINT/"
 (
   cd "$CHECKPOINT"
-  shasum -a 256 * > SHA256SUMS
+  find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 ```
@@ -986,7 +992,7 @@ node /private/tmp/qgw-v2-course-audit.mjs > /private/tmp/qgw-v2-final-audit.json
 go run ./cmd/coursepack validate \
   "/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.ctcourse" \
   > /private/tmp/qgw-v2-final-validation.json
-jq '{auditOk:input.ok, auditFailures:input.failures, validation:{courseId:.courseId,contentVersion:.contentVersion,counts:.counts,missing:(.coverage.missing|length),unexpected:(.coverage.unexpected|length),diagnostics}}' \
+jq -s '.[0] as $validation | .[1] as $audit | {auditOk:$audit.ok, auditFailures:$audit.failures, validation:{courseId:$validation.courseId,contentVersion:$validation.contentVersion,counts:$validation.counts,missing:($validation.coverage.missing|length),unexpected:($validation.coverage.unexpected|length),diagnostics:$validation.diagnostics}}' \
   /private/tmp/qgw-v2-final-validation.json /private/tmp/qgw-v2-final-audit.json
 ```
 
@@ -1532,7 +1538,7 @@ cp -p /private/tmp/qgw-v2-default-import.json "$CHECKPOINT/"
 cp -p /private/tmp/qgw-v2-service-smoke.json "$CHECKPOINT/"
 (
   cd "$CHECKPOINT"
-  shasum -a 256 * > SHA256SUMS
+  find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
   shasum -a 256 -c SHA256SUMS
 )
 ```
@@ -1596,3 +1602,16 @@ Expected:
 
 - The commit contains only public docs.
 - No private course artifacts are staged or committed.
+
+## Implementation status
+
+- Private course pack: `/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.ctcourse`
+- Private authoring file: `/Users/admin/Documents/Private Chess Courses/mco15-queens-gambit-white.authoring.json`
+- Content version: `2.0.0`
+- Final validation: passed
+- Final private audit: passed
+- Disposable import smoke: passed
+- Default catalogue import: passed
+- App-service journey smoke: passed
+- Automated app verification: passed via real Queen's Gambit app-service smoke plus Chromium/WebKit Playwright opening E2E
+- Manual live app verification: not performed; app-service journey smoke and Chromium/WebKit opening E2E passed
