@@ -15,12 +15,13 @@ import type {
   WirePuzzle,
   WireSession
 } from './test-backend-types'
+import { openingBackendFixtures } from './test-backend-opening-fixtures'
 
 export async function installTestBackend(
   page: Page,
   scenario: TestBackendScenario
 ): Promise<void> {
-  await page.addInitScript((configured: TestBackendScenario) => {
+  await page.addInitScript(({ configured, openingFixtures }) => {
     const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
     const listeners: Record<string, Array<(payload: unknown) => void>> = {}
     const state = {
@@ -469,28 +470,11 @@ export async function installTestBackend(
     })
 
     if (configured.kind === 'openings') {
-      const initialFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
-      const promptFen = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4'
-      const afterC3Fen = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
-      const watchFrames = [
-        { uci: 'e2e4', resultingFen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1' },
-        { uci: 'e7e5', resultingFen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2' },
-        { uci: 'g1f3', resultingFen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2' },
-        { uci: 'b8c6', resultingFen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3' },
-        { uci: 'f1c4', resultingFen: 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3' },
-        { uci: 'f8c5', resultingFen: promptFen }
-      ]
-      const courseChooserPath = '/Users/family/Documents/synthetic-italian.ctcourse'
-      const courseInspection = {
-        path: courseChooserPath,
-        filename: 'synthetic-italian.ctcourse',
-        format: 'coursepack',
-        formatLabel: 'Opening course',
-        sourceId: 'synthetic-italian',
-        sourceIdOrigin: 'embedded',
-        sourceName: 'Synthetic Italian for White',
-        replacesExisting: false
-      } as const
+      const {
+        initialFen, promptFen, afterC3Fen,
+        courseChooserPath, courseInspection
+      } = openingFixtures
+      const watchFrames = openingFixtures.watchFrames.map((frame) => ({ ...frame }))
       let selectedCourse = ''
       let courseImported = false
       const completedLessonIds = new Set<string>()
@@ -548,14 +532,9 @@ export async function installTestBackend(
         }
       }
 
-      const referenceSections = () => openingDepth === 'reference' ? [{
-        activityId: 'giuoco-reference',
-        title: 'Why c3 is flexible',
-        instruction: 'Compare the immediate centre occupation with the quieter setup.',
-        positionId: 'after-bc5',
-        noteTexts: ['Reference analysis: c3 supports d4 while preserving the active bishop.'],
-        annotations: [{ kind: 'arrow', from: 'c2', to: 'c3' }]
-      }] : []
+      const referenceSections = () => openingDepth === 'reference'
+        ? [clone(openingFixtures.referenceSection)]
+        : []
       const lessonActivities = (lessonId: string): WireOpeningActivity[] => {
         if (lessonId === 'giuoco-d3') {
           return [{
@@ -577,8 +556,8 @@ export async function installTestBackend(
           required: true,
           referenceNoteTexts: [] as string[],
           comparison: [],
-          movesToHere: [],
-          movesToHereSan: [],
+          movesToHere: watchFrames,
+          movesToHereSan: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5'],
           activityTotal: 3,
           requiredIdeas: 3,
           hintLevel: openingHintLevel,
@@ -608,11 +587,18 @@ export async function installTestBackend(
             annotations: [], referenceSections: [], activityNumber: 2, completedIdeas: 1
           },
           {
-            ...common, activityId: 'giuoco-recap', kind: 'recap', title: 'Keep the plan',
-            instruction: 'Develop, prepare d4, then choose the right moment to occupy the centre.',
+            ...common,
+            activityId: 'giuoco-comparison',
+            kind: 'comparison',
+            title: "Compare Black's setups",
+            instruction: 'Play both replies and notice where Black develops.',
+            variationName: 'Giuoco Piano',
             positionId: 'after-c3', currentFen: afterC3Fen, legalMoves: [],
-            teachingNoteTexts: ['You learned the purpose of c3; you do not need to replay it again here.'],
-            annotations: [{ kind: 'square', from: 'd4' }], referenceSections: [],
+            teachingNoteTexts: ['Compare a solid pawn move with quick piece development.'],
+            comparison: clone(openingFixtures.comparisonLines),
+            movesToHere: [...watchFrames, { uci: 'c2c3', resultingFen: afterC3Fen }],
+            movesToHereSan: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'c3'],
+            annotations: [], referenceSections: [],
             activityNumber: 3, completedIdeas: 2
           }
         ]
@@ -989,5 +975,5 @@ export async function installTestBackend(
         }
       })
     }
-  }, scenario)
+  }, { configured: scenario, openingFixtures: openingBackendFixtures })
 }

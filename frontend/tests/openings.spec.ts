@@ -77,21 +77,37 @@ test('learns a private two-node teaching tree and preserves the journey', async 
   await page.getByText('Deeper analysis', { exact: true }).click()
   await expect(referenceText).toBeVisible()
 
-  await page.getByRole('button', { name: 'Continue' }).click()
-  await page.getByRole('button', { name: 'Continue' }).click()
+  const host = page.locator('.chessground-host')
+  await host.evaluate((element) => {
+    element.setAttribute('data-continuity-probe', 'kept')
+  })
+  await page.getByRole('button', { name: 'Got it' }).click()
   await expect(page.getByRole('heading', { name: 'Choose the preparation' })).toBeVisible()
+  await expect(page.locator('.chessground-host'))
+    .toHaveAttribute('data-continuity-probe', 'kept')
   await expect.poll(() => page.getByRole('region', {
     name: 'Opening lesson details'
   }).evaluate((element) => element.scrollTop)).toBe(0)
 
   const c3Board = chessgroundBoard(page)
   await mouseClickMove(page, c3Board, 'c2', 'c3', 'white')
-  await page.getByRole('button', { name: 'Continue' }).click()
-  await expect(page.getByRole('heading', { name: 'Keep the plan' })).toBeVisible()
-  await expect(page.getByText('You learned the purpose of c3; you do not need to replay it again here.')).toBeVisible()
+  await page.getByRole('button', { name: 'Next idea' }).click()
+  await expect(page.getByRole('heading', { name: "Compare Black's setups" })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Moves to this position' }))
+    .toContainText('1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3')
 
-  await page.getByRole('button', { name: 'Continue' }).click()
-  await page.getByRole('button', { name: 'Continue' }).click()
+  const solidSetup = page.getByRole('button', { name: 'Play Solid setup: d6' })
+  await solidSetup.click()
+  await expect(solidSetup).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Reset position' }).click()
+
+  const quickDevelopment = page.getByRole('button', {
+    name: 'Play Quick development: Nf6'
+  })
+  await quickDevelopment.click()
+  await expect(quickDevelopment).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Done comparing' }).click()
+  await page.getByRole('button', { name: 'Next idea' }).click()
   await expect(page.getByRole('heading', { name: 'Prepare d4 with c3 complete' })).toBeVisible()
   await expect(page.getByText('1 of 2 lessons complete')).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Opening course path' })).toContainText('Prepare d4 with c3')
@@ -121,7 +137,7 @@ test('learns a private two-node teaching tree and preserves the journey', async 
 
   const d3Board = chessgroundBoard(page)
   await mouseClickMove(page, d3Board, 'd2', 'd3', 'white')
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: 'Next idea' }).click()
   await expect(page.getByRole('heading', { name: 'Choose the quiet d3 setup complete' })).toBeVisible()
   await expect(page.getByText('2 of 2 lessons complete')).toBeVisible()
   await page.getByRole('button', { name: 'View course tree' }).click()
@@ -131,7 +147,7 @@ test('learns a private two-node teaching tree and preserves the journey', async 
   await expect(page.getByRole('heading', { name: 'Review the Giuoco Piano' })).toBeVisible()
   const reviewBoard = chessgroundBoard(page)
   await mouseClickMove(page, reviewBoard, 'c2', 'c3', 'white')
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: 'Next idea' }).click()
   await expect(page.getByRole('heading', { name: 'Opening review complete!' })).toBeVisible()
   await expect(page.getByText('1 position recalled')).toBeVisible()
   await page.getByRole('button', { name: 'Back to course' }).click()

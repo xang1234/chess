@@ -279,7 +279,7 @@ test('continues from a lesson checkpoint directly into the recommended branch', 
   await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
   await fireEvent.click(await screen.findByRole('button', {
     name: 'Continue to Occupy the centre with d4'
   }))
@@ -320,7 +320,7 @@ test('refreshes opening progress when Stop for now leaves a checkpoint', async (
   await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Stop for now' }))
 
   await waitFor(() => expect(getOpeningHome).toHaveBeenCalledTimes(3))
@@ -448,7 +448,7 @@ test('keeps the persisted next opening step resumable when Home leaves its solve
 
 test('finishing an opening lesson does not clear an active puzzle session', async () => {
   await openAndRevealOpening(completedOpening(), guidedPuzzle())
-  expect(await screen.findByRole('button', { name: 'Continue' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'Next idea' })).toBeInTheDocument()
 
   await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
 
