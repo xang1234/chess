@@ -336,6 +336,47 @@ test('opening activity decoder rejects route SAN with a different length', () =>
   })).toThrow('movesToHereSan must align with movesToHere')
 })
 
+test('opening decoder keeps authoritative comparison frames', () => {
+  const comparison = [{
+    label: 'Active centre',
+    moves: ['c3', 'd4'],
+    frames: [
+      { uci: 'c2c3', resultingFen: 'after-c3' },
+      { uci: 'd2d4', resultingFen: 'after-d4' }
+    ]
+  }]
+  expect(decodeOpeningSession({
+    ...activeOpeningPayload,
+    current: { ...openingStepPayload, kind: 'comparison', comparison }
+  })).toMatchObject({ current: { comparison } })
+})
+
+test('opening decoder rejects mismatched comparison frames', () => {
+  expect(() => decodeOpeningSession({
+    ...activeOpeningPayload,
+    current: {
+      ...openingStepPayload,
+      kind: 'comparison',
+      comparison: [{
+        label: 'Mismatch',
+        moves: ['c3', 'd4'],
+        frames: [{ uci: 'c2c3', resultingFen: 'after-c3' }]
+      }]
+    }
+  })).toThrow('frames must align with moves')
+})
+
+test('opening decoder requires authoritative comparison frames', () => {
+  expect(() => decodeOpeningSession({
+    ...activeOpeningPayload,
+    current: {
+      ...openingStepPayload,
+      kind: 'comparison',
+      comparison: [{ label: 'Missing', moves: ['c3'], frames: [] }]
+    }
+  })).toThrow('authoritative move frames')
+})
+
 test('opening home decoder rejects invalid node progress', () => {
   const course = openingHomePayload.courses[0]
   expect(() => decodeOpeningHome({

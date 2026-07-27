@@ -306,13 +306,17 @@ func (s *Service) buildActivityView(
 	if err != nil {
 		return OpeningActivityView{}, err
 	}
+	comparison, err := s.activityComparisonLines(course, position.FEN, activity.Comparison)
+	if err != nil {
+		return OpeningActivityView{}, err
+	}
 	view := OpeningActivityView{
 		ActivityID: activity.ActivityID, Kind: activity.Kind, Title: activity.Title,
 		Instruction: activity.Instruction, Required: activity.Required, PositionID: positionID,
 		CurrentFEN: session.State.Position.CurrentFEN, Orientation: course.Pack.Perspective,
 		LegalMoves: []string{}, TeachingNoteTexts: teachingNotes,
 		ReferenceNoteTexts: s.activityReferenceNoteTexts(course, activity, teachingNotes),
-		Comparison:         activityComparisonLines(course, activity.Comparison),
+		Comparison:         comparison,
 		Annotations:        append([]BoardAnnotation{}, activity.Annotations...),
 		MovesToHere:        route.Frames, MovesToHereSAN: route.SAN,
 		VariationName:  route.VariationName,
@@ -343,7 +347,11 @@ func (s *Service) buildActivityView(
 	return view, nil
 }
 
-func activityComparisonLines(course CompiledCourse, lines []ActivityLine) []OpeningActivityLine {
+func (s *Service) activityComparisonLines(
+	course CompiledCourse,
+	startingFEN string,
+	lines []ActivityLine,
+) ([]OpeningActivityLine, error) {
 	result := make([]OpeningActivityLine, 0, len(lines))
 	for _, line := range lines {
 		moves := make([]string, 0, len(line.MoveIDs))
@@ -352,9 +360,15 @@ func activityComparisonLines(course CompiledCourse, lines []ActivityLine) []Open
 				moves = append(moves, move.SAN)
 			}
 		}
-		result = append(result, OpeningActivityLine{Label: line.Label, Moves: moves})
+		frames, _, err := s.applyMoveIDs(course, startingFEN, line.MoveIDs)
+		if err != nil {
+			return nil, fmt.Errorf("build comparison %q: %w", line.Label, err)
+		}
+		result = append(result, OpeningActivityLine{
+			Label: line.Label, Moves: moves, Frames: frames,
+		})
 	}
-	return result
+	return result, nil
 }
 
 func referenceSections(course CompiledCourse, lesson Lesson) []OpeningReferenceSection {

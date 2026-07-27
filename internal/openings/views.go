@@ -110,8 +110,9 @@ type OpeningSessionView struct {
 }
 
 type OpeningActivityLine struct {
-	Label string   `json:"label"`
-	Moves []string `json:"moves"`
+	Label  string               `json:"label"`
+	Moves  []string             `json:"moves"`
+	Frames []domain.AppliedMove `json:"frames"`
 }
 
 type OpeningActivityView struct {

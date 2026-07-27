@@ -3,6 +3,7 @@ package openings
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -177,20 +178,39 @@ func TestOpeningServiceExposesOptionalReferenceOutsideRequiredCursor(t *testing.
 	}
 }
 
-func TestActivityComparisonLinesUseSANInsteadOfInternalMoveIDs(t *testing.T) {
+func TestActivityComparisonLinesReturnAlignedSANAndFrames(t *testing.T) {
 	course, err := Compile(decodeTreePack(t), chessrules.Rules{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	service := &Service{rules: chessrules.Rules{}}
 
-	lines := activityComparisonLines(course, []ActivityLine{{
+	lines, err := service.activityComparisonLines(course, course.Pack.RootFEN, []ActivityLine{{
 		Label:   "Develop the Italian",
 		MoveIDs: []string{"white-e4", "black-e5", "white-nf3"},
 	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 ||
+		!reflect.DeepEqual(lines[0].Moves, []string{"e4", "e5", "Nf3"}) ||
+		len(lines[0].Frames) != 3 || lines[0].Frames[2].UCI != "g1f3" {
+		t.Fatalf("comparison lines=%+v", lines)
+	}
+}
 
-	want := []OpeningActivityLine{{Label: "Develop the Italian", Moves: []string{"e4", "e5", "Nf3"}}}
-	if !reflect.DeepEqual(lines, want) {
-		t.Fatalf("comparison lines = %#v, want %#v", lines, want)
+func TestActivityComparisonLinesIncludeLabelInFrameError(t *testing.T) {
+	course, err := Compile(decodeTreePack(t), chessrules.Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{rules: chessrules.Rules{}}
+
+	_, err = service.activityComparisonLines(course, "not-a-fen", []ActivityLine{{
+		Label: "Broken line", MoveIDs: []string{"white-e4"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "Broken line") {
+		t.Fatalf("comparison error=%v", err)
 	}
 }
 

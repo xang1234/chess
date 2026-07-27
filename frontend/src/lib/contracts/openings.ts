@@ -90,7 +90,11 @@ export type OpeningCourseSummary = {
 
 export type OpeningHomeView = { notice?: string; courses: OpeningCourseSummary[] }
 
-export type OpeningActivityLine = { label: string; moves: string[] }
+export type OpeningActivityLine = {
+  label: string
+  moves: string[]
+  frames: AppliedMoveFrames
+}
 export type OpeningBoardAnnotation = {
   kind: 'square' | 'arrow'
   from: string
@@ -325,6 +329,20 @@ function decodeReferenceSection(value: unknown, path: string): OpeningReferenceS
   }
 }
 
+function decodeComparisonLine(value: unknown, path: string): OpeningActivityLine {
+  const raw = record(value, path)
+  const moves = array(raw.moves, `${path}.moves`, string)
+  const frames = decodeFrames(raw.frames, `${path}.frames`)
+  if (moves.length !== frames.length) {
+    throw new Error(`${path}.frames must align with moves`)
+  }
+  return {
+    label: string(raw.label, `${path}.label`),
+    moves,
+    frames
+  }
+}
+
 function decodeOpeningActivity(value: unknown, path: string): OpeningActivityView {
   const raw = record(value, path)
   const activityNumber = positiveInteger(raw.activityNumber, `${path}.activityNumber`)
@@ -355,13 +373,7 @@ function decodeOpeningActivity(value: unknown, path: string): OpeningActivityVie
     legalMoves: array(raw.legalMoves, `${path}.legalMoves`, string),
     teachingNoteTexts: array(raw.teachingNoteTexts, `${path}.teachingNoteTexts`, string),
     referenceNoteTexts: array(raw.referenceNoteTexts, `${path}.referenceNoteTexts`, string),
-    comparison: array(raw.comparison, `${path}.comparison`, (entry, entryPath) => {
-      const line = record(entry, entryPath)
-      return {
-        label: string(line.label, `${entryPath}.label`),
-        moves: array(line.moves, `${entryPath}.moves`, string)
-      }
-    }),
+    comparison: array(raw.comparison, `${path}.comparison`, decodeComparisonLine),
     annotations: array(raw.annotations, `${path}.annotations`, decodeAnnotation),
     movesToHere,
     movesToHereSan,
