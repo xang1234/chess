@@ -34,6 +34,17 @@ func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
 	if !reflect.DeepEqual(movesToHere, []string{"e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5"}) {
 		t.Fatalf("moves to here=%v", movesToHere)
 	}
+	if !reflect.DeepEqual(started.Current.MovesToHereSAN,
+		[]string{"e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5"}) {
+		t.Fatalf("moves to here SAN=%v", started.Current.MovesToHereSAN)
+	}
+	if len(started.Current.MovesToHere) != len(started.Current.MovesToHereSAN) {
+		t.Fatalf("route frames=%d SAN=%d",
+			len(started.Current.MovesToHere), len(started.Current.MovesToHereSAN))
+	}
+	if started.Current.VariationName == "" {
+		t.Fatalf("passive variation name is empty: %+v", started.Current)
+	}
 	concept, err := fixture.service.AdvanceActivity(ctx, started.SessionID)
 	if err != nil || concept.Session.Current == nil || concept.Session.Current.Kind != ActivityDecision {
 		t.Fatalf("concept=%+v err=%v", concept, err)
@@ -66,6 +77,22 @@ func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
 	if err != nil || journey.CurrentLessonID != "giuoco-plan" ||
 		!reflect.DeepEqual(journey.PathLessonIDs, []string{"giuoco-plan"}) {
 		t.Fatalf("journey=%+v err=%v", journey, err)
+	}
+}
+
+func TestOpeningServiceRootActivityRoute(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	route, err := fixture.service.routeToPosition(
+		fixture.compiled,
+		fixture.compiled.Pack.RootPositionID,
+		DepthReference,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.Frames == nil || route.SAN == nil ||
+		len(route.Frames) != 0 || len(route.SAN) != 0 {
+		t.Fatalf("root route=%+v", route)
 	}
 }
 

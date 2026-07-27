@@ -302,7 +302,7 @@ func (s *Service) buildActivityView(
 		return OpeningActivityView{}, fmt.Errorf("opening position %q is unavailable", positionID)
 	}
 	teachingNotes := noteTextsForIDs(course, activity.NoteIDs, nil)
-	movesToHere, err := s.movesToPosition(course, positionID, session.Depth)
+	route, err := s.routeToPosition(course, positionID, session.Depth)
 	if err != nil {
 		return OpeningActivityView{}, err
 	}
@@ -314,7 +314,9 @@ func (s *Service) buildActivityView(
 		ReferenceNoteTexts: s.activityReferenceNoteTexts(course, activity, teachingNotes),
 		Comparison:         activityComparisonLines(course, activity.Comparison),
 		Annotations:        append([]BoardAnnotation{}, activity.Annotations...),
-		MovesToHere:        movesToHere, ActivityNumber: number, ActivityTotal: total,
+		MovesToHere:        route.Frames, MovesToHereSAN: route.SAN,
+		VariationName:  route.VariationName,
+		ActivityNumber: number, ActivityTotal: total,
 		CompletedIdeas: completed, RequiredIdeas: total,
 		ReferenceSections: referenceSections(course, lesson),
 	}
@@ -328,12 +330,14 @@ func (s *Service) buildActivityView(
 	if activity.PromptID != "" {
 		prompt := course.Prompts[activity.PromptID]
 		primary := course.Moves[prompt.PrimaryMoveID]
-		view.VariationName = primary.VariationName
+		if view.VariationName == "" {
+			view.VariationName = primary.VariationName
+		}
 		view.LegalMoves, err = s.rules.LegalMoves(view.CurrentFEN)
 		if err != nil {
 			return OpeningActivityView{}, fmt.Errorf("list opening moves: %w", err)
 		}
-	} else if len(activity.MoveIDs) != 0 {
+	} else if view.VariationName == "" && len(activity.MoveIDs) != 0 {
 		view.VariationName = course.Moves[activity.MoveIDs[len(activity.MoveIDs)-1]].VariationName
 	}
 	return view, nil
@@ -368,13 +372,41 @@ func referenceSections(course CompiledCourse, lesson Lesson) []OpeningReferenceS
 	return sections
 }
 
-func (s *Service) movesToPosition(
+type activityRoute struct {
+	Frames        []domain.AppliedMove
+	SAN           []string
+	VariationName string
+}
+
+func (s *Service) activityRouteForMoveIDs(
+	course CompiledCourse,
+	moveIDs []string,
+) (activityRoute, error) {
+	frames, _, err := s.applyMoveIDs(course, course.Pack.RootFEN, moveIDs)
+	if err != nil {
+		return activityRoute{}, err
+	}
+	san := make([]string, 0, len(moveIDs))
+	var variationName string
+	for _, moveID := range moveIDs {
+		move := course.Moves[moveID]
+		san = append(san, move.SAN)
+		if move.VariationName != "" {
+			variationName = move.VariationName
+		}
+	}
+	return activityRoute{
+		Frames: frames, SAN: san, VariationName: variationName,
+	}, nil
+}
+
+func (s *Service) routeToPosition(
 	course CompiledCourse,
 	targetPositionID string,
 	depth Depth,
-) ([]domain.AppliedMove, error) {
+) (activityRoute, error) {
 	if targetPositionID == course.Pack.RootPositionID {
-		return []domain.AppliedMove{}, nil
+		return activityRoute{Frames: []domain.AppliedMove{}, SAN: []string{}}, nil
 	}
 	type route struct {
 		positionID string
@@ -392,12 +424,13 @@ func (s *Service) movesToPosition(
 			}
 			path := append(append([]string{}, current.moveIDs...), moveID)
 			if move.ToPositionID == targetPositionID {
-				frames, _, err := s.applyMoveIDs(course, course.Pack.RootFEN, path)
-				return frames, err
+				return s.activityRouteForMoveIDs(course, path)
 			}
 			visited[move.ToPositionID] = true
 			queue = append(queue, route{positionID: move.ToPositionID, moveIDs: path})
 		}
 	}
-	return nil, fmt.Errorf("opening position %q is unreachable at %s depth", targetPositionID, depth)
+	return activityRoute{}, fmt.Errorf(
+		"opening position %q is unreachable at %s depth", targetPositionID, depth,
+	)
 }

@@ -130,6 +130,7 @@ type OpeningActivityView struct {
 	Comparison         []OpeningActivityLine     `json:"comparison"`
 	Annotations        []BoardAnnotation         `json:"annotations"`
 	MovesToHere        []domain.AppliedMove      `json:"movesToHere"`
+	MovesToHereSAN     []string                  `json:"movesToHereSan"`
 	ActivityNumber     int                       `json:"activityNumber"`
 	ActivityTotal      int                       `json:"activityTotal"`
 	CompletedIdeas     int                       `json:"completedIdeas"`

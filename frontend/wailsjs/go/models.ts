@@ -698,6 +698,7 @@ export namespace openings {
 	    comparison: OpeningActivityLine[];
 	    annotations: BoardAnnotation[];
 	    movesToHere: domain.AppliedMove[];
+	    movesToHereSan: string[];
 	    activityNumber: number;
 	    activityTotal: number;
 	    completedIdeas: number;
@@ -727,6 +728,7 @@ export namespace openings {
 	        this.comparison = this.convertValues(source["comparison"], OpeningActivityLine);
 	        this.annotations = this.convertValues(source["annotations"], BoardAnnotation);
 	        this.movesToHere = this.convertValues(source["movesToHere"], domain.AppliedMove);
+	        this.movesToHereSan = source["movesToHereSan"];
 	        this.activityNumber = source["activityNumber"];
 	        this.activityTotal = source["activityTotal"];
 	        this.completedIdeas = source["completedIdeas"];

@@ -123,6 +123,7 @@ export type OpeningActivityView = {
   comparison: OpeningActivityLine[]
   annotations: OpeningBoardAnnotation[]
   movesToHere: AppliedMoveFrames | []
+  movesToHereSan: string[]
   activityNumber: number
   activityTotal: number
   completedIdeas: number
@@ -336,6 +337,11 @@ function decodeOpeningActivity(value: unknown, path: string): OpeningActivityVie
   if (completedIdeas > requiredIdeas) {
     throw new Error(`${path}.completedIdeas must not exceed requiredIdeas`)
   }
+  const movesToHere = decodeFramesAllowEmpty(raw.movesToHere, `${path}.movesToHere`)
+  const movesToHereSan = array(raw.movesToHereSan, `${path}.movesToHereSan`, string)
+  if (movesToHere.length !== movesToHereSan.length) {
+    throw new Error(`${path}.movesToHereSan must align with movesToHere`)
+  }
   return {
     activityId: string(raw.activityId, `${path}.activityId`),
     kind: enumeration(raw.kind, activityKinds, `${path}.kind`),
@@ -357,7 +363,8 @@ function decodeOpeningActivity(value: unknown, path: string): OpeningActivityVie
       }
     }),
     annotations: array(raw.annotations, `${path}.annotations`, decodeAnnotation),
-    movesToHere: decodeFramesAllowEmpty(raw.movesToHere, `${path}.movesToHere`),
+    movesToHere,
+    movesToHereSan,
     activityNumber,
     activityTotal,
     completedIdeas,

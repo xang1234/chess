@@ -120,6 +120,7 @@ export const fakeOpeningSession: ActiveOpeningSessionView = {
     comparison: [],
     annotations: [],
     movesToHere: [],
+    movesToHereSan: [],
     activityNumber: 1,
     activityTotal: 3,
     completedIdeas: 0,

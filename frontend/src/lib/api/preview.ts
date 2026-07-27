@@ -145,7 +145,8 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningAc
       positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
       orientation: 'white', legalMoves: ['b2b4', 'c2c3', 'd2d3'], teachingNoteTexts: [],
       referenceNoteTexts: ['The quiet c3 move supports a later d4.'],
-      comparison: [], annotations: [], movesToHere: [], completedIdeas: 0, requiredIdeas: 1,
+      comparison: [], annotations: [], movesToHere: [], movesToHereSan: [],
+      completedIdeas: 0, requiredIdeas: 1,
       referenceSections: [],
       activityNumber: 1, activityTotal: 1, hintLevel: previewOpeningHintLevel,
       canReveal: previewOpeningHintLevel >= 4
@@ -159,6 +160,7 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningAc
     comparison: [],
     annotations: [],
     movesToHere: [] as [],
+    movesToHereSan: [] as string[],
     activityTotal: 3,
     completedIdeas: index,
     requiredIdeas: 3,
@@ -179,7 +181,8 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningAc
       instruction: 'Watch both sides develop toward the Italian Game.',
       variationName: 'Giuoco Piano', positionId: 'initial', currentFen: previewOpeningFens.initial,
       legalMoves: [], activityNumber: 2,
-      movesToHere: [{ uci: 'e2e4', resultingFen: previewOpeningFens.prompt }]
+      movesToHere: [{ uci: 'e2e4', resultingFen: previewOpeningFens.prompt }],
+      movesToHereSan: ['e4']
     },
     {
       ...common, activityId: 'try-c3', kind: 'decision', title: 'Prepare the centre',

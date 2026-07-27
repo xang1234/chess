@@ -130,6 +130,7 @@ const openingStepPayload = {
   comparison: [],
   annotations: [{ kind: 'square', from: 'd4', label: 'central break' }],
   movesToHere: [],
+  movesToHereSan: [],
   activityNumber: 3,
   activityTotal: 5,
   completedIdeas: 2,
@@ -312,6 +313,27 @@ test.each([
   [{ ...openingStepPayload, referenceNoteTexts: undefined }, 'referenceNoteTexts']
 ])('opening step decoder rejects malformed exact fields', (current, message) => {
   expect(() => decodeOpeningSession({ ...activeOpeningPayload, current })).toThrow(message)
+})
+
+test('opening activity decoder keeps aligned route SAN', () => {
+  const current = {
+    ...openingStepPayload,
+    movesToHere: [
+      { uci: 'e2e4', resultingFen: 'after-e4' },
+      { uci: 'e7e5', resultingFen: 'after-e5' }
+    ],
+    movesToHereSan: ['e4', 'e5']
+  }
+  expect(decodeOpeningSession({ ...activeOpeningPayload, current })).toMatchObject({
+    current: { movesToHereSan: ['e4', 'e5'] }
+  })
+})
+
+test('opening activity decoder rejects route SAN with a different length', () => {
+  expect(() => decodeOpeningSession({
+    ...activeOpeningPayload,
+    current: { ...openingStepPayload, movesToHereSan: ['e4'] }
+  })).toThrow('movesToHereSan must align with movesToHere')
 })
 
 test('opening home decoder rejects invalid node progress', () => {

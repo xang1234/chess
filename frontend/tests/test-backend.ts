@@ -566,6 +566,7 @@ export async function installTestBackend(
             legalMoves: ['c2c3', 'd2d3'], teachingNoteTexts: ['Use d3 when you want to develop before opening the centre.'],
             referenceNoteTexts: [], comparison: [],
             annotations: [{ kind: 'square', from: 'd3' }], movesToHere: [],
+            movesToHereSan: [],
             completedIdeas: 0, requiredIdeas: 1, referenceSections: [],
             activityNumber: 1, activityTotal: 1, hintLevel: openingHintLevel,
             canReveal: openingHintLevel >= 4
@@ -577,6 +578,7 @@ export async function installTestBackend(
           referenceNoteTexts: [] as string[],
           comparison: [],
           movesToHere: [],
+          movesToHereSan: [],
           activityTotal: 3,
           requiredIdeas: 3,
           hintLevel: openingHintLevel,
@@ -628,7 +630,8 @@ export async function installTestBackend(
             positionId: 'after-bc5', currentFen: promptFen, orientation: 'white',
             legalMoves: ['b2b4', 'c2c3', 'd2d3'], teachingNoteTexts: [],
             referenceNoteTexts: ['The quiet c3 move supports a later d4.'],
-            comparison: [], annotations: [], movesToHere: [], completedIdeas: 0,
+            comparison: [], annotations: [], movesToHere: [], movesToHereSan: [],
+            completedIdeas: 0,
             requiredIdeas: 1, referenceSections: [], activityNumber: 1,
             activityTotal: 1, hintLevel: openingHintLevel, canReveal: openingHintLevel >= 4
           }
