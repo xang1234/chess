@@ -82,7 +82,7 @@ function boardHarness() {
   return { callbacks, factory, interactions, positions }
 }
 
-test('renders a board-first teaching step and defers the next step until Continue', async () => {
+test('renders a board-first teaching step and advances it with one purposeful action', async () => {
   const explain = active('concept', {
     title: 'The central plan',
     instruction: 'Prepare d4 without blocking the bishop.',
@@ -114,16 +114,26 @@ test('renders a board-first teaching step and defers the next step until Continu
   expect(screen.getByRole('grid', { name: 'Chess board, white side' }))
     .toHaveAttribute('aria-disabled', 'true')
 
-  await fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-  expect(await screen.findByText('Plan understood.')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'The central plan' })).toBeInTheDocument()
-  expect(changes).toEqual([])
-
-  await fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
 
   expect(await screen.findByRole('heading', { name: 'Watch c3' })).toBeInTheDocument()
   expect(changes).toEqual([watch])
+})
+
+test.each([
+  ['concept', 'Got it'],
+  ['recap', 'Got it'],
+  ['comparison', 'Done comparing'],
+  ['demonstration', 'Play the line']
+] as const)('labels the %s action as %s', async (kind, label) => {
+  const rendered = render(OpeningLessonScreen, {
+    session: active(kind),
+    effects: effects(),
+    boardAdapterFactory: boardHarness().factory
+  }, withNormalAPI(fakeAPI()))
+
+  expect(await screen.findByRole('button', { name: label })).toBeInTheDocument()
+  rendered.unmount()
 })
 
 test('keeps actions outside the activity-scoped lesson details region', async () => {
@@ -166,12 +176,12 @@ test('shows Retry when saving a passive idea fails', async () => {
     boardAdapterFactory: boardHarness().factory
   }, withNormalAPI(fakeAPI({ advanceOpeningActivity })))
 
-  await fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
   expect(await screen.findByText('Could not save idea progress.')).toBeInTheDocument()
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
   expect(advanceOpeningActivity).toHaveBeenCalledTimes(2)
-  expect(await screen.findByText('Idea complete.')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Keep the plan' })).toBeInTheDocument()
 })
 
 test('keeps detailed reference notes collapsed until the learner opens them', async () => {
@@ -292,7 +302,7 @@ test('continues a completed lesson through the roadmap checkpoint without return
   await waitFor(() => expect(board.callbacks).toHaveLength(1))
 
   board.callbacks[0].onRoute('c2', 'c3')
-  await fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
   expect(await screen.findByRole('heading', { name: 'Prepare d4 with c3 complete' }))
     .toBeInTheDocument()
   await fireEvent.click(screen.getByRole('button', {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
   import type {
+    OpeningActivityView,
     OpeningBoardAnnotation,
     OpeningSessionView
   } from '../../lib/api'
@@ -94,6 +95,14 @@
 
   function countLabel(count: number, singular: string, plural = `${singular}s`): string {
     return `${count} ${count === 1 ? singular : plural}`
+  }
+
+  function passiveActionLabel(kind: OpeningActivityView['kind']): string {
+    switch (kind) {
+      case 'comparison': return 'Done comparing'
+      case 'demonstration': return 'Play the line'
+      default: return 'Got it'
+    }
   }
 </script>
 
@@ -228,7 +237,7 @@
         <div class="opening-actions" role="group" aria-label="Opening lesson actions">
           {#if state.phase === 'activity-complete'}
             <button class="primary" type="button" on:click={() => controller.acknowledgeActivity()}>
-              Continue
+              Next idea
             </button>
           {:else if state.phase === 'failed' && state.recoverable && state.retryOperation}
             <button class="primary" type="button" on:click={() => controller.retry()}>
@@ -241,7 +250,7 @@
             {/if}
           {:else if state.phase === 'passive'}
             <button class="primary" type="button" on:click={() => controller.advance()}>
-              Continue
+              {passiveActionLabel(current.kind)}
             </button>
             <button class="quiet-action" type="button" on:click={() => controller.pause()}>
               Pause lesson

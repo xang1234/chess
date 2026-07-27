@@ -153,6 +153,45 @@ test('advances a zero-frame teaching result immediately and orders session event
   expect(subject.views.map((view) => view.state.phase)).not.toContain('animating')
 })
 
+test('preserves the board generation for the same FEN and replaces it for a different FEN', async () => {
+  const explain = active('concept')
+  const same = harness(explain, {
+    advanceOpeningActivity: async () => ({
+      session: active('recap', {
+        activityId: 'same-fen',
+        currentFen: explain.current.currentFen
+      }),
+      activityCompleted: true
+    })
+  })
+  const sameGeneration = same.controller.view.boardGeneration
+  await same.controller.advance()
+  expect(same.controller.view.boardGeneration).toBe(sameGeneration)
+
+  const different = harness(explain, {
+    advanceOpeningActivity: async () => ({
+      session: active('recap', { activityId: 'different-fen', currentFen: afterC3 }),
+      activityCompleted: true
+    })
+  })
+  const differentGeneration = different.controller.view.boardGeneration
+  await different.controller.advance()
+  expect(different.controller.view.boardGeneration).toBe(differentGeneration + 1)
+})
+
+test('adopts an external same-FEN activity without replacing the board', () => {
+  const current = active('concept')
+  const subject = harness(current)
+  const generation = subject.controller.view.boardGeneration
+
+  subject.controller.receiveSession(active('recap', {
+    activityId: 'external',
+    currentFen: current.current.currentFen
+  }))
+
+  expect(subject.controller.view.boardGeneration).toBe(generation)
+})
+
 test('retries a failed passive activity save without leaving the activity', async () => {
   const concept = active('concept')
   const next = active('recap', { activityId: 'recap', activityNumber: 2 })

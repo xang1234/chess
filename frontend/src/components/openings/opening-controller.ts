@@ -258,13 +258,14 @@ export class OpeningController {
     const state = this.requireState()
     if (state.phase !== 'activity-complete') return
     const pending = state.result.session
+    const boardGeneration = this.generationForTargetFen(targetSessionFen(pending))
     this.runtime.cancelRequest()
     this.publishState(acknowledgeOpeningActivity(state), {
       message: '',
       feedback: null,
       notice: pending.notice ?? '',
       announcement: state.result.checkpoint ? 'Lesson roadmap checkpoint.' : 'Next lesson idea.',
-      boardGeneration: this.view.boardGeneration + 1,
+      boardGeneration,
       lastFrames: [],
       lastMove: undefined
     })
@@ -325,16 +326,26 @@ export class OpeningController {
   }
 
   private adoptSession(session: OpeningSessionView): void {
+    const boardGeneration = this.currentView
+      ? this.generationForTargetFen(targetSessionFen(session))
+      : 0
     this.runtime.consumeWarnings()
     this.publishState(initialiseOpening(session), {
       message: '',
       feedback: null,
       notice: session.notice ?? '',
       announcement: '',
-      boardGeneration: this.currentView ? this.currentView.boardGeneration + 1 : 0,
+      boardGeneration,
       lastFrames: [],
       lastMove: undefined
     })
+  }
+
+  private generationForTargetFen(targetFen: string | undefined): number {
+    if (targetFen === undefined) return this.view.boardGeneration
+    return visibleFen(this.requireState()) === targetFen
+      ? this.view.boardGeneration
+      : this.view.boardGeneration + 1
   }
 
   private beginOwnedRequest(operation: OpeningOperation): OwnedRequest | null {
@@ -403,7 +414,7 @@ export class OpeningController {
         feedback: null,
         notice: result.session.notice ?? '',
         announcement: `Next idea: ${result.session.current.title}.`,
-        boardGeneration: this.view.boardGeneration + 1,
+        boardGeneration: this.generationForTargetFen(result.session.current.currentFen),
         lastFrames: [],
         lastMove: undefined
       })
@@ -546,6 +557,14 @@ export class OpeningController {
     this.currentView = view
     for (const subscriber of this.subscribers) subscriber(view)
   }
+}
+
+function visibleFen(state: OpeningState): string | undefined {
+  return 'fen' in state ? state.fen : undefined
+}
+
+function targetSessionFen(session: OpeningSessionView): string | undefined {
+  return session.status === 'active' ? session.current.currentFen : undefined
 }
 
 function requestMessage(operation: OpeningOperation): string {
