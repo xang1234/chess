@@ -225,8 +225,12 @@
             <OpeningActivityContent
               activity={current}
               {canReplayDemonstration}
+              comparisonPreviewIndex={view.comparisonPreviewIndex}
+              comparisonPreviewPlaying={view.comparisonPreviewPlaying}
               on:replayMoves={() => controller.replayMovesToHere()}
               on:replayDemonstration={() => controller.replayDemonstration()}
+              on:previewComparison={(event) => controller.previewComparison(event.detail.index)}
+              on:resetComparison={() => controller.resetComparisonPreview()}
             />
 
             <div class="opening-feedback" aria-live="polite" aria-atomic="true">

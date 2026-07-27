@@ -136,6 +136,45 @@ test.each([
   rendered.unmount()
 })
 
+test('plays and resets comparisons without persisting lesson progress', async () => {
+  const afterC3 = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
+  const afterD6 = 'r1bqk1nr/ppp2ppp/2np4/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R w KQkq - 0 5'
+  const comparison = active('comparison', {
+    comparison: [{
+      label: 'Active centre',
+      moves: ['c3', 'd6'],
+      frames: [
+        { uci: 'c2c3', resultingFen: afterC3 },
+        { uci: 'd7d6', resultingFen: afterD6 }
+      ]
+    }]
+  })
+  const board = boardHarness()
+  const boardEffects = effects()
+  boardEffects.prefersReducedMotion = () => false
+  const { component } = render(OpeningLessonScreen, {
+    session: comparison,
+    effects: boardEffects,
+    boardAdapterFactory: board.factory
+  }, withNormalAPI(fakeAPI()))
+  const persisted: OpeningSessionView[] = []
+  component.$on('persisted', (event) => persisted.push(event.detail))
+
+  await fireEvent.click(await screen.findByRole('button', {
+    name: 'Play Active centre: c3, d6'
+  }))
+
+  expect(board.positions).toEqual([
+    [comparison.current.currentFen, undefined, false],
+    [afterC3, ['c2', 'c3'], true],
+    [afterD6, ['d7', 'd6'], true]
+  ])
+  await fireEvent.click(await screen.findByRole('button', { name: 'Reset position' }))
+  expect(board.positions).toHaveLength(4)
+  expect(board.positions[3]).toEqual([comparison.current.currentFen, undefined, false])
+  expect(persisted).toEqual([])
+})
+
 test('keeps actions outside the activity-scoped lesson details region', async () => {
   const first = active('concept', {
     activityId: 'long-concept',

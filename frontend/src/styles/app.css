@@ -299,15 +299,41 @@ input, select {
 }
 .opening-activity-content .teaching-notes p { margin: 0; color: #e8e4d8; line-height: 1.45; }
 .opening-comparison { display: grid; gap: 8px; }
-.opening-comparison article {
+.opening-comparison .comparison-line {
   display: grid;
+  min-height: 52px;
   gap: 4px;
   padding: 10px 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
   border: 1px solid #586660;
   border-radius: 10px;
+  color: #f7f4e9;
   background: #303c38;
+  text-align: left;
 }
-.opening-comparison span { color: #d8d5ca; }
+.opening-comparison .comparison-line strong,
+.opening-comparison .comparison-line > span:not(.comparison-play) {
+  min-width: 0;
+  grid-column: 1;
+}
+.opening-comparison .comparison-line > span:not(.comparison-play) { color: #d8d5ca; }
+.opening-comparison .comparison-play {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  align-self: center;
+  color: var(--amber-400);
+  font-weight: 900;
+}
+.opening-comparison .comparison-line.selected {
+  border-color: var(--amber-400);
+  background: #3c493f;
+  box-shadow: inset 3px 0 0 var(--amber-400);
+}
+.opening-comparison .comparison-line:focus-visible {
+  outline: 3px solid var(--amber-400);
+  outline-offset: 2px;
+}
+.opening-comparison .comparison-reset { min-height: 46px; }
 .opening-replay-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .opening-deeper-analysis { padding-top: 2px; color: #d8d5ca; }
 .opening-deeper-analysis summary { cursor: pointer; font-weight: 800; }

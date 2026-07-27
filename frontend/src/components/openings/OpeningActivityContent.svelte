@@ -4,10 +4,14 @@
 
   export let activity: OpeningActivityView
   export let canReplayDemonstration = false
+  export let comparisonPreviewIndex: number | null = null
+  export let comparisonPreviewPlaying = false
 
   const dispatch = createEventDispatcher<{
     replayMoves: void
     replayDemonstration: void
+    previewComparison: { index: number }
+    resetComparison: void
   }>()
 
   $: hasDeeperAnalysis = activity.referenceNoteTexts.length > 0 ||
@@ -25,12 +29,31 @@
 
   {#if activity.comparison.length > 0}
     <div class="opening-comparison" aria-label="Plan comparison">
-      {#each activity.comparison as line (line.label)}
-        <article>
+      {#each activity.comparison as line, index (line.label)}
+        <button
+          class="comparison-line"
+          class:selected={comparisonPreviewIndex === index}
+          type="button"
+          aria-label={`Play ${line.label}: ${line.moves.join(', ')}`}
+          aria-pressed={comparisonPreviewIndex === index}
+          on:click={() => dispatch('previewComparison', { index })}
+        >
           <strong>{line.label}</strong>
           <span>{line.moves.join(' → ')}</span>
-        </article>
+          <span class="comparison-play" aria-hidden="true">
+            {comparisonPreviewIndex === index && comparisonPreviewPlaying ? 'Playing…' : '▶'}
+          </span>
+        </button>
       {/each}
+      {#if comparisonPreviewIndex !== null}
+        <button
+          class="quiet-action comparison-reset"
+          type="button"
+          on:click={() => dispatch('resetComparison')}
+        >
+          Reset position
+        </button>
+      {/if}
     </div>
   {/if}
 
