@@ -47,6 +47,8 @@ export type OpeningControllerView = {
   reducedMotion: boolean
   soundMuted: boolean
   lastFrames: AppliedMove[]
+  comparisonPreviewIndex: number | null
+  comparisonPreviewPlaying: boolean
   lastMove?: [Square, Square]
 }
 
@@ -112,11 +114,20 @@ export class OpeningController {
       boardGeneration: 0,
       reducedMotion: preferences.reducedMotion,
       soundMuted: preferences.soundMuted,
-      lastFrames: []
+      lastFrames: [],
+      comparisonPreviewIndex: null,
+      comparisonPreviewPlaying: false
     })
   }
 
   destroy(): void {
+    if (this.currentView) {
+      this.update({
+        comparisonPreviewIndex: null,
+        comparisonPreviewPlaying: false,
+        lastMove: undefined
+      })
+    }
     this.mounted = false
     this.runtime.destroy()
   }
@@ -134,6 +145,7 @@ export class OpeningController {
   }
 
   async advance(): Promise<void> {
+    await this.resetComparisonPreviewIfNeeded()
     const owned = this.beginOwnedRequest('advance')
     if (!owned) return
     try {
@@ -218,6 +230,7 @@ export class OpeningController {
   }
 
   async pause(): Promise<void> {
+    await this.resetComparisonPreviewIfNeeded()
     const owned = this.beginOwnedRequest('pause')
     if (!owned) return
     try {
@@ -240,7 +253,13 @@ export class OpeningController {
     const state = this.requireState()
     if (state.phase !== 'restart-required') return
     const token = this.runtime.startRequest()
-    this.update({ message: 'Restarting from a safe checkpoint…', announcement: 'Restarting lesson.' })
+    this.update({
+      message: 'Restarting from a safe checkpoint…',
+      announcement: 'Restarting lesson.',
+      comparisonPreviewIndex: null,
+      comparisonPreviewPlaying: false,
+      lastMove: undefined
+    })
     try {
       const next = await this.api.restartOpeningSession(state.session.sessionId)
       if (!this.runtime.isCurrent(token)) return
@@ -267,6 +286,8 @@ export class OpeningController {
       announcement: state.result.checkpoint ? 'Lesson roadmap checkpoint.' : 'Next lesson idea.',
       boardGeneration,
       lastFrames: [],
+      comparisonPreviewIndex: null,
+      comparisonPreviewPlaying: false,
       lastMove: undefined
     })
     this.events.change(pending)
@@ -285,6 +306,88 @@ export class OpeningController {
     await this.replay(this.view.lastFrames, state.session.current.currentFen)
   }
 
+  async previewComparison(index: number): Promise<void> {
+    const state = this.requireState()
+    if (state.phase !== 'passive' || state.session.current.kind !== 'comparison') return
+    const line = state.session.current.comparison[index]
+    if (!line) return
+
+    const token = this.runtime.startRequest()
+    this.update({
+      comparisonPreviewIndex: index,
+      comparisonPreviewPlaying: true,
+      message: `Playing ${line.label}…`,
+      announcement: `Playing ${line.label}.`
+    })
+    const resetWarning = await this.runtime.reconcilePosition(
+      state.session.current.currentFen,
+      token.controller.signal,
+      false
+    )
+    if (!this.runtime.isCurrent(token)) return
+    if (resetWarning) {
+      await this.afterRender()
+      if (!this.runtime.isCurrent(token)) return
+    }
+
+    const animation = await animateAppliedMoves({
+      port: this.runtime.animationPort(),
+      startingFen: state.session.current.currentFen,
+      appliedMoves: line.frames,
+      finalFen: line.frames[line.frames.length - 1].resultingFen,
+      reducedMotion: this.view.reducedMotion,
+      signal: token.controller.signal,
+      onStep: (kind) => this.runtime.playSound(kind)
+    })
+    if (!this.runtime.isCurrent(token) || animation.status === 'aborted') return
+    let warning = animation.warning ?? resetWarning
+    if (animation.warning) {
+      await this.afterRender()
+      if (!this.runtime.isCurrent(token)) return
+      const restoreWarning = await this.runtime.reconcilePosition(
+        state.session.current.currentFen,
+        token.controller.signal,
+        false
+      )
+      if (!this.runtime.isCurrent(token)) return
+      warning = [animation.warning, restoreWarning].filter(Boolean).join(' ')
+    }
+    this.runtime.cancelRequest()
+    this.update({
+      comparisonPreviewIndex: index,
+      comparisonPreviewPlaying: false,
+      message: `${line.label} complete.`,
+      announcement: `${line.label} complete.`,
+      notice: warning
+    })
+    this.applyBoardWarnings()
+  }
+
+  async resetComparisonPreview(): Promise<void> {
+    const state = this.requireState()
+    if (state.phase === 'summary' || state.phase === 'checkpoint' ||
+      state.phase === 'restart-required') return
+    if (this.view.comparisonPreviewIndex === null && !this.view.comparisonPreviewPlaying) return
+
+    const token = this.runtime.startRequest()
+    const warning = await this.runtime.reconcilePosition(
+      state.session.current.currentFen,
+      token.controller.signal,
+      false
+    )
+    if (!this.runtime.isCurrent(token)) return
+    this.runtime.cancelRequest()
+    this.update({
+      comparisonPreviewIndex: null,
+      comparisonPreviewPlaying: false,
+      message: 'Comparison position reset.',
+      announcement: 'Comparison position reset.',
+      notice: warning,
+      lastMove: undefined
+    })
+    this.applyBoardWarnings()
+  }
+
   finishHome(): void {
     this.events.home(true)
   }
@@ -295,7 +398,8 @@ export class OpeningController {
     if (recovering) return
     this.runtime.consumeWarnings()
     const state = this.requireState()
-    if (state.phase === 'activity-complete') {
+    if (state.phase === 'activity-complete' || this.view.comparisonPreviewPlaying ||
+      this.view.comparisonPreviewIndex !== null) {
       this.update({ notice: message, announcement: message })
       return
     }
@@ -337,6 +441,8 @@ export class OpeningController {
       announcement: '',
       boardGeneration,
       lastFrames: [],
+      comparisonPreviewIndex: null,
+      comparisonPreviewPlaying: false,
       lastMove: undefined
     })
   }
@@ -416,6 +522,8 @@ export class OpeningController {
         announcement: `Next idea: ${result.session.current.title}.`,
         boardGeneration: this.generationForTargetFen(result.session.current.currentFen),
         lastFrames: [],
+        comparisonPreviewIndex: null,
+        comparisonPreviewPlaying: false,
         lastMove: undefined
       })
       this.events.persisted(result.session)
@@ -452,6 +560,8 @@ export class OpeningController {
       announcement: message,
       notice: animation.warning ?? '',
       lastFrames: frames,
+      comparisonPreviewIndex: null,
+      comparisonPreviewPlaying: false,
       ...(lastMove ? { lastMove } : {})
     })
     this.applyBoardWarnings()
@@ -506,6 +616,11 @@ export class OpeningController {
     this.applyBoardWarnings()
   }
 
+  private async resetComparisonPreviewIfNeeded(): Promise<void> {
+    if (this.view.comparisonPreviewIndex === null && !this.view.comparisonPreviewPlaying) return
+    await this.resetComparisonPreview()
+  }
+
   private updateStateFen(
     fen: string,
     lastMove?: [Square, Square],
@@ -543,6 +658,14 @@ export class OpeningController {
       reducedMotion: overrides.reducedMotion ?? current?.reducedMotion ?? false,
       soundMuted: overrides.soundMuted ?? current?.soundMuted ?? false,
       lastFrames: overrides.lastFrames ?? current?.lastFrames ?? [],
+      comparisonPreviewIndex: Object.prototype.hasOwnProperty.call(
+        overrides,
+        'comparisonPreviewIndex'
+      )
+        ? overrides.comparisonPreviewIndex ?? null
+        : current?.comparisonPreviewIndex ?? null,
+      comparisonPreviewPlaying: overrides.comparisonPreviewPlaying ??
+        current?.comparisonPreviewPlaying ?? false,
       ...(Object.prototype.hasOwnProperty.call(overrides, 'lastMove')
         ? overrides.lastMove ? { lastMove: overrides.lastMove } : {}
         : current?.lastMove ? { lastMove: current.lastMove } : {})

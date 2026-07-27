@@ -19,6 +19,21 @@ import {
 const startFen = fakeOpeningSession.current.currentFen
 const afterC3 = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
 const afterD6 = 'r1bqk1nr/ppp2ppp/2np4/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R w KQkq - 0 5'
+const comparisonLines: ActiveOpeningSessionView['current']['comparison'] = [
+  {
+    label: 'Active centre',
+    moves: ['c3', 'd4'],
+    frames: [
+      { uci: 'c2c3', resultingFen: afterC3 },
+      { uci: 'd7d6', resultingFen: afterD6 }
+    ]
+  },
+  {
+    label: 'Quiet setup',
+    moves: ['d3'],
+    frames: [{ uci: 'd2d3', resultingFen: afterC3 }]
+  }
+]
 
 function active(
   kind: ActiveOpeningSessionView['current']['kind'] = 'decision',
@@ -278,6 +293,139 @@ test('replays moves to here and a completed demonstration without changing progr
   expect(subject.board.setPosition).toHaveBeenCalledTimes(2)
   expect(subject.persisted).toEqual([next])
   expect(subject.controller.view.state.phase).toBe('activity-complete')
+})
+
+test('previews a comparison without persisting and can reset', async () => {
+  const current = active('comparison', { comparison: comparisonLines })
+  const subject = harness(current)
+
+  await subject.controller.previewComparison(0)
+
+  expect(subject.board.setPosition.mock.calls).toEqual([
+    [current.current.currentFen, undefined, false],
+    [afterC3, ['c2', 'c3'], true],
+    [afterD6, ['d7', 'd6'], true]
+  ])
+  expect(subject.controller.view.comparisonPreviewIndex).toBe(0)
+  expect(subject.controller.view.comparisonPreviewPlaying).toBe(false)
+  expect(subject.persisted).toEqual([])
+
+  await subject.controller.resetComparisonPreview()
+
+  expect(subject.board.setPosition).toHaveBeenLastCalledWith(
+    current.current.currentFen,
+    undefined,
+    false
+  )
+  expect(subject.controller.view.comparisonPreviewIndex).toBeNull()
+})
+
+test('a second comparison selection cancels a deferred first preview', async () => {
+  const firstDelay = deferred<void>()
+  const delay = vi.fn()
+    .mockImplementationOnce(() => firstDelay.promise)
+    .mockResolvedValue(undefined)
+  const subject = harness(
+    active('comparison', { comparison: comparisonLines }),
+    {},
+    { ...effects(false), delay }
+  )
+
+  const first = subject.controller.previewComparison(0)
+  await vi.waitFor(() => expect(delay).toHaveBeenCalled())
+  await subject.controller.previewComparison(1)
+  firstDelay.resolve()
+  await first
+
+  expect(subject.controller.view.comparisonPreviewIndex).toBe(1)
+  expect(subject.controller.view.message).toBe('Quiet setup complete.')
+  expect(subject.persisted).toEqual([])
+})
+
+test('restores a comparison before advance and pause backend actions', async () => {
+  const order: string[] = []
+  const current = active('comparison', { comparison: comparisonLines })
+  const next = active('recap', { activityId: 'next' })
+  const subject = harness(current, {
+    advanceOpeningActivity: async () => {
+      order.push('advance-api')
+      return { session: next, activityCompleted: true }
+    },
+    pauseOpeningSession: async () => { order.push('pause-api') }
+  }, effects(false), board((fen) => {
+    if (fen === current.current.currentFen) order.push('reset-board')
+  }))
+
+  await subject.controller.previewComparison(0)
+  order.length = 0
+  await subject.controller.advance()
+  expect(order.slice(0, 2)).toEqual(['reset-board', 'advance-api'])
+
+  const paused = harness(current, {
+    pauseOpeningSession: async () => { order.push('pause-api') }
+  }, effects(false), board((fen) => {
+    if (fen === current.current.currentFen) order.push('reset-board')
+  }))
+  await paused.controller.previewComparison(0)
+  order.length = 0
+  await paused.controller.pause()
+  expect(order.slice(0, 2)).toEqual(['reset-board', 'pause-api'])
+})
+
+test('session adoption and destroy cancel stale comparison callbacks', async () => {
+  const adoptionDelay = deferred<void>()
+  const adopted = harness(
+    active('comparison', { comparison: comparisonLines }),
+    {},
+    { ...effects(false), delay: () => adoptionDelay.promise }
+  )
+  const adoptionWork = adopted.controller.previewComparison(0)
+  await Promise.resolve()
+  const replacement = active('concept', { activityId: 'replacement' })
+  adopted.controller.receiveSession(replacement)
+  adoptionDelay.resolve()
+  await adoptionWork
+  expect(adopted.controller.view.state).toMatchObject({ session: replacement })
+  expect(adopted.controller.view.comparisonPreviewIndex).toBeNull()
+
+  const destroyDelay = deferred<void>()
+  const destroyed = harness(
+    active('comparison', { comparison: comparisonLines }),
+    {},
+    { ...effects(false), delay: () => destroyDelay.promise }
+  )
+  const destroyWork = destroyed.controller.previewComparison(0)
+  await Promise.resolve()
+  destroyed.controller.destroy()
+  destroyDelay.resolve()
+  await destroyWork
+  expect(destroyed.controller.view.comparisonPreviewPlaying).toBe(false)
+})
+
+test('reduced motion previews only the final comparison position', async () => {
+  const current = active('comparison', { comparison: comparisonLines })
+  const subject = harness(current, {}, effects(true))
+
+  await subject.controller.previewComparison(0)
+
+  expect(subject.board.setPosition.mock.calls).toEqual([
+    [current.current.currentFen, undefined, false],
+    [afterD6, ['d7', 'd6'], false]
+  ])
+})
+
+test('a comparison board exception restores the activity position without persisting', async () => {
+  const current = active('comparison', { comparison: comparisonLines })
+  const subject = harness(current, {}, effects(false), board(() => {
+    throw new Error('preview adapter failed')
+  }))
+
+  await subject.controller.previewComparison(0)
+
+  expect(subject.controller.view.state).toMatchObject({ fen: current.current.currentFen })
+  expect(subject.controller.view.notice).toMatch(/preview adapter failed/i)
+  expect(subject.controller.view.comparisonPreviewPlaying).toBe(false)
+  expect(subject.persisted).toEqual([])
 })
 
 test('does not reanimate the optimistic learner move before the course reply', async () => {
