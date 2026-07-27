@@ -172,6 +172,19 @@ export function completeOpeningActivity(
   }
 }
 
+export function completeOpeningActivityWithoutPause(
+  state: OpeningState,
+  requestId: number,
+  result: Extract<OpeningActivityResult, { activityCompleted: true }>
+): OpeningState {
+  if (!acceptsOpeningResponse(state, requestId)) return state
+  if (state.operation !== 'advance' || result.appliedMoves !== undefined ||
+    result.checkpoint !== undefined || result.session.status !== 'active') {
+    throw new Error('zero-frame completion requires an active next activity')
+  }
+  return initialiseOpening(result.session)
+}
+
 export function acknowledgeOpeningActivity(state: OpeningState): OpeningState {
   if (state.phase !== 'activity-complete') {
     throw new Error(`${state.phase} state cannot acknowledge a completed activity`)

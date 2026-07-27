@@ -11,6 +11,7 @@ import {
   beginOpeningAnimation,
   beginOpeningRequest,
   completeOpeningActivity,
+  completeOpeningActivityWithoutPause,
   finishOpeningHint,
   initialiseOpening,
   markOpeningFeedback
@@ -127,6 +128,33 @@ test('successful animation holds the persisted next activity result until Contin
   })
   const acknowledged = acknowledgeOpeningActivity(activityComplete)
   expect(acknowledged).toMatchObject({ phase: 'ready', session: pending, fen: nextFen })
+})
+
+test('completes an active zero-frame result without an acknowledgement phase', () => {
+  const concept = active()
+  const requesting = beginOpeningRequest(initialiseOpening(concept), 'advance', 7)
+  const next = active({
+    current: {
+      ...fakeOpeningSession.current,
+      kind: 'recap',
+      activityId: 'recap',
+      title: 'Keep the plan'
+    }
+  })
+
+  expect(completeOpeningActivityWithoutPause(requesting, 7, {
+    session: next,
+    activityCompleted: true
+  })).toMatchObject({ phase: 'passive', session: next, fen: next.current.currentFen })
+})
+
+test('refuses to fast-forward a checkpoint', () => {
+  const requesting = beginOpeningRequest(initialiseOpening(active()), 'advance', 8)
+  expect(() => completeOpeningActivityWithoutPause(requesting, 8, {
+    session: completed(),
+    activityCompleted: true,
+    checkpoint
+  })).toThrow('active next activity')
 })
 
 test('acknowledges lesson completion into a roadmap checkpoint', () => {

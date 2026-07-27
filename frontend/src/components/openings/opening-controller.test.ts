@@ -95,7 +95,8 @@ function harness(
   session: OpeningSessionView,
   overrides: Partial<NormalAPI> = {},
   boardEffects = effects(false),
-  boardPort = board()
+  boardPort = board(),
+  order: string[] = []
 ) {
   const changes: OpeningSessionView[] = []
   const persisted: OpeningSessionView[] = []
@@ -106,8 +107,8 @@ function harness(
     effects: boardEffects,
     afterRender: async () => {},
     events: {
-      change: (next) => changes.push(next),
-      persisted: (next) => persisted.push(next),
+      change: (next) => { changes.push(next); order.push('change') },
+      persisted: (next) => { persisted.push(next); order.push('persisted') },
       home: (done) => homes.push(done)
     }
   })
@@ -123,24 +124,33 @@ function deferred<Value>() {
   return { promise, resolve }
 }
 
-test('defers an advanced teaching step until explicit Continue', async () => {
+test('advances a zero-frame teaching result immediately and orders session events', async () => {
   const explain = active('concept')
-  const watch = active('demonstration', { activityId: 'watch-c3', activityNumber: 2 })
+  const watch = active('demonstration', {
+    activityId: 'watch-c3', activityNumber: 2, title: 'Watch c3'
+  })
   const result: OpeningActivityResult = { session: watch, activityCompleted: true }
-  const subject = harness(explain, { advanceOpeningActivity: async () => result })
+  const order: string[] = []
+  const subject = harness(
+    explain,
+    { advanceOpeningActivity: async () => result },
+    effects(false),
+    board(),
+    order
+  )
 
   await subject.controller.advance()
 
   expect(subject.controller.view.state).toMatchObject({
-    phase: 'activity-complete', session: explain, result: { session: watch }
+    phase: 'passive', session: watch
   })
+  expect(subject.controller.view.message).toBe('')
+  expect(subject.controller.view.announcement).toBe('Next idea: Watch c3.')
   expect(subject.persisted).toEqual([watch])
-  expect(subject.changes).toEqual([])
-
-  subject.controller.acknowledgeActivity()
-
-  expect(subject.controller.view.state).toMatchObject({ phase: 'passive', session: watch })
   expect(subject.changes).toEqual([watch])
+  expect(order).toEqual(['persisted', 'change'])
+  expect(subject.views.map((view) => view.state.phase)).not.toContain('activity-complete')
+  expect(subject.views.map((view) => view.state.phase)).not.toContain('animating')
 })
 
 test('retries a failed passive activity save without leaving the activity', async () => {
@@ -161,9 +171,8 @@ test('retries a failed passive activity save without leaving the activity', asyn
   await subject.controller.retry()
   expect(advanceOpeningActivity).toHaveBeenCalledTimes(2)
   expect(subject.controller.view.state).toMatchObject({
-    phase: 'activity-complete',
-    session: concept,
-    result: { session: next }
+    phase: 'passive',
+    session: next
   })
 })
 

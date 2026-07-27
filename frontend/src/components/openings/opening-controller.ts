@@ -20,6 +20,7 @@ import {
   beginOpeningAnimation,
   beginOpeningRequest,
   completeOpeningActivity,
+  completeOpeningActivityWithoutPause,
   failOpeningRequest,
   finishOpeningHint,
   initialiseOpening,
@@ -393,6 +394,23 @@ export class OpeningController {
     optimisticUci?: string
   ): Promise<void> {
     const frames: AppliedMove[] = result.appliedMoves ?? []
+    if (frames.length === 0 && result.checkpoint === undefined &&
+      result.session.status === 'active') {
+      const next = completeOpeningActivityWithoutPause(this.requireState(), owned.id, result)
+      this.runtime.cancelRequest()
+      this.publishState(next, {
+        message: '',
+        feedback: null,
+        notice: result.session.notice ?? '',
+        announcement: `Next idea: ${result.session.current.title}.`,
+        boardGeneration: this.view.boardGeneration + 1,
+        lastFrames: [],
+        lastMove: undefined
+      })
+      this.events.persisted(result.session)
+      this.events.change(result.session)
+      return
+    }
     const finalFen = result.finalFen ?? frames.at(-1)?.resultingFen ?? owned.request.fen
     const animating = beginOpeningAnimation(this.requireState(), owned.id)
     if (animating.phase !== 'animating') return
