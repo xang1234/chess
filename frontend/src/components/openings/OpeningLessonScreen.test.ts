@@ -140,7 +140,8 @@ test('keeps actions outside the activity-scoped lesson details region', async ()
   const first = active('concept', {
     activityId: 'long-concept',
     title: 'A long concept',
-    teachingNoteTexts: Array.from({ length: 16 }, (_, index) => `Detail ${index + 1}`)
+    teachingNoteTexts: Array.from({ length: 16 }, (_, index) => `Detail ${index + 1}`),
+    movesToHereSan: ['e4', 'e5', 'Nf3']
   })
   const { component } = render(OpeningLessonScreen, {
     session: first,
@@ -150,10 +151,13 @@ test('keeps actions outside the activity-scoped lesson details region', async ()
 
   const details = await screen.findByRole('region', { name: 'Opening lesson details' })
   const actions = screen.getByRole('group', { name: 'Opening lesson actions' })
+  const moveRibbon = screen.getByRole('list', { name: 'Moves to this position' })
   expect(details).toContainElement(screen.getByRole('heading', { name: 'A long concept' }))
   expect(details).not.toContainElement(actions)
+  expect(details).not.toContainElement(moveRibbon)
 
   details.scrollTop = 180
+  expect(moveRibbon).toBeVisible()
   component.$set({
     session: active('recap', { activityId: 'next-recap', title: 'Next recap' })
   })

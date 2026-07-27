@@ -20,6 +20,7 @@
   } from './opening-controller'
   import { acceptsOpeningInput } from './opening-state'
   import OpeningActivityContent from './OpeningActivityContent.svelte'
+  import OpeningMoveRibbon from './OpeningMoveRibbon.svelte'
   import OpeningPathContext from './OpeningPathContext.svelte'
   import OpeningRoadmapCheckpoint from './OpeningRoadmapCheckpoint.svelte'
 
@@ -177,6 +178,10 @@
             on:announce={(event) => controller.announce(event.detail.message)}
           />
         {/key}
+        <OpeningMoveRibbon
+          variationName={current.variationName}
+          moves={current.movesToHereSan}
+        />
       </div>
 
       <aside class="opening-lesson-panel">
@@ -286,7 +291,13 @@
     align-items: center;
     justify-content: center;
   }
-  .opening-board-stage { min-width: 0; }
+  .opening-board-stage {
+    display: grid;
+    min-width: 0;
+    align-items: center;
+    justify-items: center;
+    gap: 12px;
+  }
   .opening-lesson-panel {
     display: flex;
     height: min(760px, calc(100vh - 120px));
