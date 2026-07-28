@@ -3,8 +3,24 @@
   import type { OpeningTreeBranch } from './opening-tree'
 
   export let branch: OpeningTreeBranch
+  export let currentLessonId = ''
 
-  const dispatch = createEventDispatcher<{ lesson: string }>()
+  const dispatch = createEventDispatcher<{ lesson: string; resume: void }>()
+
+  function actionLabel(): string {
+    if (branch.node.lessonId === currentLessonId) return 'Return to your lesson'
+    if (branch.node.recommended) return 'Start next idea here'
+    if (branch.node.progress === 'completed') return 'Study again'
+    return 'Start here'
+  }
+
+  function activate(): void {
+    if (branch.node.lessonId === currentLessonId) {
+      dispatch('resume')
+      return
+    }
+    dispatch('lesson', branch.node.lessonId)
+  }
 
   $: stateLabels = [
     branch.node.progress === 'completed'
@@ -30,7 +46,7 @@
   class={`opening-tree-node progress-${branch.node.progress}`}
   role="treeitem"
   aria-label={accessibleLabel}
-  aria-selected="false"
+  aria-selected={branch.node.lessonId === currentLessonId}
   aria-expanded={branch.children.length > 0 ? true : undefined}
 >
   {#if branch.incoming}
@@ -51,14 +67,14 @@
       class="secondary"
       type="button"
       disabled={!branch.node.visible}
-      on:click={() => dispatch('lesson', branch.node.lessonId)}
-    >Study {branch.node.title}</button>
+      on:click={activate}
+    >{actionLabel()}</button>
   </article>
 
   {#if branch.children.length > 0}
     <ul class="opening-tree-children" role="group">
       {#each branch.children as child (child.node.lessonId)}
-        <svelte:self branch={child} on:lesson />
+        <svelte:self branch={child} {currentLessonId} on:lesson on:resume />
       {/each}
     </ul>
   {/if}

@@ -7,11 +7,13 @@
   const dispatch = createEventDispatcher<{
     training: void
     practice: void
+    continueOpening: void
     openings: void
     games: void
     parent: void
   }>()
 
+  $: resumableOpening = openingHome.courses.find((course) => course.hasResumable)
   $: openingCopy = openingSummary(openingHome)
 
   function openingSummary(home: OpeningHomeView): string {
@@ -48,12 +50,37 @@
       <span>Choose themes and difficulty</span>
     </button>
 
-    <button class="hub-card opening-card" type="button" aria-label="Learn Openings" on:click={() => dispatch('openings')}>
-      <span class="card-icon" aria-hidden="true">♘</span>
-      <strong>Learn Openings</strong>
-      <span>{openingCopy}</span>
-      {#if openingHome.notice}<span class="card-notice">{openingHome.notice}</span>{/if}
-    </button>
+    {#if resumableOpening}
+      <button
+        class="hub-card opening-card"
+        type="button"
+        aria-label="Continue opening lesson"
+        on:click={() => dispatch('continueOpening')}
+      >
+        <span class="card-icon" aria-hidden="true">♘</span>
+        <strong>Continue opening lesson</strong>
+        <span>{openingCopy}</span>
+        {#if openingHome.notice}<span class="card-notice">{openingHome.notice}</span>{/if}
+      </button>
+
+      <button
+        class="hub-card opening-map-card"
+        type="button"
+        aria-label="Course map"
+        on:click={() => dispatch('openings')}
+      >
+        <span class="card-icon" aria-hidden="true">♞</span>
+        <strong>Course map</strong>
+        <span>Choose another idea or see your progress</span>
+      </button>
+    {:else}
+      <button class="hub-card opening-card" type="button" aria-label="Learn Openings" on:click={() => dispatch('openings')}>
+        <span class="card-icon" aria-hidden="true">♘</span>
+        <strong>Learn Openings</strong>
+        <span>{openingCopy}</span>
+        {#if openingHome.notice}<span class="card-notice">{openingHome.notice}</span>{/if}
+      </button>
+    {/if}
 
     <button class="hub-card" type="button" aria-label="Game Library" on:click={() => dispatch('games')}>
       <span class="card-icon" aria-hidden="true">♜</span>

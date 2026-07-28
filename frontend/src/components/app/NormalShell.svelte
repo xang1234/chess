@@ -282,7 +282,6 @@
   async function showOpeningTree(): Promise<void> {
     await refreshOpeningHome()
     if (activeOpeningSession?.status === 'completed') activeOpeningSession = null
-    deferredOpeningSession = null
     screen.set('openings')
   }
 
@@ -326,6 +325,7 @@
         {openingHome}
         on:training={openTraining}
         on:practice={() => screen.set('practice')}
+        on:continueOpening={resumeOpening}
         on:openings={openOpeningHub}
         on:games={() => screen.set('games')}
         on:parent={() => screen.set('parent')}

@@ -9,6 +9,7 @@ test('shows depth, progress, ordered lessons, review, and explorer actions', asy
     courses: [{
       ...fakeOpeningHome.courses[0],
       hasResumable: true,
+      currentLessonId: 'giuoco-c3',
       nextLessonTitle: 'Giuoco Piano',
       dueReviews: 3
     }]
@@ -41,10 +42,9 @@ test('shows depth, progress, ordered lessons, review, and explorer actions', asy
   expect(explore).toHaveBeenCalledWith(expect.objectContaining({
     detail: { courseId: 'synthetic-italian', positionId: 'initial' }
   }))
-  await fireEvent.click(screen.getByRole('button', { name: 'Study Giuoco Piano' }))
-  expect(lesson).toHaveBeenCalledWith(expect.objectContaining({
-    detail: { courseId: 'synthetic-italian', lessonId: 'giuoco-c3' }
-  }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Return to your lesson' }))
+  expect(resume).toHaveBeenCalledTimes(2)
+  expect(lesson).not.toHaveBeenCalled()
 })
 
 test('starts the recommended lesson when there is no resumable activity', async () => {

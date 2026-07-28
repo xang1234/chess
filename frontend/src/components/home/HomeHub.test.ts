@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte'
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import HomeHub from './HomeHub.svelte'
 import { fakeOpeningHome } from '../../test-fakes'
 
@@ -15,7 +15,7 @@ test('shows the child-friendly home destinations', async () => {
   })
 })
 
-test('summarises resumable and due opening work without replacing puzzle training', async () => {
+test('offers exact opening continuation separately from the course map', async () => {
   const { component } = render(HomeHub, {
     activeSession: true,
     openingHome: {
@@ -23,8 +23,15 @@ test('summarises resumable and due opening work without replacing puzzle trainin
       courses: [{ ...fakeOpeningHome.courses[0], hasResumable: true, dueReviews: 0 }]
     }
   })
-  expect(screen.getByRole('button', { name: 'Learn Openings' }))
-    .toHaveTextContent('Continue Italian Game for White')
+  const continuations: unknown[] = []
+  const maps: unknown[] = []
+  component.$on('continueOpening', (event) => continuations.push(event.detail))
+  component.$on('openings', (event) => maps.push(event.detail))
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Continue opening lesson' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Course map' }))
+  expect(continuations).toHaveLength(1)
+  expect(maps).toHaveLength(1)
   expect(screen.getByRole('button', { name: "Continue today's training" })).toBeInTheDocument()
 
   component.$set({

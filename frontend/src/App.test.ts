@@ -171,7 +171,7 @@ test('opens the course hub and starts a visible opening lesson', async () => {
   await waitFor(() => expect(setOpeningDepth).toHaveBeenCalledWith('synthetic-italian', 'quick'))
   expect(getOpeningHome).toHaveBeenCalledTimes(2)
 
-  await fireEvent.click(screen.getByRole('button', { name: 'Study Giuoco Piano' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Start next idea here' }))
   expect(startOpeningLesson).toHaveBeenCalledWith('synthetic-italian', 'giuoco-c3')
   expect(await screen.findByRole('heading', { name: 'The central plan' })).toBeInTheDocument()
   expect(screen.getByRole('grid', { name: 'Chess board, white side' })).toBeInTheDocument()
@@ -200,7 +200,7 @@ test('keeps an explicit opening course selection across the app shell', async ()
 		target: { value: secondCourse.courseId }
 	})
 	expect(await screen.findByRole('heading', { name: secondCourse.title })).toBeInTheDocument()
-	await fireEvent.click(screen.getByRole('button', { name: 'Study Giuoco Piano' }))
+	await fireEvent.click(screen.getByRole('button', { name: 'Start next idea here' }))
 	expect(startOpeningLesson).toHaveBeenCalledWith(secondCourse.courseId, 'giuoco-c3')
 })
 
@@ -284,7 +284,7 @@ test('continues directly into the recommended opening branch', async () => {
   render(App, { loadAPI: async () => normalApplication(api) })
 
   await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Start next idea here' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
 
@@ -316,7 +316,7 @@ test('refreshes opening progress when a completed course returns to its map', as
   render(App, { loadAPI: async () => normalApplication(api) })
 
   await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Start next idea here' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Back to course' }))
@@ -395,6 +395,124 @@ function completedOpening(): CompletedOpeningSessionView {
   }
 }
 
+function resumableOpeningHome() {
+  const course = fakeOpeningHome.courses[0]
+  return {
+    courses: [{
+      ...course,
+      hasResumable: true,
+      currentLessonId: 'giuoco-c3',
+      currentPath: fakeOpeningSession.path,
+      tree: {
+        rootLessonId: 'giuoco-c3',
+        nodes: [
+          { ...course.tree.nodes[0], recommended: false, progress: 'in_progress' as const },
+          {
+            ...course.tree.nodes[0],
+            lessonId: 'two-knights-d3',
+            title: 'Choose the quiet setup',
+            objective: 'Meet the Two Knights without leaving the course.',
+            progress: 'available' as const,
+            recommended: true
+          }
+        ],
+        edges: [{
+          edgeId: 'giuoco-two-knights',
+          fromLessonId: 'giuoco-c3',
+          toLessonId: 'two-knights-d3',
+          ordinal: 1,
+          kind: 'alternative' as const,
+          moveLabel: '3...Nf6',
+          minimumDepth: 'quick' as const
+        }]
+      }
+    }]
+  }
+}
+
+test('returns from the full course map to the lesson already in progress', async () => {
+  let started = false
+  const resumeOpeningSession = vi.fn(async () => fakeOpeningSession)
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    getOpeningHome: async () => started ? resumableOpeningHome() : fakeOpeningHome,
+    startOpeningLesson: async () => {
+      started = true
+      return fakeOpeningSession
+    },
+    resumeOpeningSession
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+
+  const learnOpenings = await screen.findByRole('button', { name: 'Learn Openings' })
+  resumeOpeningSession.mockClear()
+  await fireEvent.click(learnOpenings)
+  await fireEvent.click(screen.getByRole('button', { name: 'Start next idea here' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'View full map' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Return to your lesson' }))
+
+  expect(resumeOpeningSession).toHaveBeenCalledOnce()
+  expect(await screen.findByRole('heading', { name: 'The central plan' })).toBeInTheDocument()
+})
+
+test('starts a different visible lesson from the full course map', async () => {
+  let started = false
+  const alternate = {
+    ...fakeOpeningSession,
+    sessionId: 'opening-session-2',
+    lessonId: 'two-knights-d3',
+    path: [{ lessonId: 'two-knights-d3', title: 'Choose the quiet setup' }],
+    current: { ...fakeOpeningSession.current, title: 'Choose the quiet setup' }
+  } satisfies ActiveOpeningSessionView
+  const startOpeningLesson = vi.fn(async (_courseId: string, lessonId: string) => {
+    started = true
+    return lessonId === 'two-knights-d3' ? alternate : fakeOpeningSession
+  })
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    getOpeningHome: async () => started ? resumableOpeningHome() : fakeOpeningHome,
+    startOpeningLesson
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Start next idea here' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'View full map' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Start next idea here' }))
+
+  expect(startOpeningLesson).toHaveBeenLastCalledWith('synthetic-italian', 'two-knights-d3')
+  expect(await screen.findByRole('heading', { name: 'Choose the quiet setup' })).toBeInTheDocument()
+})
+
+test('keeps the original lesson resumable when switching map nodes fails', async () => {
+  let started = false
+  const startOpeningLesson = vi.fn(async (_courseId: string, lessonId: string) => {
+    if (lessonId === 'two-knights-d3') throw new Error('Could not start that idea.')
+    started = true
+    return fakeOpeningSession
+  })
+  const resumeOpeningSession = vi.fn(async () => fakeOpeningSession)
+  const api = fakeAPI({
+    getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
+    getOpeningHome: async () => started ? resumableOpeningHome() : fakeOpeningHome,
+    startOpeningLesson,
+    resumeOpeningSession
+  })
+  render(App, { loadAPI: async () => normalApplication(api) })
+
+  const learnOpenings = await screen.findByRole('button', { name: 'Learn Openings' })
+  resumeOpeningSession.mockClear()
+  await fireEvent.click(learnOpenings)
+  await fireEvent.click(screen.getByRole('button', { name: 'Start next idea here' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'View full map' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Start next idea here' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('Could not start that idea.')
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Return to your lesson' }))
+  expect(resumeOpeningSession).toHaveBeenCalledOnce()
+  expect(await screen.findByRole('heading', { name: 'The central plan' })).toBeInTheDocument()
+})
+
 async function openAndRevealOpening(
   pending: ActiveOpeningSessionView | CompletedOpeningSessionView,
   puzzle: SessionView | null = null
@@ -430,7 +548,7 @@ async function openAndRevealOpening(
   })
   render(App, { loadAPI: async () => normalApplication(api) })
   await fireEvent.click(await screen.findByRole('button', { name: 'Learn Openings' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Start next idea here' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
 }
 
@@ -440,7 +558,7 @@ test('keeps the persisted next opening step resumable when Home leaves its solve
 
   await fireEvent.click(screen.getByRole('button', { name: 'Chess Trainer home' }))
 
-  expect(await screen.findByRole('button', { name: 'Learn Openings' }))
+  expect(await screen.findByRole('button', { name: 'Continue opening lesson' }))
     .toHaveTextContent('Continue Italian Game for White')
 })
 

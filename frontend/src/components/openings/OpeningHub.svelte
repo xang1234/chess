@@ -141,6 +141,8 @@
     <OpeningTeachingTree
       tree={course.tree}
       courseTitle={course.title}
+      currentLessonId={course.hasResumable ? course.currentLessonId : ''}
+      on:resume={() => dispatch('resume')}
       on:lesson={(event) => dispatch('lesson', {
         courseId: course.courseId,
         lessonId: event.detail
