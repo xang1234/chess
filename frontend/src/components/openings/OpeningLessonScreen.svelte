@@ -24,7 +24,6 @@
   import OpeningMoveRibbon from './OpeningMoveRibbon.svelte'
   import OpeningPathContext from './OpeningPathContext.svelte'
   import OpeningPositionContext from './OpeningPositionContext.svelte'
-  import OpeningRoadmapCheckpoint from './OpeningRoadmapCheckpoint.svelte'
 
   export let session: OpeningSessionView
   export let effects: BoardEffects = browserBoardEffects
@@ -55,8 +54,7 @@
 
   $: controller.attachBoard(boardComponent)
   $: state = view?.state
-  $: active = state && state.phase !== 'summary' && state.phase !== 'checkpoint' &&
-    state.phase !== 'restart-required'
+  $: active = state && state.phase !== 'summary' && state.phase !== 'restart-required'
     ? state.session
     : undefined
   $: current = active?.current
@@ -120,7 +118,7 @@
       <span class="celebration" aria-hidden="true">♝</span>
       <p class="eyebrow">{state.session.courseTitle || 'Opening course'}</p>
       <h2 id="opening-completion-title">
-        {state.session.mode === 'review' ? 'Opening review complete!' : 'Opening lesson complete!'}
+        {state.session.mode === 'review' ? 'Opening review complete!' : 'Opening course complete!'}
       </h2>
       {#if state.session.mode === 'review'}
         <p>You worked through {countLabel(state.session.summary.totalPrompts, 'training prompt')}.</p>
@@ -138,14 +136,6 @@
         Back to course
       </button>
     </section>
-  {:else if state?.phase === 'checkpoint'}
-    <OpeningRoadmapCheckpoint
-      checkpoint={state.checkpoint}
-      courseId={state.session.courseId}
-      on:continue
-      on:tree
-      on:home
-    />
   {:else if state?.phase === 'restart-required'}
     <section class="panel opening-terminal" aria-labelledby="opening-restart-title">
       <p class="eyebrow">Course update</p>

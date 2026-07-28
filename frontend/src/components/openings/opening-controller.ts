@@ -287,7 +287,9 @@ export class OpeningController {
       message: '',
       feedback: null,
       notice: pending.notice ?? '',
-      announcement: state.result.checkpoint ? 'Lesson roadmap checkpoint.' : 'Next lesson idea.',
+      announcement: pending.status === 'active'
+        ? `Next idea: ${pending.current.title}.`
+        : pending.mode === 'review' ? 'Opening review complete.' : 'Opening course complete.',
       boardGeneration,
       lastFrames: [],
       comparisonPreviewIndex: null,
@@ -299,8 +301,7 @@ export class OpeningController {
 
   async replayMovesToHere(): Promise<void> {
     const state = this.requireState()
-    if (state.phase === 'summary' || state.phase === 'checkpoint' ||
-      state.phase === 'restart-required') return
+    if (state.phase === 'summary' || state.phase === 'restart-required') return
     await this.replay(state.session.current.movesToHere, state.session.current.currentFen)
   }
 
@@ -369,8 +370,7 @@ export class OpeningController {
 
   async resetComparisonPreview(): Promise<void> {
     const state = this.requireState()
-    if (state.phase === 'summary' || state.phase === 'checkpoint' ||
-      state.phase === 'restart-required') return
+    if (state.phase === 'summary' || state.phase === 'restart-required') return
     if (this.view.comparisonPreviewIndex === null && !this.view.comparisonPreviewPlaying) return
 
     const token = this.runtime.startRequest()
@@ -519,8 +519,7 @@ export class OpeningController {
     optimisticUci?: string
   ): Promise<void> {
     const frames: AppliedMove[] = result.appliedMoves ?? []
-    if (frames.length === 0 && result.checkpoint === undefined &&
-      result.session.status === 'active') {
+    if (frames.length === 0 && result.session.status === 'active') {
       const next = completeOpeningActivityWithoutPause(this.requireState(), owned.id, result)
       this.runtime.cancelRequest()
       this.publishState(next, {

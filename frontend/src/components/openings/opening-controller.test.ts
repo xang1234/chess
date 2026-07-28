@@ -1,5 +1,6 @@
 import type {
   ActiveOpeningSessionView,
+  ActiveOpeningLessonView,
   AppliedMoveFrames,
   CompletedOpeningSessionView,
   NormalAPI,
@@ -39,7 +40,7 @@ const comparisonLines: ActiveOpeningSessionView['current']['comparison'] = [
 function active(
   kind: ActiveOpeningSessionView['current']['kind'] = 'decision',
   overrides: Partial<ActiveOpeningSessionView['current']> = {}
-): ActiveOpeningSessionView {
+): ActiveOpeningLessonView {
   return {
     ...fakeOpeningSession,
     current: {
@@ -444,6 +445,48 @@ test('does not reanimate the optimistic learner move before the course reply', a
     [afterC3, ['c2', 'c3'], false],
     [afterD6, ['d7', 'd6'], true]
   ])
+})
+
+test('persists a cross-node session before acknowledgement and shows it after Next idea', async () => {
+	const current = active('decision')
+	const next: ActiveOpeningLessonView = {
+		...active('concept', { activityId: 'd4-concept', title: 'Occupy the centre' }),
+		sessionId: 'opening-session-2',
+		lessonId: 'giuoco-d4',
+		path: [
+			...fakeOpeningSession.path,
+			{ lessonId: 'giuoco-d4', title: 'Occupy the centre with d4' }
+		],
+		courseMap: {
+			completedIdeas: 3,
+			totalIdeas: 4,
+			entries: [{
+				lessonId: 'giuoco-c3', moveLabel: '3...Bc5', title: 'Giuoco Piano',
+				state: 'learned', selectable: true
+			}, {
+				lessonId: 'giuoco-d4', parentLessonId: 'giuoco-c3', moveLabel: '4.c3',
+				title: 'Play d4', state: 'current', selectable: true
+			}]
+		}
+	}
+	const subject = harness(current, {
+		playOpeningMove: async () => expected(next)
+	})
+
+	await subject.controller.play('c2c3')
+
+	expect(subject.persisted).toEqual([next])
+	expect(subject.changes).toEqual([])
+	expect(subject.controller.view.state.phase).toBe('activity-complete')
+
+	subject.controller.acknowledgeActivity()
+
+	expect(subject.changes).toEqual([next])
+	expect(subject.controller.view.state).toMatchObject({
+		phase: 'passive',
+		session: { sessionId: 'opening-session-2', lessonId: 'giuoco-d4' }
+	})
+	expect(subject.controller.view.announcement).toBe('Next idea: Occupy the centre.')
 })
 
 test.each([

@@ -1,9 +1,8 @@
 import type {
-  ActiveOpeningSessionView,
+  ActiveOpeningLessonView,
   CompletedOpeningSessionView,
   OpeningActivityResult,
-  OpeningHintResult,
-  OpeningRoadmapCheckpoint
+  OpeningHintResult
 } from '../../lib/api'
 import { fakeOpeningSession } from '../../test-fakes'
 import {
@@ -18,20 +17,7 @@ import {
 } from './opening-state'
 
 const nextFen = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
-const checkpoint: OpeningRoadmapCheckpoint = {
-  completedLessonId: 'giuoco-c3',
-  path: [
-    { lessonId: 'foundations-e4', title: 'Reach the Italian' },
-    { lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }
-  ],
-  availableLessonIds: ['giuoco-d4'],
-  recommendedLessonId: 'giuoco-d4',
-  recommendedLessonTitle: 'Occupy the centre with d4',
-  completedLessons: 2,
-  totalLessons: 5
-}
-
-function active(overrides: Partial<ActiveOpeningSessionView> = {}): ActiveOpeningSessionView {
+function active(overrides: Partial<ActiveOpeningLessonView> = {}): ActiveOpeningLessonView {
   return {
     ...fakeOpeningSession,
     ...overrides,
@@ -148,30 +134,53 @@ test('completes an active zero-frame result without an acknowledgement phase', (
   })).toMatchObject({ phase: 'passive', session: next, fen: next.current.currentFen })
 })
 
-test('refuses to fast-forward a checkpoint', () => {
+test('refuses to fast-forward final course completion', () => {
   const requesting = beginOpeningRequest(initialiseOpening(active()), 'advance', 8)
   expect(() => completeOpeningActivityWithoutPause(requesting, 8, {
     session: completed(),
-    activityCompleted: true,
-    checkpoint
+    activityCompleted: true
   })).toThrow('active next activity')
 })
 
-test('acknowledges lesson completion into a roadmap checkpoint', () => {
+test('acknowledges an animated cross-node result as the next idea', () => {
   const current = active({ current: { ...fakeOpeningSession.current, kind: 'decision' } })
+	const pending = active({
+		sessionId: 'opening-session-2',
+		lessonId: 'giuoco-d4',
+		path: [
+			...fakeOpeningSession.path,
+			{ lessonId: 'giuoco-d4', title: 'Occupy the centre with d4' }
+		],
+		courseMap: {
+			completedIdeas: 3,
+			totalIdeas: 4,
+			entries: [{
+				lessonId: 'giuoco-c3', moveLabel: '3...Bc5', title: 'Giuoco Piano',
+				state: 'learned', selectable: true
+			}, {
+				lessonId: 'giuoco-d4', parentLessonId: 'giuoco-c3', moveLabel: '4.c3',
+				title: 'Play d4', state: 'current', selectable: true
+			}]
+		},
+		current: {
+			...fakeOpeningSession.current,
+			activityId: 'd4-concept', kind: 'concept', title: 'Occupy the centre'
+		}
+	})
   const requesting = beginOpeningRequest(initialiseOpening(current), 'move', 1)
   const animating = beginOpeningAnimation(requesting, 1)
-  const result: OpeningActivityResult = {
-    session: completed(),
-    activityCompleted: true,
-    checkpoint
-  }
+  const result: Extract<OpeningActivityResult, { activityCompleted: true }> = {
+		session: pending, activityCompleted: true
+	}
   const activityComplete = completeOpeningActivity(animating, 1, nextFen, result, 'Recalled.')
 
   expect(activityComplete.phase).toBe('activity-complete')
-  expect(acknowledgeOpeningActivity(activityComplete)).toEqual({
-    phase: 'checkpoint',
-    session: completed(),
-    checkpoint
-  })
+	expect(acknowledgeOpeningActivity(activityComplete)).toMatchObject({
+		phase: 'passive',
+		session: {
+			sessionId: 'opening-session-2',
+			lessonId: 'giuoco-d4',
+			current: { activityId: 'd4-concept' }
+		}
+	})
 })

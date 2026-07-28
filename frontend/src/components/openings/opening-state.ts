@@ -1,11 +1,9 @@
 import type {
   ActiveOpeningSessionView,
-  CompletedOpeningLessonView,
   CompletedOpeningSessionView,
   OpeningActivityResult,
   OpeningHintResult,
   OpeningMoveFeedback,
-  OpeningRoadmapCheckpoint,
   OpeningSessionView,
   RestartRequiredOpeningSessionView
 } from '../../lib/api'
@@ -34,11 +32,6 @@ export type OpeningState =
     fen: string
     result: Extract<OpeningActivityResult, { activityCompleted: true }>
     message: string
-  }
-  | {
-    phase: 'checkpoint'
-    session: CompletedOpeningLessonView
-    checkpoint: OpeningRoadmapCheckpoint
   }
   | { phase: 'summary'; session: CompletedOpeningSessionView }
   | { phase: 'restart-required'; session: RestartRequiredOpeningSessionView }
@@ -179,7 +172,7 @@ export function completeOpeningActivityWithoutPause(
 ): OpeningState {
   if (!acceptsOpeningResponse(state, requestId)) return state
   if (state.operation !== 'advance' || result.appliedMoves !== undefined ||
-    result.checkpoint !== undefined || result.session.status !== 'active') {
+    result.session.status !== 'active') {
     throw new Error('zero-frame completion requires an active next activity')
   }
   return initialiseOpening(result.session)
@@ -189,16 +182,6 @@ export function acknowledgeOpeningActivity(state: OpeningState): OpeningState {
   if (state.phase !== 'activity-complete') {
     throw new Error(`${state.phase} state cannot acknowledge a completed activity`)
   }
-  if (state.result.checkpoint) {
-    if (state.result.session.status !== 'completed' || state.result.session.mode !== 'lesson') {
-      throw new Error('roadmap checkpoint requires a completed lesson session')
-    }
-    return {
-      phase: 'checkpoint',
-      session: state.result.session,
-      checkpoint: state.result.checkpoint
-    }
-  }
   return initialiseOpening(state.result.session)
 }
 
@@ -207,7 +190,7 @@ export function failOpeningRequest(
   message: string,
   recoverable: boolean
 ): OpeningState {
-  if (state.phase === 'summary' || state.phase === 'checkpoint' || state.phase === 'restart-required') {
+  if (state.phase === 'summary' || state.phase === 'restart-required') {
     return state
   }
   if (state.phase === 'activity-complete') {

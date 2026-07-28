@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import type { KeyPair } from '@lichess-org/chessground/types'
 import type {
   ActiveOpeningSessionView,
+  ActiveOpeningLessonView,
   CompletedOpeningSessionView,
   OpeningSessionView,
   OpeningActivityResult,
@@ -21,7 +22,7 @@ import OpeningLessonScreen from './OpeningLessonScreen.svelte'
 function active(
   kind: ActiveOpeningSessionView['current']['kind'] = 'concept',
   overrides: Partial<ActiveOpeningSessionView['current']> = {}
-): ActiveOpeningSessionView {
+): ActiveOpeningLessonView {
   return {
     ...fakeOpeningSession,
     current: {
@@ -336,27 +337,37 @@ test('restores alternative moves with structured course feedback', async () => {
   expect(screen.getByRole('grid')).toHaveAttribute('aria-disabled', 'false')
 })
 
-test('continues a completed lesson through the roadmap checkpoint without returning home', async () => {
+test('continues across lesson nodes without emitting navigation events', async () => {
   const current = active('decision', { title: 'Prepare the centre' })
-  const done = completed()
+  const next: ActiveOpeningLessonView = {
+    ...active('concept', { activityId: 'd4-concept', title: 'Occupy the centre' }),
+    sessionId: 'opening-session-2',
+    lessonId: 'giuoco-d4',
+    path: [
+      ...fakeOpeningSession.path,
+      { lessonId: 'giuoco-d4', title: 'Occupy the centre with d4' }
+    ],
+    courseMap: {
+      completedIdeas: 3,
+      totalIdeas: 4,
+      entries: [{
+        lessonId: 'giuoco-c3', moveLabel: '3...Bc5', title: 'Giuoco Piano',
+        state: 'learned', selectable: true
+      }, {
+        lessonId: 'giuoco-d4', parentLessonId: 'giuoco-c3', moveLabel: '4.c3',
+        title: 'Play d4', state: 'current', selectable: true
+      }]
+    }
+  }
   const result: OpeningActivityResult = {
-    session: done,
+    session: next,
     activityCompleted: true,
     feedback: 'expected',
     appliedMoves: [{
       uci: 'c2c3',
       resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
     }],
-    finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4',
-    checkpoint: {
-      completedLessonId: 'giuoco-c3',
-      path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
-      availableLessonIds: ['giuoco-d4'],
-      recommendedLessonId: 'giuoco-d4',
-      recommendedLessonTitle: 'Occupy the centre with d4',
-      completedLessons: 1,
-      totalLessons: 3
-    }
+    finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
   }
   const board = boardHarness()
   const { component } = render(OpeningLessonScreen, {
@@ -365,20 +376,20 @@ test('continues a completed lesson through the roadmap checkpoint without return
     boardAdapterFactory: board.factory
   }, withNormalAPI(fakeAPI({ playOpeningMove: async () => result })))
   const continuations: unknown[] = []
+  const trees: unknown[] = []
+  const homes: unknown[] = []
   component.$on('continue', (event) => continuations.push(event.detail))
+  component.$on('tree', (event) => trees.push(event.detail))
+  component.$on('home', (event) => homes.push(event.detail))
   await waitFor(() => expect(board.callbacks).toHaveLength(1))
 
   board.callbacks[0].onRoute('c2', 'c3')
-    await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
-  expect(await screen.findByRole('heading', { name: 'Prepare d4 with c3 complete' }))
-    .toBeInTheDocument()
-  await fireEvent.click(screen.getByRole('button', {
-    name: 'Continue to Occupy the centre with d4'
-  }))
-  expect(continuations).toEqual([{
-    courseId: fakeOpeningSession.courseId,
-    lessonId: 'giuoco-d4'
-  }])
+  await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
+
+  expect(await screen.findByRole('heading', { name: 'Occupy the centre' })).toBeInTheDocument()
+  expect(continuations).toEqual([])
+  expect(trees).toEqual([])
+  expect(homes).toEqual([])
 })
 
 test('renders update restart and completion summaries', async () => {
@@ -412,7 +423,7 @@ test('renders update restart and completion summaries', async () => {
     effects: effects(),
     boardAdapterFactory: boardHarness().factory
   }, withNormalAPI(fakeAPI()))
-  expect(await screen.findByRole('heading', { name: 'Opening lesson complete!' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Opening course complete!' })).toBeInTheDocument()
 	 expect(screen.getByText(fakeOpeningSession.courseTitle)).toBeInTheDocument()
   expect(screen.getByText('Your place in the course has been saved.')).toBeInTheDocument()
 })

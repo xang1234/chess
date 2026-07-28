@@ -6,7 +6,7 @@ import type {
   NormalAPI,
   OpeningHomeView,
   OpeningCourseMap,
-  ActiveOpeningSessionView,
+  ActiveOpeningLessonView,
   Profile,
   RecoveryAPI
 } from './lib/api'
@@ -119,7 +119,7 @@ export const fakeOpeningPositionContext = {
   }]
 }
 
-export const fakeOpeningSession: ActiveOpeningSessionView = {
+export const fakeOpeningSession: ActiveOpeningLessonView = {
   sessionId: 'opening-session-1',
   mode: 'lesson',
   status: 'active',

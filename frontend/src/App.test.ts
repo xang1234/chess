@@ -204,7 +204,7 @@ test('keeps an explicit opening course selection across the app shell', async ()
 	expect(startOpeningLesson).toHaveBeenCalledWith(secondCourse.courseId, 'giuoco-c3')
 })
 
-test('continues from a lesson checkpoint directly into the recommended branch', async () => {
+test('continues directly into the recommended opening branch', async () => {
   const baseCourse = fakeOpeningHome.courses[0]
   const courseHome = {
     courses: [{
@@ -239,7 +239,23 @@ test('continues from a lesson checkpoint directly into the recommended branch', 
   const first = interactiveOpening()
   const second: ActiveOpeningSessionView = {
     ...fakeOpeningSession,
+		sessionId: 'opening-session-2',
     lessonId: 'giuoco-d4',
+		path: [
+			...fakeOpeningSession.path,
+			{ lessonId: 'giuoco-d4', title: 'Occupy the centre with d4' }
+		],
+		courseMap: {
+			completedIdeas: 3,
+			totalIdeas: 6,
+			entries: [{
+				lessonId: 'giuoco-c3', moveLabel: '3...Bc5', title: 'Giuoco Piano',
+				state: 'learned', selectable: true
+			}, {
+				lessonId: 'giuoco-d4', parentLessonId: 'giuoco-c3', moveLabel: '4.c3',
+				title: 'Occupy the centre with d4', state: 'current', selectable: true
+			}]
+		},
     current: {
       ...fakeOpeningSession.current,
       activityId: 'd4-concept',
@@ -254,7 +270,7 @@ test('continues from a lesson checkpoint directly into the recommended branch', 
     getOpeningHome: async () => courseHome,
     startOpeningLesson,
     revealOpeningMove: async () => ({
-      session: completedOpening(),
+      session: second,
       activityCompleted: true,
       feedback: 'expected',
       message: 'Course move shown.',
@@ -262,16 +278,7 @@ test('continues from a lesson checkpoint directly into the recommended branch', 
         uci: 'c2c3',
         resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
       }],
-      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4',
-      checkpoint: {
-        completedLessonId: 'giuoco-c3',
-        path: [{ lessonId: 'giuoco-c3', title: 'Giuoco Piano' }],
-        availableLessonIds: ['giuoco-d4'],
-        recommendedLessonId: 'giuoco-d4',
-        recommendedLessonTitle: 'Occupy the centre with d4',
-        completedLessons: 1,
-        totalLessons: 2
-      }
+      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
     })
   })
   render(App, { loadAPI: async () => normalApplication(api) })
@@ -280,18 +287,16 @@ test('continues from a lesson checkpoint directly into the recommended branch', 
   await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
-  await fireEvent.click(await screen.findByRole('button', {
-    name: 'Continue to Occupy the centre with d4'
-  }))
 
-  expect(startOpeningLesson).toHaveBeenLastCalledWith('synthetic-italian', 'giuoco-d4')
+	expect(startOpeningLesson).toHaveBeenCalledTimes(1)
+	expect(startOpeningLesson).toHaveBeenLastCalledWith('synthetic-italian', 'giuoco-c3')
   expect(await screen.findByRole('heading', { name: 'Occupy the centre with d4' }))
     .toBeInTheDocument()
   expect(screen.getByRole('navigation', { name: 'Opening course path' }))
     .toHaveTextContent('Giuoco Piano')
 })
 
-test('refreshes opening progress when Stop for now leaves a checkpoint', async () => {
+test('refreshes opening progress when a completed course returns to its map', async () => {
   const getOpeningHome = vi.fn(async () => fakeOpeningHome)
   const api = fakeAPI({
     getProfile: async () => ({ learnerRating: 1200, sessionSize: 10 }),
@@ -305,14 +310,7 @@ test('refreshes opening progress when Stop for now leaves a checkpoint', async (
         uci: 'c2c3',
         resultingFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
       }],
-      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4',
-      checkpoint: {
-        completedLessonId: 'giuoco-c3',
-        path: [{ lessonId: 'giuoco-c3', title: 'Giuoco Piano' }],
-        availableLessonIds: [],
-        completedLessons: 1,
-        totalLessons: 1
-      }
+      finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
     })
   })
   render(App, { loadAPI: async () => normalApplication(api) })
@@ -321,10 +319,10 @@ test('refreshes opening progress when Stop for now leaves a checkpoint', async (
   await fireEvent.click(await screen.findByRole('button', { name: 'Study Giuoco Piano' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Show course move' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Next idea' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Stop for now' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Back to course' }))
 
   await waitFor(() => expect(getOpeningHome).toHaveBeenCalledTimes(3))
-  expect(screen.getByRole('button', { name: 'Learn Openings' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Italian Game for White' })).toBeInTheDocument()
 })
 
 test('opens the read-only variation explorer at the course depth', async () => {
