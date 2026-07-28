@@ -113,6 +113,9 @@ test('renders a board-first teaching step and advances it with one purposeful ac
   expect(screen.getByText('Deeper analysis')).toBeInTheDocument()
   expect(screen.getByRole('grid', { name: 'Chess board, white side' }))
     .toHaveAttribute('aria-disabled', 'true')
+  const moveRibbon = screen.getByRole('region', { name: 'Opening line' })
+  const positionContext = screen.getByRole('region', { name: 'Position: Giuoco Piano' })
+  expect(moveRibbon.nextElementSibling).toBe(positionContext)
 
   await fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
 
@@ -159,6 +162,9 @@ test('plays and resets comparisons without persisting lesson progress', async ()
   }, withNormalAPI(fakeAPI()))
   const persisted: OpeningSessionView[] = []
   component.$on('persisted', (event) => persisted.push(event.detail))
+  const positionContext = await screen.findByRole('region', { name: 'Position: Giuoco Piano' })
+  expect(positionContext).toHaveTextContent('Bc5')
+  expect(positionContext).toHaveTextContent('c3')
 
   await fireEvent.click(await screen.findByRole('button', {
     name: 'Play Active centre: c3, d6'
@@ -172,6 +178,9 @@ test('plays and resets comparisons without persisting lesson progress', async ()
   await fireEvent.click(await screen.findByRole('button', { name: 'Reset position' }))
   expect(board.positions).toHaveLength(4)
   expect(board.positions[3]).toEqual([comparison.current.currentFen, undefined, false])
+  expect(screen.getByRole('region', { name: 'Position: Giuoco Piano' })).toBe(positionContext)
+  expect(positionContext).toHaveTextContent('Bc5')
+  expect(positionContext).toHaveTextContent('c3')
   expect(persisted).toEqual([])
 })
 

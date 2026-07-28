@@ -93,8 +93,8 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
   aspect-ratio: 1;
 }
 .board-active .opening-lesson-layout .board-wrap {
-  width: min(100%, calc(100vh - 184px), 760px);
-  width: min(100%, calc(100dvh - 184px), 760px);
+  width: min(100%, calc(100vh - 320px), 760px);
+  width: min(100%, calc(100dvh - 320px), 760px);
   aspect-ratio: 1;
 }
 

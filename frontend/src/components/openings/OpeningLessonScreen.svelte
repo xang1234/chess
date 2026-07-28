@@ -22,6 +22,7 @@
   import OpeningActivityContent from './OpeningActivityContent.svelte'
   import OpeningMoveRibbon from './OpeningMoveRibbon.svelte'
   import OpeningPathContext from './OpeningPathContext.svelte'
+  import OpeningPositionContext from './OpeningPositionContext.svelte'
   import OpeningRoadmapCheckpoint from './OpeningRoadmapCheckpoint.svelte'
 
   export let session: OpeningSessionView
@@ -181,6 +182,10 @@
         <OpeningMoveRibbon
           variationName={current.variationName}
           moves={current.movesToHereSan}
+        />
+        <OpeningPositionContext
+          context={current.positionContext}
+          orientation={current.orientation}
         />
       </div>
 
