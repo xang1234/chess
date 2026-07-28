@@ -29,6 +29,12 @@ func (s *Service) PlayMove(
 	if uci == primary.UCI {
 		return s.completeDecision(ctx, course, session, lesson, activity, prompt)
 	}
+	feedbackDetail, err := s.moveFeedbackDetail(
+		course, session.State, session.Depth, prompt, uci,
+	)
+	if err != nil {
+		return OpeningActivityResult{}, err
+	}
 	for _, moveID := range prompt.AcceptedAlternativeMoveIDs {
 		move, exists := course.Moves[moveID]
 		if exists && visibleAtDepth(move.MinimumDepth, session.Depth) && move.UCI == uci {
@@ -38,7 +44,7 @@ func (s *Service) PlayMove(
 			}
 			view, err := s.sessionView(ctx, course, session)
 			return OpeningActivityResult{
-				Session: view, Feedback: FeedbackAlternative,
+				Session: view, Feedback: FeedbackAlternative, FeedbackDetail: &feedbackDetail,
 				Message: "That is a playable course alternative. Return to the lesson position and try the course move.",
 			}, err
 		}
@@ -49,8 +55,8 @@ func (s *Service) PlayMove(
 	}
 	view, err := s.sessionView(ctx, course, session)
 	return OpeningActivityResult{
-		Session: view, Feedback: FeedbackOffCourse,
-		Message: fmt.Sprintf("That move is playable, but this lesson is practicing %s.", primary.SAN),
+		Session: view, Feedback: FeedbackOffCourse, FeedbackDetail: &feedbackDetail,
+		Message: feedbackFallbackMessage(feedbackDetail),
 	}, err
 }
 

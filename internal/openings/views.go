@@ -10,6 +10,25 @@ const (
 	FeedbackOffCourse   MoveFeedback = "off_course"
 )
 
+type OpeningFeedbackCoverage string
+
+const (
+	FeedbackCoverageVisible OpeningFeedbackCoverage = "visible"
+	FeedbackCoverageDeeper  OpeningFeedbackCoverage = "deeper"
+	FeedbackCoverageUnknown OpeningFeedbackCoverage = "unknown"
+)
+
+type OpeningMoveFeedbackDetail struct {
+	Coverage      OpeningFeedbackCoverage `json:"coverage"`
+	PlayedSAN     string                  `json:"playedSan"`
+	VariationName string                  `json:"variationName,omitempty"`
+	Evaluation    Evaluation              `json:"evaluation"`
+	NoteText      string                  `json:"noteText,omitempty"`
+	ExpectedSAN   string                  `json:"expectedSan"`
+	PlanText      string                  `json:"planText,omitempty"`
+	RequiredDepth Depth                   `json:"requiredDepth,omitempty"`
+}
+
 type OpeningHomeView struct {
 	Notice  string                 `json:"notice,omitempty"`
 	Courses []OpeningCourseSummary `json:"courses"`
@@ -207,14 +226,15 @@ type OpeningSummary struct {
 }
 
 type OpeningActivityResult struct {
-	Session           OpeningSessionView        `json:"session"`
-	ActivityCompleted bool                      `json:"activityCompleted"`
-	StepCompleted     bool                      `json:"stepCompleted,omitempty"`
-	Feedback          MoveFeedback              `json:"feedback,omitempty"`
-	Message           string                    `json:"message,omitempty"`
-	AppliedMoves      []domain.AppliedMove      `json:"appliedMoves,omitempty"`
-	FinalFEN          string                    `json:"finalFen,omitempty"`
-	Checkpoint        *OpeningRoadmapCheckpoint `json:"checkpoint,omitempty"`
+	Session           OpeningSessionView         `json:"session"`
+	ActivityCompleted bool                       `json:"activityCompleted"`
+	StepCompleted     bool                       `json:"stepCompleted,omitempty"`
+	Feedback          MoveFeedback               `json:"feedback,omitempty"`
+	FeedbackDetail    *OpeningMoveFeedbackDetail `json:"feedbackDetail,omitempty"`
+	Message           string                     `json:"message,omitempty"`
+	AppliedMoves      []domain.AppliedMove       `json:"appliedMoves,omitempty"`
+	FinalFEN          string                     `json:"finalFen,omitempty"`
+	Checkpoint        *OpeningRoadmapCheckpoint  `json:"checkpoint,omitempty"`
 }
 
 type OpeningStepResult = OpeningActivityResult
