@@ -115,30 +115,49 @@ type OpeningActivityLine struct {
 	Frames []domain.AppliedMove `json:"frames"`
 }
 
+type OpeningContextMoveView struct {
+	MoveID        string       `json:"moveId"`
+	SAN           string       `json:"san"`
+	Role          TrainingRole `json:"role"`
+	VariationName string       `json:"variationName,omitempty"`
+	Evaluation    Evaluation   `json:"evaluation"`
+	Selected      bool         `json:"selected"`
+}
+
+type OpeningPositionContextView struct {
+	PositionID string                   `json:"positionId"`
+	Label      string                   `json:"label"`
+	Evaluation Evaluation               `json:"evaluation"`
+	PlanText   string                   `json:"planText,omitempty"`
+	ArrivedVia []OpeningContextMoveView `json:"arrivedVia"`
+	NextMoves  []OpeningContextMoveView `json:"nextMoves"`
+}
+
 type OpeningActivityView struct {
-	ActivityID         string                    `json:"activityId"`
-	Kind               ActivityKind              `json:"kind"`
-	Title              string                    `json:"title"`
-	Instruction        string                    `json:"instruction"`
-	Required           bool                      `json:"required"`
-	VariationName      string                    `json:"variationName,omitempty"`
-	PositionID         string                    `json:"positionId,omitempty"`
-	CurrentFEN         string                    `json:"currentFen"`
-	Orientation        Perspective               `json:"orientation"`
-	LegalMoves         []string                  `json:"legalMoves"`
-	TeachingNoteTexts  []string                  `json:"teachingNoteTexts"`
-	ReferenceNoteTexts []string                  `json:"referenceNoteTexts"`
-	Comparison         []OpeningActivityLine     `json:"comparison"`
-	Annotations        []BoardAnnotation         `json:"annotations"`
-	MovesToHere        []domain.AppliedMove      `json:"movesToHere"`
-	MovesToHereSAN     []string                  `json:"movesToHereSan"`
-	ActivityNumber     int                       `json:"activityNumber"`
-	ActivityTotal      int                       `json:"activityTotal"`
-	CompletedIdeas     int                       `json:"completedIdeas"`
-	RequiredIdeas      int                       `json:"requiredIdeas"`
-	HintLevel          int                       `json:"hintLevel"`
-	CanReveal          bool                      `json:"canReveal"`
-	ReferenceSections  []OpeningReferenceSection `json:"referenceSections"`
+	ActivityID         string                     `json:"activityId"`
+	Kind               ActivityKind               `json:"kind"`
+	Title              string                     `json:"title"`
+	Instruction        string                     `json:"instruction"`
+	Required           bool                       `json:"required"`
+	VariationName      string                     `json:"variationName,omitempty"`
+	PositionID         string                     `json:"positionId,omitempty"`
+	CurrentFEN         string                     `json:"currentFen"`
+	Orientation        Perspective                `json:"orientation"`
+	LegalMoves         []string                   `json:"legalMoves"`
+	TeachingNoteTexts  []string                   `json:"teachingNoteTexts"`
+	ReferenceNoteTexts []string                   `json:"referenceNoteTexts"`
+	Comparison         []OpeningActivityLine      `json:"comparison"`
+	Annotations        []BoardAnnotation          `json:"annotations"`
+	MovesToHere        []domain.AppliedMove       `json:"movesToHere"`
+	MovesToHereSAN     []string                   `json:"movesToHereSan"`
+	PositionContext    OpeningPositionContextView `json:"positionContext"`
+	ActivityNumber     int                        `json:"activityNumber"`
+	ActivityTotal      int                        `json:"activityTotal"`
+	CompletedIdeas     int                        `json:"completedIdeas"`
+	RequiredIdeas      int                        `json:"requiredIdeas"`
+	HintLevel          int                        `json:"hintLevel"`
+	CanReveal          bool                       `json:"canReveal"`
+	ReferenceSections  []OpeningReferenceSection  `json:"referenceSections"`
 }
 
 type OpeningReferenceSection struct {

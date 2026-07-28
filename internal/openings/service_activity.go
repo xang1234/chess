@@ -293,9 +293,9 @@ func (s *Service) buildActivityView(
 	total int,
 	completed int,
 ) (OpeningActivityView, error) {
-	positionID := activity.PositionID
+	positionID := session.State.Position.PositionID
 	if positionID == "" {
-		positionID = session.State.Position.PositionID
+		positionID = activity.PositionID
 	}
 	position, exists := course.Positions[positionID]
 	if !exists {
@@ -305,6 +305,12 @@ func (s *Service) buildActivityView(
 	route, err := s.routeToPosition(course, positionID, session.Depth)
 	if err != nil {
 		return OpeningActivityView{}, err
+	}
+	positionContext, err := buildPositionContext(course, positionID, session.Depth, route)
+	if err != nil {
+		return OpeningActivityView{}, fmt.Errorf(
+			"build opening activity %q position context: %w", activity.ActivityID, err,
+		)
 	}
 	comparison, err := s.activityComparisonLines(course, position.FEN, activity.Comparison)
 	if err != nil {
@@ -319,8 +325,9 @@ func (s *Service) buildActivityView(
 		Comparison:         comparison,
 		Annotations:        append([]BoardAnnotation{}, activity.Annotations...),
 		MovesToHere:        route.Frames, MovesToHereSAN: route.SAN,
-		VariationName:  route.VariationName,
-		ActivityNumber: number, ActivityTotal: total,
+		PositionContext: positionContext,
+		VariationName:   route.VariationName,
+		ActivityNumber:  number, ActivityTotal: total,
 		CompletedIdeas: completed, RequiredIdeas: total,
 		ReferenceSections: referenceSections(course, lesson),
 	}
