@@ -70,6 +70,123 @@ func treeNode(t *testing.T, course OpeningCourseSummary, lessonID string) Openin
 	return OpeningTeachingNodeView{}
 }
 
+func TestActiveOpeningLessonIncludesConciseLocalCourseMap(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	started, err := fixture.service.StartLesson(
+		context.Background(), fixture.compiled.Pack.CourseID, "giuoco-plan",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.CourseMap == nil {
+		t.Fatal("active lesson course map is missing")
+	}
+	courseMap := started.CourseMap
+	if courseMap.CompletedIdeas != 0 || courseMap.TotalIdeas != 4 {
+		t.Fatalf("course map progress = %d/%d, want 0/4", courseMap.CompletedIdeas, courseMap.TotalIdeas)
+	}
+	if len(courseMap.Entries) != 2 {
+		t.Fatalf("course map entries = %#v", courseMap.Entries)
+	}
+	current := courseMap.Entries[0]
+	if current.LessonID != "giuoco-plan" || current.ParentLessonID != "" ||
+		current.MoveLabel != "3...Bc5" || current.Title != "Prepare the center" ||
+		current.State != CourseMapCurrent || !current.Selectable {
+		t.Fatalf("current course map entry = %+v", current)
+	}
+	next := courseMap.Entries[1]
+	if next.LessonID != "two-knights-plan" || next.ParentLessonID != "giuoco-plan" ||
+		next.MoveLabel != "3...Nf6" || next.Title != "Choose the quiet setup" ||
+		next.State != CourseMapNext || !next.Selectable {
+		t.Fatalf("next course map entry = %+v", next)
+	}
+}
+
+func TestLocalCourseMapIncludesVisibleSiblingAndOmitsHiddenSibling(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	fixture.completeLesson(t, "giuoco-plan")
+	fixture.saveJourney(t, CourseJourney{
+		CurrentLessonID: "two-knights-plan",
+		PathLessonIDs:   []string{"giuoco-plan", "two-knights-plan"},
+	})
+
+	course := fixture.compiled
+	oneIdea := func(activityID, positionID string) []LessonActivity {
+		return []LessonActivity{{
+			ActivityID: activityID, Kind: ActivityConcept, Title: activityID,
+			Instruction: activityID, Required: true, PositionID: positionID,
+		}}
+	}
+	additionalLessons := []Lesson{
+		{
+			LessonID: "quiet-followup", ChapterID: "two-knights", Title: "Build the quiet position",
+			MinimumDepth: DepthStandard, StartPositionID: "after-d3",
+			Activities: oneIdea("quiet-followup-concept", "after-d3"),
+		},
+		{
+			LessonID: "giuoco-alternative", ChapterID: "giuoco", Title: "Try another central plan",
+			MinimumDepth: DepthStandard, StartPositionID: "after-c3",
+			Activities: oneIdea("giuoco-alternative-concept", "after-c3"),
+		},
+		{
+			LessonID: "hidden-deep-line", ChapterID: "giuoco", Title: "A deeper alternative",
+			MinimumDepth: DepthReference, StartPositionID: "after-b4",
+			Activities: oneIdea("hidden-deep-line-concept", "after-b4"),
+		},
+	}
+	for _, lesson := range additionalLessons {
+		course.Lessons[lesson.LessonID] = lesson
+		course.Pack.Lessons = append(course.Pack.Lessons, lesson)
+	}
+	followupEdge := LessonEdge{
+		EdgeID: "quiet-followup", FromLessonID: "two-knights-plan", ToLessonID: "quiet-followup",
+		Ordinal: 1, Kind: EdgeContinuation, MinimumDepth: DepthStandard,
+	}
+	alternativeEdge := LessonEdge{
+		EdgeID: "giuoco-alternative", FromLessonID: "giuoco-plan", ToLessonID: "giuoco-alternative",
+		Ordinal: 2, Kind: EdgeAlternative, MinimumDepth: DepthStandard,
+	}
+	hiddenEdge := LessonEdge{
+		EdgeID: "hidden-deep-line", FromLessonID: "giuoco-plan", ToLessonID: "hidden-deep-line",
+		Ordinal: 3, Kind: EdgeAlternative, MinimumDepth: DepthReference,
+	}
+	course.LessonChildren["two-knights-plan"] = []LessonEdge{followupEdge}
+	course.LessonChildren["giuoco-plan"] = append(
+		course.LessonChildren["giuoco-plan"], alternativeEdge, hiddenEdge,
+	)
+	course.LessonParent["quiet-followup"] = followupEdge
+	course.LessonParent["giuoco-alternative"] = alternativeEdge
+	course.LessonParent["hidden-deep-line"] = hiddenEdge
+	course.Pack.LessonEdges = append(
+		course.Pack.LessonEdges, followupEdge, alternativeEdge, hiddenEdge,
+	)
+
+	courseMap, err := fixture.service.localCourseMap(
+		context.Background(), course, DepthStandard, "two-knights-plan",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if courseMap.CompletedIdeas != 3 || courseMap.TotalIdeas != 6 {
+		t.Fatalf("course map progress = %d/%d, want 3/6", courseMap.CompletedIdeas, courseMap.TotalIdeas)
+	}
+	entries := map[string]OpeningCourseMapEntryView{}
+	for _, entry := range courseMap.Entries {
+		entries[entry.LessonID] = entry
+	}
+	if _, exists := entries["hidden-deep-line"]; exists {
+		t.Fatalf("hidden sibling is present: %#v", courseMap.Entries)
+	}
+	alternative, exists := entries["giuoco-alternative"]
+	if !exists || alternative.State != CourseMapAvailable || alternative.ParentLessonID != "giuoco-plan" {
+		t.Fatalf("visible sibling = %+v, exists=%t", alternative, exists)
+	}
+	followup, exists := entries["quiet-followup"]
+	if !exists || followup.State != CourseMapNext || followup.ParentLessonID != "two-knights-plan" {
+		t.Fatalf("next child = %+v, exists=%t", followup, exists)
+	}
+}
+
 func TestOpeningHomeReturnsTeachingTreeAndRecommendation(t *testing.T) {
 	fixture := newTreeServiceFixture(t)
 	home, err := fixture.service.Home(context.Background())

@@ -250,6 +250,13 @@ func (s *Service) sessionView(
 			return OpeningSessionView{}, errors.New("opening session lesson activity is unavailable")
 		}
 		current, err = s.lessonActivityView(ctx, course, lesson, session)
+		if err == nil {
+			courseMap, mapErr := s.localCourseMap(ctx, course, session.Depth, session.LessonID)
+			if mapErr != nil {
+				return OpeningSessionView{}, mapErr
+			}
+			view.CourseMap = &courseMap
+		}
 	} else {
 		current, err = s.reviewActivityView(course, session)
 	}

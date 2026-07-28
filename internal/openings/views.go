@@ -77,6 +77,30 @@ type OpeningPathItem struct {
 	Title    string `json:"title"`
 }
 
+type OpeningCourseMapState string
+
+const (
+	CourseMapLearned   OpeningCourseMapState = "learned"
+	CourseMapCurrent   OpeningCourseMapState = "current"
+	CourseMapNext      OpeningCourseMapState = "next"
+	CourseMapAvailable OpeningCourseMapState = "available"
+)
+
+type OpeningCourseMapEntryView struct {
+	LessonID       string                `json:"lessonId"`
+	ParentLessonID string                `json:"parentLessonId,omitempty"`
+	MoveLabel      string                `json:"moveLabel,omitempty"`
+	Title          string                `json:"title"`
+	State          OpeningCourseMapState `json:"state"`
+	Selectable     bool                  `json:"selectable"`
+}
+
+type OpeningCourseMapView struct {
+	CompletedIdeas int                         `json:"completedIdeas"`
+	TotalIdeas     int                         `json:"totalIdeas"`
+	Entries        []OpeningCourseMapEntryView `json:"entries"`
+}
+
 type OpeningCourseSummary struct {
 	CourseID               string                  `json:"courseId"`
 	Title                  string                  `json:"title"`
@@ -114,18 +138,19 @@ type OpeningLessonSummary struct {
 }
 
 type OpeningSessionView struct {
-	SessionID    string               `json:"sessionId"`
-	Mode         OpeningSessionMode   `json:"mode"`
-	Status       OpeningSessionStatus `json:"status"`
-	CourseID     string               `json:"courseId"`
-	GenerationID string               `json:"generationId"`
-	LessonID     string               `json:"lessonId"`
-	CourseTitle  string               `json:"courseTitle"`
-	Path         []OpeningPathItem    `json:"path"`
-	Depth        Depth                `json:"depth"`
-	Current      *OpeningActivityView `json:"current,omitempty"`
-	Summary      *OpeningSummary      `json:"summary,omitempty"`
-	Notice       string               `json:"notice,omitempty"`
+	SessionID    string                `json:"sessionId"`
+	Mode         OpeningSessionMode    `json:"mode"`
+	Status       OpeningSessionStatus  `json:"status"`
+	CourseID     string                `json:"courseId"`
+	GenerationID string                `json:"generationId"`
+	LessonID     string                `json:"lessonId"`
+	CourseTitle  string                `json:"courseTitle"`
+	Path         []OpeningPathItem     `json:"path"`
+	Depth        Depth                 `json:"depth"`
+	CourseMap    *OpeningCourseMapView `json:"courseMap,omitempty"`
+	Current      *OpeningActivityView  `json:"current,omitempty"`
+	Summary      *OpeningSummary       `json:"summary,omitempty"`
+	Notice       string                `json:"notice,omitempty"`
 }
 
 type OpeningActivityLine struct {

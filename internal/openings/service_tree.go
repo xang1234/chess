@@ -163,6 +163,108 @@ func openingPathItems(course CompiledCourse, lessonIDs []string) []OpeningPathIt
 	return items
 }
 
+func numberedLastSAN(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	ply := len(values) - 1
+	separator := "."
+	if ply%2 == 1 {
+		separator = "..."
+	}
+	return fmt.Sprintf("%d%s%s", ply/2+1, separator, values[ply])
+}
+
+func (s *Service) localCourseMap(
+	ctx context.Context,
+	course CompiledCourse,
+	depth Depth,
+	currentLessonID string,
+) (OpeningCourseMapView, error) {
+	journey, err := s.store.Journey(ctx, course.Pack.CourseID)
+	if err != nil {
+		return OpeningCourseMapView{}, err
+	}
+	projection, err := s.projectTeachingTree(ctx, course, depth, journey, nil)
+	if err != nil {
+		return OpeningCourseMapView{}, err
+	}
+
+	progressAfterCurrent := make(map[string]LessonProgress, len(projection.progressByLesson))
+	for lessonID, progress := range projection.progressByLesson {
+		progressAfterCurrent[lessonID] = progress
+	}
+	if progress, exists := progressAfterCurrent[currentLessonID]; exists {
+		progress.Completed = true
+		progress.CompletedActivities = progress.TotalActivities
+		progressAfterCurrent[currentLessonID] = progress
+	}
+	nextLessonID := recommendTeachingLesson(course, depth, journey, nil, progressAfterCurrent)
+
+	included := map[string]bool{}
+	include := func(lessonID string) {
+		lesson, exists := course.Lessons[lessonID]
+		if exists && visibleAtDepth(lesson.MinimumDepth, depth) {
+			included[lessonID] = true
+		}
+	}
+	for _, lessonID := range teachingPathLessonIDs(course, currentLessonID) {
+		include(lessonID)
+	}
+	for _, edge := range course.LessonChildren[currentLessonID] {
+		include(edge.ToLessonID)
+	}
+	if parent, exists := course.LessonParent[currentLessonID]; exists {
+		for _, edge := range course.LessonChildren[parent.FromLessonID] {
+			include(edge.ToLessonID)
+		}
+	}
+	include(nextLessonID)
+
+	courseMap := OpeningCourseMapView{Entries: []OpeningCourseMapEntryView{}}
+	for _, lessonID := range teachingTreeLessonOrder(course) {
+		lesson := course.Lessons[lessonID]
+		if !visibleAtDepth(lesson.MinimumDepth, depth) {
+			continue
+		}
+		requiredIdeas := len(RequiredActivityIDs(lesson))
+		courseMap.TotalIdeas += requiredIdeas
+		progress := projection.progressByLesson[lessonID]
+		completedIdeas := progress.CompletedActivities
+		if progress.Completed {
+			completedIdeas = requiredIdeas
+		}
+		courseMap.CompletedIdeas += completedIdeas
+		if !included[lessonID] {
+			continue
+		}
+
+		state := CourseMapAvailable
+		switch {
+		case lessonID == currentLessonID:
+			state = CourseMapCurrent
+		case lessonID == nextLessonID:
+			state = CourseMapNext
+		case progress.Completed:
+			state = CourseMapLearned
+		}
+		parentLessonID := ""
+		if parent, exists := course.LessonParent[lessonID]; exists {
+			parentLessonID = parent.FromLessonID
+		}
+		route, err := s.routeToPosition(course, lesson.StartPositionID, depth)
+		if err != nil {
+			return OpeningCourseMapView{}, err
+		}
+		courseMap.Entries = append(courseMap.Entries, OpeningCourseMapEntryView{
+			LessonID: lessonID, ParentLessonID: parentLessonID,
+			MoveLabel: numberedLastSAN(route.SAN), Title: lesson.Title,
+			State: state, Selectable: true,
+		})
+	}
+	return courseMap, nil
+}
+
 func teachingPathLessonIDs(course CompiledCourse, lessonID string) []string {
 	if _, exists := course.Lessons[lessonID]; !exists {
 		return []string{}
