@@ -20,6 +20,7 @@
   } from './opening-controller'
   import { acceptsOpeningInput } from './opening-state'
   import OpeningActivityContent from './OpeningActivityContent.svelte'
+  import OpeningCourseMap from './OpeningCourseMap.svelte'
   import OpeningMoveFeedback from './OpeningMoveFeedback.svelte'
   import OpeningMoveRibbon from './OpeningMoveRibbon.svelte'
   import OpeningPathContext from './OpeningPathContext.svelte'
@@ -190,6 +191,9 @@
             tabindex="0"
           >
             <OpeningPathContext path={state.session.path} />
+            {#if state.session.mode === 'lesson'}
+              <OpeningCourseMap map={state.session.courseMap} on:open={() => dispatch('tree')} />
+            {/if}
             <div class="opening-lesson-heading">
               <div>
                 <p class="eyebrow">
@@ -210,11 +214,17 @@
 
             <div>
               <p class="progress-label">
-                Idea {current.activityNumber} of {current.activityTotal}
-                · {current.completedIdeas} learned
+                {#if state.session.mode === 'lesson'}
+                  Course progress · {state.session.courseMap.completedIdeas} of
+                  {state.session.courseMap.totalIdeas} ideas learned
+                {:else}
+                  Review idea {current.activityNumber} of {current.activityTotal}
+                {/if}
               </p>
               <div class="progress-track" aria-hidden="true">
-                <span style={`width: ${(current.activityNumber / current.activityTotal) * 100}%`}></span>
+                <span style={`width: ${state.session.mode === 'lesson'
+                  ? (state.session.courseMap.completedIdeas / state.session.courseMap.totalIdeas) * 100
+                  : (current.activityNumber / current.activityTotal) * 100}%`}></span>
               </div>
             </div>
 
