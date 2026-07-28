@@ -535,27 +535,15 @@ export async function installTestBackend(
       const referenceSections = () => openingDepth === 'reference'
         ? [clone(openingFixtures.referenceSection)]
         : []
-      const promptPositionContext = () => ({
-        positionId: 'after-bc5', label: 'Giuoco Piano',
-        evaluation: { code: 'equal', sourceSymbol: '=' },
-        planText: 'Prepare d4 while keeping the bishop active.',
-        arrivedVia: [{
-          moveId: 'black-bc5', san: 'Bc5', role: 'opponent',
-          variationName: 'Giuoco Piano', evaluation: { code: 'equal' }, selected: true
-        }],
-        nextMoves: [{
-          moveId: 'white-c3', san: 'c3', role: 'repertoire',
-          variationName: 'Giuoco Piano', evaluation: { code: 'equal' }, selected: false
-        }]
-      })
-      const afterC3PositionContext = () => ({
-        positionId: 'after-c3', label: 'Prepare d4', evaluation: { code: 'equal' },
-        arrivedVia: [{
-          moveId: 'white-c3', san: 'c3', role: 'repertoire',
-          variationName: 'Giuoco Piano', evaluation: { code: 'equal' }, selected: true
-        }],
-        nextMoves: []
-      })
+      const promptPositionContext = () => {
+        const context = clone(openingFixtures.promptPositionContext)
+        if (openingDepth !== 'reference') {
+          context.arrivedVia = context.arrivedVia.slice(0, 1)
+          context.nextMoves = context.nextMoves.slice(0, 1)
+        }
+        return context
+      }
+      const afterC3PositionContext = () => clone(openingFixtures.afterC3PositionContext)
       const lessonActivities = (lessonId: string): WireOpeningActivity[] => {
         if (lessonId === 'giuoco-d3') {
           return [{
@@ -920,11 +908,7 @@ export async function installTestBackend(
               session: clone(requireOpening()),
               activityCompleted: false,
               feedback: 'alternative',
-              feedbackDetail: {
-                coverage: 'visible', playedSan: 'b4', variationName: 'Evans idea',
-                evaluation: { code: 'unclear' }, expectedSan: 'c3',
-                planText: 'Prepare d4 while keeping the bishop active.'
-              },
+              feedbackDetail: clone(openingFixtures.b4FeedbackDetail),
               message: 'Playable alternative. Return to the lesson position.'
             }
           }
@@ -933,10 +917,7 @@ export async function installTestBackend(
               session: clone(requireOpening()),
               activityCompleted: false,
               feedback: 'off_course',
-              feedbackDetail: {
-                coverage: 'unknown', playedSan: 'd3', evaluation: { code: 'none' },
-                expectedSan: 'c3', planText: 'Prepare d4 while keeping the bishop active.'
-              },
+              feedbackDetail: clone(openingFixtures.d3FeedbackDetail),
               message: 'This lesson is practising c3.'
             }
           }

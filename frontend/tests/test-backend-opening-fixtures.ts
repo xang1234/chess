@@ -54,6 +54,46 @@ export const openingBackendFixtures = {
     noteTexts: ['Reference analysis: c3 supports d4 while preserving the active bishop.'],
     annotations: [{ kind: 'arrow', from: 'c2', to: 'c3' }]
   },
+  promptPositionContext: {
+    positionId: 'after-bc5', label: 'Giuoco Piano',
+    evaluation: { code: 'equal', sourceSymbol: '=' },
+    planText: 'Prepare d4 while keeping the bishop active.',
+    arrivedVia: [{
+      moveId: 'black-bc5', san: 'Bc5', role: 'opponent',
+      variationName: 'Giuoco Piano', evaluation: { code: 'equal' }, selected: true
+    }, {
+      moveId: 'black-nf6', san: 'Nf6', role: 'opponent',
+      variationName: 'Two Knights', evaluation: { code: 'unclear' }, selected: false
+    }],
+    nextMoves: [{
+      moveId: 'white-c3', san: 'c3', role: 'repertoire',
+      variationName: 'Giuoco Piano', evaluation: { code: 'equal' }, selected: false
+    }, {
+      moveId: 'white-b4', san: 'b4', role: 'alternative',
+      variationName: 'Evans idea', evaluation: { code: 'unclear' }, selected: false
+    }]
+  },
+  afterC3PositionContext: {
+    positionId: 'after-c3', label: 'Prepare d4', evaluation: { code: 'equal' },
+    arrivedVia: [{
+      moveId: 'white-c3', san: 'c3', role: 'repertoire',
+      variationName: 'Giuoco Piano', evaluation: { code: 'equal' }, selected: true
+    }],
+    nextMoves: []
+  },
+  b4FeedbackDetail: {
+    coverage: 'visible', playedSan: 'b4', variationName: 'Evans idea',
+    evaluation: { code: 'unclear' },
+    noteText: 'A sound alternative that keeps pressure on the centre.',
+    expectedSan: 'c3',
+    planText: 'Prepare d4 while keeping the bishop active.'
+  },
+  d3FeedbackDetail: {
+    coverage: 'visible', playedSan: 'd3', variationName: 'Quiet Italian',
+    evaluation: { code: 'equal' },
+    noteText: 'Develop first and keep the centre compact.', expectedSan: 'c3',
+    planText: 'Prepare d4 while keeping the bishop active.'
+  },
   courseChooserPath: '/Users/family/Documents/synthetic-italian.ctcourse',
   courseInspection: {
     path: '/Users/family/Documents/synthetic-italian.ctcourse',

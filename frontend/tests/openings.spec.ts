@@ -5,6 +5,7 @@ import { backendState, selectedCoursePath } from './test-backend-state'
 
 test('learns a private two-node teaching tree and preserves the journey', async ({ page }) => {
   await installTestBackend(page, { kind: 'openings' })
+  await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto('/')
 
   await page.getByLabel('Starting rating').fill('1250')
@@ -50,17 +51,33 @@ test('learns a private two-node teaching tree and preserves the journey', async 
   const lessonDetails = page.getByRole('region', { name: 'Opening lesson details' })
   const lessonActions = page.getByRole('group', { name: 'Opening lesson actions' })
   const lessonBoard = chessgroundBoard(page)
+  const positionContext = page.getByRole('region', { name: 'Position: Giuoco Piano' })
+  const arrivedVia = positionContext.getByRole('list', { name: 'You arrived via' })
+  const fromHere = positionContext.getByRole('list', { name: 'From here' })
+
+  await expect(positionContext).toContainText('= Equal chances')
+  await expect(positionContext).toContainText('Prepare d4 while keeping the bishop active.')
+  await expect(arrivedVia).toContainText('Bc5')
+  await expect(arrivedVia).toContainText('Nf6')
+  await expect(arrivedVia).toContainText('Played')
+  await expect(fromHere).toContainText('c3')
+  await expect(fromHere).toContainText('b4')
+  await expect(positionContext.getByRole('button')).toHaveCount(0)
 
   await expect.poll(() => lessonDetails.evaluate(
     (element) => element.scrollHeight > element.clientHeight
   )).toBe(true)
 
   const boardBefore = await lessonBoard.boundingBox()
+  const contextBefore = await positionContext.boundingBox()
   const actionsBefore = await lessonActions.boundingBox()
   const viewport = page.viewportSize()
-  if (!boardBefore || !actionsBefore || !viewport) throw new Error('lesson layout has no bounds')
+  if (!boardBefore || !contextBefore || !actionsBefore || !viewport) {
+    throw new Error('lesson layout has no bounds')
+  }
   expect(boardBefore.y).toBeGreaterThanOrEqual(0)
   expect(boardBefore.y + boardBefore.height).toBeLessThanOrEqual(viewport.height)
+  expect(contextBefore.y + contextBefore.height).toBeLessThanOrEqual(viewport.height)
 
   await lessonDetails.evaluate((element) => { element.scrollTop = element.scrollHeight })
   await expect.poll(() => lessonDetails.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
@@ -90,6 +107,22 @@ test('learns a private two-node teaching tree and preserves the journey', async 
   }).evaluate((element) => element.scrollTop)).toBe(0)
 
   const c3Board = chessgroundBoard(page)
+  await mouseClickMove(page, c3Board, 'b2', 'b4', 'white')
+  let feedback = lessonDetails.getByRole('status').filter({ hasText: 'b4 — Evans idea' })
+  await expect(feedback).toBeVisible()
+  await expect(feedback).toContainText('∞ Unclear position.')
+  await expect(feedback).toContainText('This lesson is practising c3:')
+  await expect(page.getByRole('gridcell', { name: 'White pawn on b2' })).toHaveCount(1)
+  await expect(page.getByRole('gridcell', { name: 'Empty b4' })).toHaveCount(1)
+
+  await mouseClickMove(page, c3Board, 'd2', 'd3', 'white')
+  feedback = lessonDetails.getByRole('status').filter({ hasText: 'd3 — Quiet Italian' })
+  await expect(feedback).toBeVisible()
+  await expect(feedback).toContainText('This is a course-known idea.')
+  await expect(feedback).toContainText('This lesson is practising c3:')
+  await expect(page.getByRole('gridcell', { name: 'White pawn on d2' })).toHaveCount(1)
+  await expect(page.getByRole('gridcell', { name: 'Empty d3' })).toHaveCount(1)
+
   await mouseClickMove(page, c3Board, 'c2', 'c3', 'white')
   await page.getByRole('button', { name: 'Next idea' }).click()
   await expect(page.getByRole('heading', { name: "Compare Black's setups" })).toBeVisible()
@@ -167,9 +200,46 @@ test('learns a private two-node teaching tree and preserves the journey', async 
   await expect(page.getByText('Correct!')).toBeVisible()
 
   await expect.poll(() => backendState<string[]>(page, 'openingMoves'))
-    .toEqual(['c2c3', 'd2d3', 'c2c3'])
+    .toEqual(['b2b4', 'd2d3', 'c2c3', 'd2d3', 'c2c3'])
   await expect.poll(() => backendState<number[]>(page, 'openingHints'))
     .toEqual([])
+})
+
+test('keeps opening context contained on a narrow lesson layout', async ({ page }) => {
+  await installTestBackend(page, { kind: 'openings' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+
+  await page.getByLabel('Starting rating').fill('1250')
+  await page.getByLabel('Puzzles per session').selectOption('5')
+  await page.getByRole('button', { name: 'Save and continue' }).click()
+  await page.getByRole('button', { name: 'Parent settings' }).click()
+  await page.getByRole('button', { name: 'Import content' }).click()
+  await page.getByRole('button', { name: 'Choose opening course' }).click()
+  await page.getByRole('button', { name: 'Import course' }).click()
+  await page.getByRole('button', { name: 'Chess Trainer home' }).click()
+  await page.getByRole('button', { name: 'Learn Openings' }).click()
+  await page.getByLabel('Course depth').selectOption('reference')
+  await page.getByRole('button', { name: 'Study Prepare d4 with c3' }).click()
+
+  const context = page.getByRole('region', { name: 'Position: Giuoco Piano' })
+  const arrivals = context.getByRole('list', { name: 'You arrived via' })
+  const continuations = context.getByRole('list', { name: 'From here' })
+  await expect(arrivals).toBeVisible()
+  await expect(continuations).toBeVisible()
+  await expect(arrivals).toContainText('Nf6')
+  await expect(continuations).toContainText('b4')
+  await expect.poll(() => page.evaluate(() => ({
+    body: document.body.scrollWidth <= document.body.clientWidth,
+    document: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+  }))).toEqual({ body: true, document: true })
+  await expect.poll(() => context.evaluate((element) => (
+    element.scrollWidth <= element.clientWidth
+  ))).toBe(true)
+  await expect.poll(() => arrivals.evaluate((element) => getComputedStyle(element).overflowX))
+    .toBe('auto')
+  await expect.poll(() => continuations.evaluate((element) => getComputedStyle(element).overflowX))
+    .toBe('auto')
 })
 
 test('keeps the variation explorer board visible on deep branches', async ({ page }) => {

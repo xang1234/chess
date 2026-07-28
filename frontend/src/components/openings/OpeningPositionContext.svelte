@@ -65,7 +65,7 @@
   .position-context {
     box-sizing: border-box;
     width: min(100%, 760px);
-    padding: 12px 14px;
+    padding: 8px 14px;
     border: 1px solid #46544f;
     border-radius: 14px;
     color: #f7f4e9;
@@ -93,7 +93,7 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
   }
-  .position-branches { display: grid; margin-top: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .position-branches { display: grid; margin-top: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .branch-group { min-width: 0; }
   h4 { margin: 0 0 5px; color: #b9d5c2; font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase; }
   ul {
