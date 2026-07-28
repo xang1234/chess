@@ -1,7 +1,7 @@
 # Opening Position Context and Graph Feedback Design
 
 **Date:** 2026-07-28
-**Status:** Approved direction, awaiting written-spec review
+**Status:** Approved
 
 ## Purpose
 
