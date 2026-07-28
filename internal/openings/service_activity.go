@@ -387,6 +387,7 @@ func referenceSections(course CompiledCourse, lesson Lesson) []OpeningReferenceS
 }
 
 type activityRoute struct {
+	MoveIDs       []string
 	Frames        []domain.AppliedMove
 	SAN           []string
 	VariationName string
@@ -410,7 +411,8 @@ func (s *Service) activityRouteForMoveIDs(
 		}
 	}
 	return activityRoute{
-		Frames: frames, SAN: san, VariationName: variationName,
+		MoveIDs: append([]string{}, moveIDs...),
+		Frames:  frames, SAN: san, VariationName: variationName,
 	}, nil
 }
 
@@ -420,7 +422,9 @@ func (s *Service) routeToPosition(
 	depth Depth,
 ) (activityRoute, error) {
 	if targetPositionID == course.Pack.RootPositionID {
-		return activityRoute{Frames: []domain.AppliedMove{}, SAN: []string{}}, nil
+		return activityRoute{
+			MoveIDs: []string{}, Frames: []domain.AppliedMove{}, SAN: []string{},
+		}, nil
 	}
 	type route struct {
 		positionID string

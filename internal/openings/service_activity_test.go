@@ -10,6 +10,40 @@ import (
 	"chess-trainer/internal/chessrules"
 )
 
+func TestActivityRouteKeepsMoveIDsFramesAndSANAligned(t *testing.T) {
+	fixture := newOpeningServiceFixture(t)
+	route, err := fixture.service.routeToPosition(
+		fixture.compiled, "after-bc5", DepthReference,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"white-e4", "black-e5", "white-nf3",
+		"black-nc6", "white-bc4", "black-bc5",
+	}
+	if !reflect.DeepEqual(route.MoveIDs, want) {
+		t.Fatalf("IDs = %v, want %v", route.MoveIDs, want)
+	}
+	if len(route.MoveIDs) != len(route.Frames) || len(route.MoveIDs) != len(route.SAN) {
+		t.Fatalf("lengths = %d/%d/%d", len(route.MoveIDs), len(route.Frames), len(route.SAN))
+	}
+}
+
+func TestActivityRouteReturnsNonNilEmptyRootSlices(t *testing.T) {
+	fixture := newOpeningServiceFixture(t)
+	route, err := fixture.service.routeToPosition(
+		fixture.compiled, fixture.compiled.Pack.RootPositionID, DepthQuick,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.MoveIDs == nil || route.Frames == nil || route.SAN == nil ||
+		len(route.MoveIDs)+len(route.Frames)+len(route.SAN) != 0 {
+		t.Fatalf("root route = %#v", route)
+	}
+}
+
 func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	fixture := newTreeServiceFixture(t)
