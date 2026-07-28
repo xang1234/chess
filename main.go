@@ -8,10 +8,24 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+func desktopWindowOptions() *options.App {
+	return &options.App{
+		Title:  "Chess Trainer",
+		Width:  1024,
+		Height: 768,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
+		Mac:              &mac.Options{},
+	}
+}
 
 func main() {
 	application, err := newApplication()
@@ -21,22 +35,16 @@ func main() {
 	}
 	defer application.Close()
 
-	err = wails.Run(&options.App{
-		Title:  "Chess Trainer",
-		Width:  1024,
-		Height: 768,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        application.startup,
-		OnShutdown: func(context.Context) {
-			if err := application.Close(); err != nil {
-				log.Printf("close application services: %v", err)
-			}
-		},
-		Bind: application.Bindings(),
-	})
+	appOptions := desktopWindowOptions()
+	appOptions.OnStartup = application.startup
+	appOptions.OnShutdown = func(context.Context) {
+		if err := application.Close(); err != nil {
+			log.Printf("close application services: %v", err)
+		}
+	}
+	appOptions.Bind = application.Bindings()
+
+	err = wails.Run(appOptions)
 
 	if err != nil {
 		log.Printf("run application: %v", err)
