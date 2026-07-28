@@ -1,37 +1,33 @@
 import type { Page } from '@playwright/test'
 import type {
-  BoardScenario, NextResponse,
-  ModeControllerMock,
-  NormalControllerMock,
-  PuzzleDefinition,
-  RecoveryControllerMock,
-  ResponseDefinition,
-  TestBackendScenario,
-  TestWindow,
-  TrustedInput,
-  WireImportResult,
-  WireOpeningActivity,
-  WireOpeningSession,
-  WirePuzzle,
-  WireSession
+  BoardScenario, ModeControllerMock, NextResponse, NormalControllerMock,
+  OpeningBackendSnapshot, PuzzleDefinition, RecoveryControllerMock, ResponseDefinition,
+  TestBackendScenario, TestWindow, TrustedInput, WireImportResult, WireOpeningActivity,
+  WireOpeningSession, WirePuzzle, WireSession
 } from './test-backend-types'
-import { openingBackendFixtures } from './test-backend-opening-fixtures'
-
-export async function installTestBackend(
-  page: Page,
-  scenario: TestBackendScenario
-): Promise<void> {
-  await page.addInitScript(({ configured, openingFixtures }) => {
+import { buildDeepExplorerPositions, openingBackendFixtures } from './test-backend-opening-fixtures'
+export async function installTestBackend(page: Page, scenario: TestBackendScenario): Promise<void> {
+  const deepExplorerPositions = buildDeepExplorerPositions(
+    scenario.kind === 'openings' ? scenario.deepExplorerLength ?? 0 : 0
+  )
+  await page.addInitScript(({ configured, openingFixtures, deepPositions }) => {
     const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
+    const openingStorageKey = 'chess-trainer-opening-e2e-state'
+    const storedOpening: OpeningBackendSnapshot | null = configured.kind === 'openings'
+      ? JSON.parse(sessionStorage.getItem(openingStorageKey) ?? 'null') : null
     const listeners: Record<string, Array<(payload: unknown) => void>> = {}
     const state = {
       moves: [] as string[],
       reveals: 0,
       trustedInputs: [] as TrustedInput[],
       semanticFrames: [] as string[][],
-      openingMoves: [] as string[],
-      openingHints: [] as number[],
-      openingDepths: [] as string[],
+      openingMoves: storedOpening?.openingMoves ?? [],
+      openingHints: storedOpening?.openingHints ?? [],
+      openingDepths: storedOpening?.openingDepths ?? [],
+      openingLessonStarts: storedOpening?.openingLessonStarts ?? [],
+      openingRollovers: storedOpening?.openingRollovers ?? [],
+      openingSessionId: '',
+      openingCurrentFen: '',
       holdImportOpen: () => {},
       selectedImportPath: () => '',
       selectedCoursePath: () => '',
@@ -39,7 +35,6 @@ export async function installTestBackend(
     }
     const testWindow = window as unknown as TestWindow
     testWindow.__testBackend = state
-
     const emit = (name: string, payload: unknown) => {
       for (const listener of listeners[name] ?? []) listener(payload)
     }
@@ -53,7 +48,6 @@ export async function installTestBackend(
       EventsOff(name: string) { delete listeners[name] },
       EventsOffAll() { for (const name of Object.keys(listeners)) delete listeners[name] }
     }
-
     document.addEventListener('mousedown', (event) => {
       if ((event.target as Element | null)?.closest?.('cg-board')) {
         state.trustedInputs.push({ type: event.type, trusted: event.isTrusted })
@@ -64,7 +58,6 @@ export async function installTestBackend(
         state.trustedInputs.push({ type: event.type, trusted: event.isTrusted })
       }
     }, true)
-
     const buildInfo = {
       name: 'Chess Trainer',
       commit: 'development',
@@ -155,7 +148,6 @@ export async function installTestBackend(
         RecoveryController: recoveryController
       } }
     }
-
     if (configured.kind === 'board') {
       const configuredNext = [configured.correct, configured.reveal]
         .find((response): response is NextResponse => response?.kind === 'next')?.next
@@ -198,7 +190,6 @@ export async function installTestBackend(
           unavailable: 0
         }
       })
-
       let session: ReturnType<typeof active> | ReturnType<typeof completed> | null = null
       const applyResponse = (response: ResponseDefinition, revealed: boolean) => {
         if (response.kind === 'next') {
@@ -216,7 +207,6 @@ export async function installTestBackend(
           ...(response.kind === 'continue' ? {} : { finalFen: response.finalFen })
         }
       }
-
       installNormalController({
         StartGuided: async () => {
           session = active(configured.first, 0)
@@ -259,7 +249,6 @@ export async function installTestBackend(
       })
       return
     }
-
     const fen = '4k3/8/8/4p3/8/8/4P3/4K3 w - - 0 2'
     const finalFen = '4k3/8/8/4p3/4P3/8/8/4K3 b - - 0 2'
     const puzzle = (fingerprint: string, number: number, total: number): WirePuzzle => ({
@@ -283,7 +272,8 @@ export async function installTestBackend(
       total: 2,
       current: puzzle(fingerprint, number, 2)
     })
-    let profile: { learnerRating: number; sessionSize: number } | null = null
+    let profile: { learnerRating: number; sessionSize: number } | null = storedOpening?.profile ?? null
+    let persistOpeningState = () => {}
     let activeSession: WireSession | null = null
     let hintLevel = 0
     let importedPath = ''
@@ -306,12 +296,10 @@ export async function installTestBackend(
       progress: { phase: 'detecting', rowsRead: 0, bytesRead: 0, totalBytes: importBytes },
       report: { accepted: 0, duplicates: 0, rejected: 0, examples: [] }
     }
-
     const requireActiveSession = (): WireSession => {
       if (!activeSession) throw new Error('test backend has no active session')
       return activeSession
     }
-
     state.holdImportOpen = () => { holdImportOpen = true }
     state.selectedImportPath = () => importedPath
     state.reportImportProgress = (rowsRead: number, bytesRead: number) => {
@@ -324,11 +312,11 @@ export async function installTestBackend(
       }
       emit('import:progress', progress)
     }
-
     installNormalController({
       GetProfile: async () => profile,
       UpdateProfile: async (value: { learnerRating: number; sessionSize: number }) => {
         profile = value
+        persistOpeningState()
       },
       ResumeSession: async () => activeSession,
       StartGuided: async () => {
@@ -468,25 +456,22 @@ export async function installTestBackend(
       OpenDataFolder: async () => {},
       Quit: async () => {}
     })
-
     if (configured.kind === 'openings') {
       const {
         initialFen, promptFen, afterC3Fen,
         courseChooserPath, courseInspection
       } = openingFixtures
       const watchFrames = openingFixtures.watchFrames.map((frame) => ({ ...frame }))
-      let selectedCourse = ''
-      let courseImported = false
-      const completedLessonIds = new Set<string>()
-      let reviewCompleted = false
-      let openingDepth = 'standard'
-      let openingLessonId = 'giuoco-c3'
-      const openingActivityIndexes: Record<string, number> = {
-        'giuoco-c3': 0,
-        'giuoco-d3': 0
-      }
-      let openingHintLevel = 0
-      let openingMode: 'lesson' | 'review' = 'lesson'
+      let selectedCourse = storedOpening?.selectedCourse ?? ''
+      let courseImported = storedOpening?.courseImported ?? false
+      const completedLessonIds = new Set(storedOpening?.completedLessonIds ?? [])
+      let reviewCompleted = storedOpening?.reviewCompleted ?? false
+      let openingDepth = storedOpening?.openingDepth ?? 'standard'
+      let openingLessonId = storedOpening?.openingLessonId ?? 'giuoco-c3'
+      const openingActivityIndexes: Record<string, number> =
+        storedOpening?.openingActivityIndexes ?? { 'giuoco-c3': 0, 'giuoco-d3': 0 }
+      let openingHintLevel = storedOpening?.openingHintLevel ?? 0
+      let openingMode: 'lesson' | 'review' = storedOpening?.openingMode ?? 'lesson'
       let openingSession: WireOpeningSession | null = null
       let courseImportResult: WireImportResult = {
         jobId: 'course-job-1',
@@ -495,43 +480,6 @@ export async function installTestBackend(
         report: { accepted: 0, duplicates: 0, rejected: 0, examples: [], counts: {} }
       }
       const deepExplorerLength = configured.deepExplorerLength ?? 0
-      const deepExplorerPosition = (courseId: string, positionId: string) => {
-        const sideBranch = positionId.startsWith('deep-side-')
-        const match = positionId.match(/^deep-(?:position|side)-(\d+)/)
-        const depth = positionId === 'initial' ? 0 : Number(match?.[1])
-        if (!Number.isInteger(depth) || depth < 0 || depth > deepExplorerLength) {
-          throw new Error(`unexpected deep opening position ${positionId}`)
-        }
-        const terminal = sideBranch || depth >= deepExplorerLength
-        const branchCount = depth >= 5 ? 7 : 1
-        return {
-          courseId,
-          positionId,
-          fen: depth % 2 === 0 ? initialFen : 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
-          label: depth === 0 ? 'Initial position' : `Deep explorer position ${depth}`,
-          evaluation: { code: 'equal' },
-          notes: Array.from({ length: depth >= 6 ? 10 : 1 }, (_value, index) => ({
-            kind: 'overview',
-            text: `Scrollable reference note ${index + 1} for explorer depth ${depth}.`,
-            sourceRef: {
-              printedPage: 1, noteLabel: `deep-${depth}-${index + 1}`,
-              coverageId: `synthetic-deep-note-${depth}-${index + 1}`
-            }
-          })),
-          moves: terminal ? [] : Array.from({ length: branchCount }, (_value, index) => ({
-            moveId: `deep-${depth}-${index}`,
-            uci: depth % 2 === 0 ? 'e2e4' : 'e7e5',
-            san: index === 0 ? `M${depth + 1}` : `S${depth + 1}.${index}`,
-            toPositionId: index === 0 ? `deep-position-${depth + 1}` : `deep-side-${depth + 1}-${index}`,
-            role: 'repertoire',
-            variationName: index === 0 ? 'Main continuation' : 'Side branch',
-            evaluation: { code: 'equal' },
-            sourceRef: { printedPage: 1, coverageId: `synthetic-deep-move-${depth}-${index}` }
-          })),
-          incomingPaths: 1
-        }
-      }
-
       const referenceSections = () => openingDepth === 'reference'
         ? [clone(openingFixtures.referenceSection)]
         : []
@@ -637,12 +585,42 @@ export async function installTestBackend(
         }
         return lessonActivities(lessonId)[index]
       }
+      const openingCourseMap = (lessonId: string) => {
+        const completedIdeas = (completedLessonIds.has('giuoco-c3')
+          ? 3
+          : openingActivityIndexes['giuoco-c3']) + (
+          completedLessonIds.has('giuoco-d3') ? 1 : openingActivityIndexes['giuoco-d3']
+        )
+        const entries: Array<{
+          lessonId: string; parentLessonId?: string; moveLabel: string
+          title: string; state: string; selectable: boolean
+        }> = [{
+          lessonId: 'giuoco-c3', moveLabel: '3...Bc5', title: 'Prepare d4 with c3',
+          state: lessonId === 'giuoco-c3'
+            ? 'current'
+            : completedLessonIds.has('giuoco-c3') ? 'learned' : 'available',
+          selectable: true
+        }]
+        if (openingDepth !== 'quick') {
+          entries.push({
+            lessonId: 'giuoco-d3', parentLessonId: 'giuoco-c3', moveLabel: '3...Nf6',
+            title: 'Choose the quiet d3 setup',
+            state: lessonId === 'giuoco-d3'
+              ? 'current'
+              : lessonId === 'giuoco-c3' || completedLessonIds.has('giuoco-c3')
+                ? 'next'
+                : 'available',
+            selectable: true
+          })
+        }
+        return { completedIdeas, totalIdeas: openingDepth === 'quick' ? 3 : 4, entries }
+      }
       const activeOpening = (
         lessonId = openingLessonId,
         index = openingActivityIndexes[lessonId],
         mode: 'lesson' | 'review' = openingMode
       ): WireOpeningSession => ({
-        sessionId: mode === 'review' ? 'opening-review-session' : 'opening-lesson-session',
+        sessionId: mode === 'review' ? 'opening-review-session' : `opening-lesson-${lessonId}`,
         mode,
         status: 'active',
         courseId: 'synthetic-italian',
@@ -651,6 +629,7 @@ export async function installTestBackend(
         courseTitle: 'Synthetic Italian for White',
         path: mode === 'review' ? [] : lessonPath(lessonId),
         depth: openingDepth,
+        ...(mode === 'lesson' ? { courseMap: openingCourseMap(lessonId) } : {}),
         current: openingActivity(lessonId, index, mode)
       })
       const completedOpening = (
@@ -678,6 +657,27 @@ export async function installTestBackend(
             { lessonId: 'giuoco-d3', title: 'Choose the quiet d3 setup' }
           ]
         : [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }]
+      if (storedOpening?.openingStatus === 'active') {
+        openingSession = activeOpening(openingLessonId, openingActivityIndexes[openingLessonId], openingMode)
+      } else if (storedOpening?.openingStatus === 'completed') {
+        openingSession = completedOpening(openingMode, openingLessonId)
+      }
+      persistOpeningState = () => {
+        state.openingSessionId = openingSession?.sessionId ?? ''
+        state.openingCurrentFen = openingSession?.current?.currentFen ?? ''
+        const snapshot: OpeningBackendSnapshot = {
+          profile, selectedCourse, courseImported, reviewCompleted,
+          completedLessonIds: [...completedLessonIds],
+          openingDepth, openingLessonId, openingActivityIndexes: { ...openingActivityIndexes },
+          openingHintLevel, openingMode, openingStatus: openingSession?.status === 'active'
+            ? 'active' : openingSession ? 'completed' : null,
+          openingMoves: [...state.openingMoves], openingHints: [...state.openingHints],
+          openingDepths: [...state.openingDepths], openingLessonStarts: [...state.openingLessonStarts],
+          openingRollovers: [...state.openingRollovers]
+        }
+        sessionStorage.setItem(openingStorageKey, JSON.stringify(snapshot))
+      }
+      if (openingSession) persistOpeningState()
       const lessonProgress = (lessonId: string) => completedLessonIds.has(lessonId)
         ? 'completed'
         : openingSession?.status === 'active' && openingMode === 'lesson' && openingLessonId === lessonId
@@ -773,17 +773,6 @@ export async function installTestBackend(
         }
         return openingSession
       }
-      const checkpointFor = (lessonId: string) => ({
-        completedLessonId: lessonId,
-        path: lessonPath(lessonId),
-        availableLessonIds: lessonId === 'giuoco-c3' ? ['giuoco-d3'] : [],
-        ...(lessonId === 'giuoco-c3' ? {
-          recommendedLessonId: 'giuoco-d3',
-          recommendedLessonTitle: 'Choose the quiet d3 setup'
-        } : {}),
-        completedLessons: completedLessonIds.size,
-        totalLessons: openingDepth === 'quick' ? 1 : 2
-      })
       const completeActivity = (appliedMove?: { uci: string; resultingFen: string }) => {
         requireOpening()
         if (openingMode === 'review') {
@@ -794,15 +783,22 @@ export async function installTestBackend(
           if (nextIndex >= lessonActivities(openingLessonId).length) {
             completedLessonIds.add(openingLessonId)
             openingActivityIndexes[openingLessonId] = nextIndex
-            openingSession = completedOpening('lesson', openingLessonId)
+            if (openingLessonId === 'giuoco-c3' && openingDepth !== 'quick' &&
+              !completedLessonIds.has('giuoco-d3')) {
+              openingLessonId = 'giuoco-d3'
+              openingHintLevel = 0
+              openingSession = activeOpening('giuoco-d3', openingActivityIndexes['giuoco-d3'], 'lesson')
+              state.openingRollovers.push('giuoco-c3->giuoco-d3')
+            } else {
+              openingSession = completedOpening('lesson', openingLessonId)
+            }
           } else {
             openingActivityIndexes[openingLessonId] = nextIndex
             openingSession = activeOpening(openingLessonId, nextIndex, 'lesson')
           }
         }
-        const checkpoint = openingMode === 'lesson' && openingSession.status === 'completed'
-          ? checkpointFor(openingLessonId)
-          : undefined
+        state.openingSessionId = openingSession.sessionId
+        persistOpeningState()
         return {
           session: clone(openingSession),
           activityCompleted: true,
@@ -810,8 +806,7 @@ export async function installTestBackend(
             feedback: 'expected',
             appliedMoves: [appliedMove],
             finalFen: appliedMove.resultingFen
-          } : {}),
-          ...(checkpoint ? { checkpoint } : {})
+          } : {})
         }
       }
 
@@ -845,6 +840,7 @@ export async function installTestBackend(
                 counts: { chapters: 2, moves: 42, lessons: 2, activities: 4, lessonEdges: 1 }
               }
             }
+            persistOpeningState()
             emit('import:finished', courseImportResult)
           }, 20)
           return 'course-job-1'
@@ -859,6 +855,7 @@ export async function installTestBackend(
           if (openingSession?.status === 'active') {
             openingSession = activeOpening()
           }
+          persistOpeningState()
         },
         StartOpeningLesson: async (_courseId: string, lessonId: string) => {
           if (lessonId !== 'giuoco-c3' && lessonId !== 'giuoco-d3') {
@@ -869,6 +866,8 @@ export async function installTestBackend(
           openingActivityIndexes[lessonId] = 0
           openingHintLevel = 0
           openingSession = activeOpening(lessonId, 0, 'lesson')
+          state.openingLessonStarts.push(lessonId)
+          persistOpeningState()
           return clone(openingSession)
         },
         ResumeOpeningSession: async () => openingSession ? clone(openingSession) : null,
@@ -876,6 +875,7 @@ export async function installTestBackend(
           openingActivityIndexes[openingLessonId] = 0
           openingHintLevel = 0
           openingSession = activeOpening(openingLessonId, 0, openingMode)
+          persistOpeningState()
           return clone(openingSession)
         },
         AdvanceOpeningActivity: async () => {
@@ -928,6 +928,7 @@ export async function installTestBackend(
           openingHintLevel = Math.min(4, openingHintLevel + 1)
           state.openingHints.push(openingHintLevel)
           openingSession = activeOpening()
+          persistOpeningState()
           const text = [
             '',
             'Plan: prepare d4 while keeping the centre flexible.',
@@ -955,11 +956,16 @@ export async function installTestBackend(
           openingMode = 'review'
           openingHintLevel = 0
           openingSession = activeOpening(openingLessonId, 0, 'review')
+          persistOpeningState()
           return clone(openingSession)
         },
         GetOpeningPosition: async (courseId: string, positionId: string) => {
           if (courseId !== 'synthetic-italian') throw new Error(`unexpected course ${courseId}`)
-          if (deepExplorerLength > 0) return deepExplorerPosition(courseId, positionId)
+          if (deepExplorerLength > 0) {
+            const position = deepPositions[positionId]
+            if (!position) throw new Error(`unexpected deep opening position ${positionId}`)
+            return clone(position)
+          }
           if (positionId === 'initial') {
             return {
               courseId, positionId, fen: initialFen, label: 'Initial position',
@@ -990,5 +996,5 @@ export async function installTestBackend(
         }
       })
     }
-  }, { configured: scenario, openingFixtures: openingBackendFixtures })
+  }, { configured: scenario, openingFixtures: openingBackendFixtures, deepPositions: deepExplorerPositions })
 }

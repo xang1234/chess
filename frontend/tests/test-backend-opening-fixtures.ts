@@ -1,3 +1,51 @@
+const deepInitialFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+
+export function buildDeepExplorerPositions(length: number) {
+  const buildPosition = (positionId: string, depth: number, sideBranch: boolean) => {
+    const terminal = sideBranch || depth >= length
+    const branchCount = depth >= 5 ? 7 : 1
+    return {
+      courseId: 'synthetic-italian', positionId,
+      fen: depth % 2 === 0
+        ? deepInitialFen
+        : 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+      label: depth === 0 ? 'Initial position' : `Deep explorer position ${depth}`,
+      evaluation: { code: 'equal' },
+      notes: Array.from({ length: depth >= 6 ? 10 : 1 }, (_value, index) => ({
+        kind: 'overview',
+        text: `Scrollable reference note ${index + 1} for explorer depth ${depth}.`,
+        sourceRef: {
+          printedPage: 1, noteLabel: `deep-${depth}-${index + 1}`,
+          coverageId: `synthetic-deep-note-${depth}-${index + 1}`
+        }
+      })),
+      moves: terminal ? [] : Array.from({ length: branchCount }, (_value, index) => ({
+        moveId: `deep-${depth}-${index}`, uci: depth % 2 === 0 ? 'e2e4' : 'e7e5',
+        san: index === 0 ? `M${depth + 1}` : `S${depth + 1}.${index}`,
+        toPositionId: index === 0
+          ? `deep-position-${depth + 1}`
+          : `deep-side-${depth + 1}-${index}`,
+        role: 'repertoire', variationName: index === 0 ? 'Main continuation' : 'Side branch',
+        evaluation: { code: 'equal' },
+        sourceRef: { printedPage: 1, coverageId: `synthetic-deep-move-${depth}-${index}` }
+      })),
+      incomingPaths: depth === 0 ? 0 : 1
+    }
+  }
+  const positions: Record<string, ReturnType<typeof buildPosition>> = {}
+  for (let depth = 0; depth <= length; depth++) {
+    const positionId = depth === 0 ? 'initial' : `deep-position-${depth}`
+    positions[positionId] = buildPosition(positionId, depth, false)
+    if (depth < length && depth >= 5) {
+      for (let index = 1; index < 7; index++) {
+        const sideId = `deep-side-${depth + 1}-${index}`
+        positions[sideId] = buildPosition(sideId, depth + 1, true)
+      }
+    }
+  }
+  return positions
+}
+
 export const openingBackendFixtures = {
   initialFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
   promptFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4',

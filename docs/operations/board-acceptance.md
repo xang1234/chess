@@ -62,6 +62,28 @@ Any failure is a release blocker. Record the exact device, operating-system
 version, browser/version, commit, and observation rather than retrying until a
 pass is obtained.
 
+## Opening-course flow checklist
+
+Use a course with at least two visible lessons and numbered move labels.
+
+1. Complete the final idea in the first lesson. Confirm the next lesson appears
+   in the same lesson screen, with no completion page, course-tree detour, or
+   extra Continue action.
+2. Confirm the sidebar changes the first lesson to **Learned**, the second to
+   **Current**, retains the course-wide idea total, and shows concise numbered
+   SAN such as `3...Bc5` and `3...Nf6`.
+3. Return Home, quit and reopen the app, then choose **Continue opening lesson**.
+   Confirm the exact activity, position, and current sidebar entry resume
+   without visiting the course map.
+4. Choose **View full map**, then **Return to your lesson**. Confirm the same
+   activity and position remain active.
+5. Open the full map again and choose **Study again** or **Start here** on a
+   different visible lesson. Confirm the selected lesson opens and previously
+   learned progress remains recorded.
+6. Complete the final visible unfinished lesson. Confirm exactly one **Opening
+   course complete!** summary appears and Home no longer offers an opening
+   continuation.
+
 ## Evidence record
 
 Copy this table into the implementation handoff and replace every pending cell:

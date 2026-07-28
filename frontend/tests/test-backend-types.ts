@@ -47,6 +47,25 @@ export type TrainerScenario = { kind: 'trainer' }
 export type OpeningScenario = { kind: 'openings'; deepExplorerLength?: number }
 export type TestBackendScenario = BoardScenario | TrainerScenario | OpeningScenario
 
+export type OpeningBackendSnapshot = {
+  profile: { learnerRating: number; sessionSize: number } | null
+  selectedCourse: string
+  courseImported: boolean
+  completedLessonIds: string[]
+  reviewCompleted: boolean
+  openingDepth: string
+  openingLessonId: string
+  openingActivityIndexes: Record<string, number>
+  openingHintLevel: number
+  openingMode: 'lesson' | 'review'
+  openingStatus: 'active' | 'completed' | null
+  openingMoves: string[]
+  openingHints: number[]
+  openingDepths: string[]
+  openingLessonStarts: string[]
+  openingRollovers: string[]
+}
+
 export type TrustedInput = { type: string; trusted: boolean }
 
 export type TestBackendState = {
@@ -57,6 +76,10 @@ export type TestBackendState = {
   openingMoves: string[]
   openingHints: number[]
   openingDepths: string[]
+  openingLessonStarts: string[]
+  openingRollovers: string[]
+  openingSessionId: string
+  openingCurrentFen: string
   holdImportOpen(): void
   selectedImportPath(): string
   selectedCoursePath(): string

@@ -598,48 +598,6 @@ export namespace openings {
 		    return a;
 		}
 	}
-	export class OpeningRoadmapCheckpoint {
-	    completedLessonId: string;
-	    path: OpeningPathItem[];
-	    availableLessonIds: string[];
-	    recommendedLessonId?: string;
-	    recommendedLessonTitle?: string;
-	    completedLessons: number;
-	    totalLessons: number;
-
-	    static createFrom(source: any = {}) {
-	        return new OpeningRoadmapCheckpoint(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.completedLessonId = source["completedLessonId"];
-	        this.path = this.convertValues(source["path"], OpeningPathItem);
-	        this.availableLessonIds = source["availableLessonIds"];
-	        this.recommendedLessonId = source["recommendedLessonId"];
-	        this.recommendedLessonTitle = source["recommendedLessonTitle"];
-	        this.completedLessons = source["completedLessons"];
-	        this.totalLessons = source["totalLessons"];
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class OpeningMoveFeedbackDetail {
 	    coverage: string;
 	    playedSan: string;
@@ -902,6 +860,62 @@ export namespace openings {
 		    return a;
 		}
 	}
+	export class OpeningCourseMapEntryView {
+	    lessonId: string;
+	    parentLessonId?: string;
+	    moveLabel?: string;
+	    title: string;
+	    state: string;
+	    selectable: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningCourseMapEntryView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lessonId = source["lessonId"];
+	        this.parentLessonId = source["parentLessonId"];
+	        this.moveLabel = source["moveLabel"];
+	        this.title = source["title"];
+	        this.state = source["state"];
+	        this.selectable = source["selectable"];
+	    }
+	}
+	export class OpeningCourseMapView {
+	    completedIdeas: number;
+	    totalIdeas: number;
+	    entries: OpeningCourseMapEntryView[];
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningCourseMapView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.completedIdeas = source["completedIdeas"];
+	        this.totalIdeas = source["totalIdeas"];
+	        this.entries = this.convertValues(source["entries"], OpeningCourseMapEntryView);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class OpeningPathItem {
 	    lessonId: string;
 	    title: string;
@@ -926,6 +940,7 @@ export namespace openings {
 	    courseTitle: string;
 	    path: OpeningPathItem[];
 	    depth: string;
+	    courseMap?: OpeningCourseMapView;
 	    current?: OpeningActivityView;
 	    summary?: OpeningSummary;
 	    notice?: string;
@@ -945,6 +960,7 @@ export namespace openings {
 	        this.courseTitle = source["courseTitle"];
 	        this.path = this.convertValues(source["path"], OpeningPathItem);
 	        this.depth = source["depth"];
+	        this.courseMap = this.convertValues(source["courseMap"], OpeningCourseMapView);
 	        this.current = this.convertValues(source["current"], OpeningActivityView);
 	        this.summary = this.convertValues(source["summary"], OpeningSummary);
 	        this.notice = source["notice"];
@@ -977,7 +993,6 @@ export namespace openings {
 	    message?: string;
 	    appliedMoves?: domain.AppliedMove[];
 	    finalFen?: string;
-	    checkpoint?: OpeningRoadmapCheckpoint;
 
 	    static createFrom(source: any = {}) {
 	        return new OpeningActivityResult(source);
@@ -993,7 +1008,6 @@ export namespace openings {
 	        this.message = source["message"];
 	        this.appliedMoves = this.convertValues(source["appliedMoves"], domain.AppliedMove);
 	        this.finalFen = source["finalFen"];
-	        this.checkpoint = this.convertValues(source["checkpoint"], OpeningRoadmapCheckpoint);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1069,6 +1083,8 @@ export namespace openings {
 		    return a;
 		}
 	}
+
+
 
 	export class OpeningTeachingEdgeView {
 	    edgeId: string;
@@ -1298,7 +1314,6 @@ export namespace openings {
 		    return a;
 		}
 	}
-
 
 
 
