@@ -95,6 +95,29 @@ export const fakeOpeningHome: OpeningHomeView = {
   }]
 }
 
+export const fakeOpeningPositionContext = {
+  positionId: 'after-bc5',
+  label: 'Giuoco Piano',
+  evaluation: { code: 'equal' as const, sourceSymbol: '=' },
+  planText: 'Prepare d4 while keeping the bishop active.',
+  arrivedVia: [{
+    moveId: 'black-bc5',
+    san: 'Bc5',
+    role: 'opponent' as const,
+    variationName: 'Giuoco Piano',
+    evaluation: { code: 'equal' as const },
+    selected: true
+  }],
+  nextMoves: [{
+    moveId: 'white-c3',
+    san: 'c3',
+    role: 'repertoire' as const,
+    variationName: 'Giuoco Piano',
+    evaluation: { code: 'equal' as const },
+    selected: false
+  }]
+}
+
 export const fakeOpeningSession: ActiveOpeningSessionView = {
   sessionId: 'opening-session-1',
   mode: 'lesson',
@@ -121,6 +144,7 @@ export const fakeOpeningSession: ActiveOpeningSessionView = {
     annotations: [],
     movesToHere: [],
     movesToHereSan: [],
+    positionContext: fakeOpeningPositionContext,
     activityNumber: 1,
     activityTotal: 3,
     completedIdeas: 0,

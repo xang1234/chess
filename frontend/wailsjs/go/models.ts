@@ -640,6 +640,50 @@ export namespace openings {
 		    return a;
 		}
 	}
+	export class OpeningMoveFeedbackDetail {
+	    coverage: string;
+	    playedSan: string;
+	    variationName?: string;
+	    evaluation: Evaluation;
+	    noteText?: string;
+	    expectedSan: string;
+	    planText?: string;
+	    requiredDepth?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningMoveFeedbackDetail(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.coverage = source["coverage"];
+	        this.playedSan = source["playedSan"];
+	        this.variationName = source["variationName"];
+	        this.evaluation = this.convertValues(source["evaluation"], Evaluation);
+	        this.noteText = source["noteText"];
+	        this.expectedSan = source["expectedSan"];
+	        this.planText = source["planText"];
+	        this.requiredDepth = source["requiredDepth"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class OpeningSummary {
 	    totalPrompts: number;
 	    positionsRecalled: number;
@@ -702,6 +746,86 @@ export namespace openings {
 		    return a;
 		}
 	}
+	export class OpeningContextMoveView {
+	    moveId: string;
+	    san: string;
+	    role: string;
+	    variationName?: string;
+	    evaluation: Evaluation;
+	    selected: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningContextMoveView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.moveId = source["moveId"];
+	        this.san = source["san"];
+	        this.role = source["role"];
+	        this.variationName = source["variationName"];
+	        this.evaluation = this.convertValues(source["evaluation"], Evaluation);
+	        this.selected = source["selected"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OpeningPositionContextView {
+	    positionId: string;
+	    label: string;
+	    evaluation: Evaluation;
+	    planText?: string;
+	    arrivedVia: OpeningContextMoveView[];
+	    nextMoves: OpeningContextMoveView[];
+
+	    static createFrom(source: any = {}) {
+	        return new OpeningPositionContextView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.positionId = source["positionId"];
+	        this.label = source["label"];
+	        this.evaluation = this.convertValues(source["evaluation"], Evaluation);
+	        this.planText = source["planText"];
+	        this.arrivedVia = this.convertValues(source["arrivedVia"], OpeningContextMoveView);
+	        this.nextMoves = this.convertValues(source["nextMoves"], OpeningContextMoveView);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class OpeningActivityView {
 	    activityId: string;
 	    kind: string;
@@ -719,6 +843,7 @@ export namespace openings {
 	    annotations: BoardAnnotation[];
 	    movesToHere: domain.AppliedMove[];
 	    movesToHereSan: string[];
+	    positionContext: OpeningPositionContextView;
 	    activityNumber: number;
 	    activityTotal: number;
 	    completedIdeas: number;
@@ -749,6 +874,7 @@ export namespace openings {
 	        this.annotations = this.convertValues(source["annotations"], BoardAnnotation);
 	        this.movesToHere = this.convertValues(source["movesToHere"], domain.AppliedMove);
 	        this.movesToHereSan = source["movesToHereSan"];
+	        this.positionContext = this.convertValues(source["positionContext"], OpeningPositionContextView);
 	        this.activityNumber = source["activityNumber"];
 	        this.activityTotal = source["activityTotal"];
 	        this.completedIdeas = source["completedIdeas"];
@@ -847,6 +973,7 @@ export namespace openings {
 	    activityCompleted: boolean;
 	    stepCompleted?: boolean;
 	    feedback?: string;
+	    feedbackDetail?: OpeningMoveFeedbackDetail;
 	    message?: string;
 	    appliedMoves?: domain.AppliedMove[];
 	    finalFen?: string;
@@ -862,6 +989,7 @@ export namespace openings {
 	        this.activityCompleted = source["activityCompleted"];
 	        this.stepCompleted = source["stepCompleted"];
 	        this.feedback = source["feedback"];
+	        this.feedbackDetail = this.convertValues(source["feedbackDetail"], OpeningMoveFeedbackDetail);
 	        this.message = source["message"];
 	        this.appliedMoves = this.convertValues(source["appliedMoves"], domain.AppliedMove);
 	        this.finalFen = source["finalFen"];
@@ -941,6 +1069,7 @@ export namespace openings {
 		    return a;
 		}
 	}
+
 	export class OpeningTeachingEdgeView {
 	    edgeId: string;
 	    fromLessonId: string;
@@ -1169,6 +1298,8 @@ export namespace openings {
 		    return a;
 		}
 	}
+
+
 
 
 

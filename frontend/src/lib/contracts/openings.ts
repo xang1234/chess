@@ -111,6 +111,24 @@ export type OpeningReferenceSection = {
   annotations: OpeningBoardAnnotation[]
 }
 
+export type OpeningContextMove = {
+  moveId: string
+  san: string
+  role: OpeningTrainingRole
+  variationName?: string
+  evaluation: OpeningEvaluation
+  selected: boolean
+}
+
+export type OpeningPositionContext = {
+  positionId: string
+  label: string
+  evaluation: OpeningEvaluation
+  planText?: string
+  arrivedVia: OpeningContextMove[]
+  nextMoves: OpeningContextMove[]
+}
+
 export type OpeningActivityView = {
   activityId: string
   kind: OpeningActivityKind
@@ -128,6 +146,7 @@ export type OpeningActivityView = {
   annotations: OpeningBoardAnnotation[]
   movesToHere: AppliedMoveFrames | []
   movesToHereSan: string[]
+  positionContext: OpeningPositionContext
   activityNumber: number
   activityTotal: number
   completedIdeas: number
@@ -217,6 +236,7 @@ export type OpeningActivityResult =
     session: ActiveOpeningSessionView
     activityCompleted: false
     feedback: 'alternative' | 'off_course'
+    feedbackDetail?: OpeningMoveFeedbackDetail
     appliedMoves?: never
     finalFen?: never
     checkpoint?: never
@@ -249,6 +269,17 @@ export type OpeningEvaluationCode =
   | 'white_clear' | 'black_clear' | 'white_winning' | 'black_winning'
 
 export type OpeningEvaluation = { code: OpeningEvaluationCode; sourceSymbol?: string }
+export type OpeningFeedbackCoverage = 'visible' | 'deeper' | 'unknown'
+export type OpeningMoveFeedbackDetail = {
+  coverage: OpeningFeedbackCoverage
+  playedSan: string
+  variationName?: string
+  evaluation: OpeningEvaluation
+  noteText?: string
+  expectedSan: string
+  planText?: string
+  requiredDepth?: OpeningDepth
+}
 export type OpeningSourceRef = {
   printedPage: number
   tableColumn?: string
@@ -343,6 +374,54 @@ function decodeComparisonLine(value: unknown, path: string): OpeningActivityLine
   }
 }
 
+function decodeContextMove(value: unknown, path: string): OpeningContextMove {
+  const raw = record(value, path)
+  return {
+    moveId: string(raw.moveId, `${path}.moveId`),
+    san: string(raw.san, `${path}.san`),
+    role: enumeration(raw.role, ['repertoire', 'opponent', 'alternative'], `${path}.role`),
+    variationName: optionalString(raw.variationName, `${path}.variationName`),
+    evaluation: decodeEvaluation(raw.evaluation, `${path}.evaluation`),
+    selected: boolean(raw.selected, `${path}.selected`)
+  }
+}
+
+function decodePositionContext(value: unknown, path: string): OpeningPositionContext {
+  const raw = record(value, path)
+  return {
+    positionId: string(raw.positionId, `${path}.positionId`),
+    label: string(raw.label, `${path}.label`),
+    evaluation: decodeEvaluation(raw.evaluation, `${path}.evaluation`),
+    planText: optionalString(raw.planText, `${path}.planText`),
+    arrivedVia: array(raw.arrivedVia, `${path}.arrivedVia`, decodeContextMove),
+    nextMoves: array(raw.nextMoves, `${path}.nextMoves`, decodeContextMove)
+  }
+}
+
+function decodeMoveFeedbackDetail(value: unknown, path: string): OpeningMoveFeedbackDetail {
+  const raw = record(value, path)
+  const coverage = enumeration(raw.coverage, ['visible', 'deeper', 'unknown'], `${path}.coverage`)
+  const requiredDepth = raw.requiredDepth === undefined
+    ? undefined
+    : enumeration(raw.requiredDepth, depths, `${path}.requiredDepth`)
+  if (coverage === 'deeper' && requiredDepth === undefined) {
+    throw new Error(`${path}.requiredDepth is required for deeper coverage`)
+  }
+  if (coverage !== 'deeper' && requiredDepth !== undefined) {
+    throw new Error(`${path}.requiredDepth is only allowed for deeper coverage`)
+  }
+  return {
+    coverage,
+    playedSan: string(raw.playedSan, `${path}.playedSan`),
+    variationName: optionalString(raw.variationName, `${path}.variationName`),
+    evaluation: decodeEvaluation(raw.evaluation, `${path}.evaluation`),
+    noteText: optionalString(raw.noteText, `${path}.noteText`),
+    expectedSan: string(raw.expectedSan, `${path}.expectedSan`),
+    planText: optionalString(raw.planText, `${path}.planText`),
+    requiredDepth
+  }
+}
+
 function decodeOpeningActivity(value: unknown, path: string): OpeningActivityView {
   const raw = record(value, path)
   const activityNumber = positiveInteger(raw.activityNumber, `${path}.activityNumber`)
@@ -377,6 +456,7 @@ function decodeOpeningActivity(value: unknown, path: string): OpeningActivityVie
     annotations: array(raw.annotations, `${path}.annotations`, decodeAnnotation),
     movesToHere,
     movesToHereSan,
+    positionContext: decodePositionContext(raw.positionContext, `${path}.positionContext`),
     activityNumber,
     activityTotal,
     completedIdeas,
@@ -472,6 +552,9 @@ export function decodeOpeningActivityResult(
   const checkpoint = raw.checkpoint === undefined
     ? undefined
     : decodeCheckpoint(raw.checkpoint, `${path}.checkpoint`)
+  const feedbackDetail = raw.feedbackDetail === undefined
+    ? undefined
+    : decodeMoveFeedbackDetail(raw.feedbackDetail, `${path}.feedbackDetail`)
 
   if (feedback === 'alternative' || feedback === 'off_course') {
     if (activityCompleted) throw new Error(`${path} ${feedback} feedback cannot complete an activity`)
@@ -479,8 +562,12 @@ export function decodeOpeningActivityResult(
       throw new Error(`${path} ${feedback} feedback must not mutate lesson progress`)
     }
     return {
-      session: requireActiveOpening(session, path), activityCompleted: false, feedback, message
+      session: requireActiveOpening(session, path), activityCompleted: false,
+      feedback, feedbackDetail, message
     }
+  }
+  if (feedbackDetail !== undefined) {
+    throw new Error(`${path}.feedbackDetail is invalid for a completed result`)
   }
   if (!activityCompleted) throw new Error(`${path} incomplete result requires move feedback`)
   if (feedback === 'expected') {

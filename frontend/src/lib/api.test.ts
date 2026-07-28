@@ -131,6 +131,28 @@ const openingStepPayload = {
   annotations: [{ kind: 'square', from: 'd4', label: 'central break' }],
   movesToHere: [],
   movesToHereSan: [],
+  positionContext: {
+    positionId: 'after-bc5',
+    label: 'Giuoco Piano',
+    evaluation: { code: 'equal', sourceSymbol: '=' },
+    planText: 'Prepare d4 while keeping the bishop active.',
+    arrivedVia: [{
+      moveId: 'black-bc5',
+      san: 'Bc5',
+      role: 'opponent',
+      variationName: 'Giuoco Piano',
+      evaluation: { code: 'equal' },
+      selected: true
+    }],
+    nextMoves: [{
+      moveId: 'white-c3',
+      san: 'c3',
+      role: 'repertoire',
+      variationName: 'Giuoco Piano',
+      evaluation: { code: 'white_slight' },
+      selected: false
+    }]
+  },
   activityNumber: 3,
   activityTotal: 5,
   completedIdeas: 2,
@@ -315,6 +337,39 @@ test.each([
   expect(() => decodeOpeningSession({ ...activeOpeningPayload, current })).toThrow(message)
 })
 
+test('opening activity decoder retains structured position context', () => {
+  expect(decodeOpeningSession(activeOpeningPayload)).toMatchObject({
+    current: {
+      positionContext: {
+        positionId: 'after-bc5',
+        label: 'Giuoco Piano',
+        arrivedVia: [{ moveId: 'black-bc5', selected: true }],
+        nextMoves: [{ moveId: 'white-c3', selected: false }]
+      }
+    }
+  })
+})
+
+test.each([
+  ['positionContext', { ...openingStepPayload, positionContext: undefined }],
+  ['role', {
+    ...openingStepPayload,
+    positionContext: {
+      ...openingStepPayload.positionContext,
+      nextMoves: [{ ...openingStepPayload.positionContext.nextMoves[0], role: 'idea' }]
+    }
+  }],
+  ['selected', {
+    ...openingStepPayload,
+    positionContext: {
+      ...openingStepPayload.positionContext,
+      arrivedVia: [{ ...openingStepPayload.positionContext.arrivedVia[0], selected: 'yes' }]
+    }
+  }]
+])('opening activity decoder rejects malformed %s context', (field, current) => {
+  expect(() => decodeOpeningSession({ ...activeOpeningPayload, current })).toThrow(field)
+})
+
 test('opening home decoder rejects invalid node progress', () => {
   const course = openingHomePayload.courses[0]
   expect(() => decodeOpeningHome({
@@ -377,6 +432,54 @@ test.each(['alternative', 'off_course'] as const)(
     })).toThrow('must not mutate')
   }
 )
+
+test('opening result decoder retains structured graph feedback', () => {
+  const feedbackDetail = {
+    coverage: 'deeper',
+    playedSan: 'b4',
+    variationName: 'Evans idea',
+    evaluation: { code: 'unclear' },
+    expectedSan: 'c3',
+    planText: 'Prepare d4.',
+    requiredDepth: 'reference'
+  }
+  expect(decodeOpeningActivityResult({
+    session: activeOpeningPayload,
+    activityCompleted: false,
+    feedback: 'off_course',
+    feedbackDetail
+  })).toMatchObject({ feedbackDetail })
+})
+
+test.each([
+  ['coverage', { coverage: 'later', playedSan: 'b4', evaluation: { code: 'unclear' }, expectedSan: 'c3' }],
+  ['evaluation', { coverage: 'unknown', playedSan: 'd3', expectedSan: 'c3' }],
+  ['expectedSan', { coverage: 'unknown', playedSan: 'd3', evaluation: { code: 'none' } }],
+  ['requiredDepth', { coverage: 'deeper', playedSan: 'b4', evaluation: { code: 'unclear' }, expectedSan: 'c3' }]
+])('opening result decoder rejects malformed feedback detail %s', (field, feedbackDetail) => {
+  expect(() => decodeOpeningActivityResult({
+    session: activeOpeningPayload,
+    activityCompleted: false,
+    feedback: 'off_course',
+    feedbackDetail
+  })).toThrow(field)
+})
+
+test('opening result decoder rejects feedback detail on completed results', () => {
+  expect(() => decodeOpeningActivityResult({
+    session: activeOpeningPayload,
+    activityCompleted: true,
+    appliedMoves: [{ uci: 'c2c3', resultingFen: 'after-c3' }],
+    finalFen: 'after-c3',
+    feedback: 'expected',
+    feedbackDetail: {
+      coverage: 'visible',
+      playedSan: 'c3',
+      evaluation: { code: 'equal' },
+      expectedSan: 'c3'
+    }
+  })).toThrow('feedbackDetail')
+})
 
 test('opening result decoder rejects unknown feedback and permits omitted passive frames only', () => {
   expect(() => decodeOpeningActivityResult({

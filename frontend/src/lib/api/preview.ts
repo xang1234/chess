@@ -131,6 +131,29 @@ const previewOpeningFens = {
   afterC3: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
 }
 
+const previewPromptContext = {
+  positionId: 'after-bc5',
+  label: 'Giuoco Piano',
+  evaluation: { code: 'equal' as const, sourceSymbol: '=' },
+  planText: 'Prepare d4 while keeping the bishop active.',
+  arrivedVia: [{
+    moveId: 'black-bc5', san: 'Bc5', role: 'opponent' as const,
+    variationName: 'Giuoco Piano', evaluation: { code: 'equal' as const }, selected: true
+  }],
+  nextMoves: [{
+    moveId: 'white-c3', san: 'c3', role: 'repertoire' as const,
+    variationName: 'Giuoco Piano', evaluation: { code: 'equal' as const }, selected: false
+  }, {
+    moveId: 'white-b4', san: 'b4', role: 'alternative' as const,
+    variationName: 'Evans idea', evaluation: { code: 'unclear' as const }, selected: false
+  }]
+}
+
+const previewRootContext = {
+  positionId: 'initial', label: 'Initial position', evaluation: { code: 'none' as const },
+  arrivedVia: [], nextMoves: []
+}
+
 let previewOpeningDepth: OpeningDepth = 'reference'
 let previewOpeningSession: OpeningSessionView | null = null
 let previewOpeningStepIndex = 0
@@ -146,6 +169,7 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningAc
       orientation: 'white', legalMoves: ['b2b4', 'c2c3', 'd2d3'], teachingNoteTexts: [],
       referenceNoteTexts: ['The quiet c3 move supports a later d4.'],
       comparison: [], annotations: [], movesToHere: [], movesToHereSan: [],
+      positionContext: previewPromptContext,
       completedIdeas: 0, requiredIdeas: 1,
       referenceSections: [],
       activityNumber: 1, activityTotal: 1, hintLevel: previewOpeningHintLevel,
@@ -173,7 +197,7 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningAc
       ...common, activityId: 'explain-plan', kind: 'concept', title: 'The central plan',
       instruction: 'White prepares d4 while keeping the position flexible.',
       positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
-      legalMoves: [], activityNumber: 1,
+      legalMoves: [], activityNumber: 1, positionContext: previewPromptContext,
       annotations: [{ kind: 'arrow', from: 'c2', to: 'c3', label: 'supports d4' }]
     },
     {
@@ -181,6 +205,7 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningAc
       instruction: 'Watch both sides develop toward the Italian Game.',
       variationName: 'Giuoco Piano', positionId: 'initial', currentFen: previewOpeningFens.initial,
       legalMoves: [], activityNumber: 2,
+      positionContext: previewRootContext,
       movesToHere: [{ uci: 'e2e4', resultingFen: previewOpeningFens.prompt }],
       movesToHereSan: ['e4']
     },
@@ -189,6 +214,7 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningAc
       instruction: 'Choose White\'s preparation move.', variationName: 'Giuoco Piano',
       positionId: 'after-bc5', currentFen: previewOpeningFens.prompt,
       legalMoves: ['b2b4', 'c2c3', 'd2d3'], activityNumber: 3,
+      positionContext: previewPromptContext,
       annotations: [{ kind: 'square', from: 'd4', label: 'future centre' }]
     }
   ]
@@ -429,6 +455,11 @@ const previewNormalAPI: NormalAPI = {
         session: clonePreviewSession(previewOpeningSession),
         activityCompleted: false,
         feedback: 'alternative',
+        feedbackDetail: {
+          coverage: 'visible', playedSan: 'b4', variationName: 'Evans idea',
+          evaluation: { code: 'unclear' }, expectedSan: 'c3',
+          planText: 'Prepare d4 while keeping the bishop active.'
+        },
         message: 'That is a playable course alternative. Return to the lesson position.'
       }
     }
@@ -436,6 +467,10 @@ const previewNormalAPI: NormalAPI = {
       session: clonePreviewSession(previewOpeningSession),
       activityCompleted: false,
       feedback: 'off_course',
+      feedbackDetail: {
+        coverage: 'unknown', playedSan: 'd3', evaluation: { code: 'none' },
+        expectedSan: 'c3', planText: 'Prepare d4 while keeping the bishop active.'
+      },
       message: 'That move is playable, but this lesson is practising c3.'
     }
   },
