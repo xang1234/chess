@@ -2,6 +2,7 @@ import type {
   AppliedMove,
   NormalAPI,
   OpeningMoveFeedback,
+  OpeningMoveFeedbackDetail,
   OpeningSessionView,
   OpeningActivityResult
 } from '../../lib/api'
@@ -28,6 +29,7 @@ import {
   type OpeningOperation,
   type OpeningState
 } from './opening-state'
+import { openingFeedbackCopy } from './opening-feedback-copy'
 
 export type OpeningBoardPort = InteractiveBoardPort
 
@@ -41,6 +43,7 @@ export type OpeningControllerView = {
   state: OpeningState
   message: string
   feedback: OpeningMoveFeedback | null
+  feedbackDetail: OpeningMoveFeedbackDetail | null
   notice: string
   announcement: string
   boardGeneration: number
@@ -109,6 +112,7 @@ export class OpeningController {
       state: initialiseOpening(session),
       message: '',
       feedback: null,
+      feedbackDetail: null,
       notice: session.notice ?? '',
       announcement: '',
       boardGeneration: 0,
@@ -489,6 +493,9 @@ export class OpeningController {
     )
     if (!this.acceptsOwnedResponse(owned)) return
     const message = result.message || feedbackMessage(result.feedback)
+    const announcement = result.feedbackDetail
+      ? openingFeedbackCopy(result.feedbackDetail, result.session.current.orientation).announcement
+      : message
     const state = markOpeningFeedback(
       this.requireState(),
       owned.id,
@@ -498,7 +505,8 @@ export class OpeningController {
     this.publishState(state, {
       message,
       feedback: result.feedback,
-      announcement: message,
+      feedbackDetail: result.feedbackDetail ?? null,
+      announcement,
       notice: warning
     })
     this.applyBoardWarnings()
@@ -652,6 +660,9 @@ export class OpeningController {
       state,
       message: overrides.message ?? current?.message ?? '',
       feedback: overrides.feedback === undefined ? current?.feedback ?? null : overrides.feedback,
+      feedbackDetail: overrides.feedbackDetail === undefined
+        ? overrides.feedback === null ? null : current?.feedbackDetail ?? null
+        : overrides.feedbackDetail,
       notice: overrides.notice ?? current?.notice ?? '',
       announcement: overrides.announcement ?? current?.announcement ?? '',
       boardGeneration: overrides.boardGeneration ?? current?.boardGeneration ?? 0,

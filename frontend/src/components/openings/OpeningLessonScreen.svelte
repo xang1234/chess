@@ -20,6 +20,7 @@
   } from './opening-controller'
   import { acceptsOpeningInput } from './opening-state'
   import OpeningActivityContent from './OpeningActivityContent.svelte'
+  import OpeningMoveFeedback from './OpeningMoveFeedback.svelte'
   import OpeningMoveRibbon from './OpeningMoveRibbon.svelte'
   import OpeningPathContext from './OpeningPathContext.svelte'
   import OpeningPositionContext from './OpeningPositionContext.svelte'
@@ -238,11 +239,17 @@
               on:resetComparison={() => controller.resetComparisonPreview()}
             />
 
-            <div class="opening-feedback" aria-live="polite" aria-atomic="true">
-              {#if view.message}<p class:neutral={view.feedback !== null}>{view.message}</p>{/if}
-              {#if view.notice}<p class="notice">{view.notice}</p>{/if}
-              {#if view.announcement && view.announcement !== view.message && view.announcement !== view.notice}
-                <p class="visually-hidden">{view.announcement}</p>
+            <div class="opening-feedback">
+              <OpeningMoveFeedback
+                feedback={view.feedback}
+                detail={view.feedbackDetail}
+                orientation={current.orientation}
+                fallbackMessage={view.message}
+              />
+              {#if view.notice}<p class="notice" role="status">{view.notice}</p>{/if}
+              {#if view.announcement && view.announcement !== view.message &&
+                view.announcement !== view.notice && !view.feedbackDetail}
+                <p class="visually-hidden" role="status">{view.announcement}</p>
               {/if}
             </div>
           </div>
@@ -351,9 +358,8 @@
   .progress-label { margin: 0 0 8px; color: #e8e4d8; font-weight: 800; }
   .progress-track { height: 9px; overflow: hidden; border-radius: 999px; background: #4c5a54; }
   .progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--amber-400); }
-  .opening-feedback { display: grid; min-height: 72px; align-content: center; gap: 7px; }
+  .opening-feedback { display: grid; align-content: center; gap: 7px; }
   .opening-feedback p { margin: 0; font-weight: 800; }
-  .opening-feedback .neutral { color: #c8dfcf; }
   .opening-feedback .notice { color: #f4d27b; font-size: 0.94rem; }
   .opening-actions { display: grid; flex: 0 0 auto; gap: 10px; }
   .opening-actions button { min-height: 46px; }

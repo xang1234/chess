@@ -300,12 +300,24 @@ test('shows progressive hints and the reveal action only when allowed', async ()
   }))
 })
 
-test('restores alternative moves with neutral course feedback', async () => {
-  const current = active('decision', { title: 'Recognize the branch' })
+test('restores alternative moves with structured course feedback', async () => {
+  const current = active('decision', {
+    title: 'Recognize the branch',
+    legalMoves: ['b2b4']
+  })
   const result: OpeningActivityResult = {
     session: current,
     activityCompleted: false,
-    feedback: 'alternative'
+    feedback: 'alternative',
+    feedbackDetail: {
+      coverage: 'visible',
+      playedSan: 'b4',
+      variationName: 'Evans idea',
+      evaluation: { code: 'unclear' },
+      noteText: 'A sound alternative that keeps pressure on the centre.',
+      expectedSan: 'c3',
+      planText: 'Prepare d4 while keeping the bishop active.'
+    }
   }
   const board = boardHarness()
   render(OpeningLessonScreen, {
@@ -315,9 +327,12 @@ test('restores alternative moves with neutral course feedback', async () => {
   }, withNormalAPI(fakeAPI({ playOpeningMove: async () => result })))
   await waitFor(() => expect(board.callbacks).toHaveLength(1))
 
-  board.callbacks[0].onRoute('c2', 'c3')
+  board.callbacks[0].onRoute('b2', 'b4')
 
-  expect(await screen.findByText(/Playable alternative/)).toBeInTheDocument()
+  const status = await screen.findByRole('status')
+  expect(status).toHaveTextContent('b4 — Evans idea')
+  expect(status).toHaveTextContent('∞ Unclear position.')
+  expect(status).toHaveTextContent('This lesson is practising c3:')
   expect(screen.getByRole('grid')).toHaveAttribute('aria-disabled', 'false')
 })
 

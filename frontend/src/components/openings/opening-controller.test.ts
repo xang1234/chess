@@ -4,6 +4,7 @@ import type {
   CompletedOpeningSessionView,
   NormalAPI,
   OpeningHintResult,
+  OpeningMoveFeedbackDetail,
   OpeningSessionView,
   OpeningActivityResult
 } from '../../lib/api'
@@ -463,6 +464,49 @@ test.each([
   expect(subject.controller.view.state.phase).toBe('ready')
   expect(subject.controller.view.feedback).toBe(feedback)
   expect(subject.controller.view.message).toContain(copy)
+})
+
+test('retains structured feedback, announces it fully, reconciles FEN, and clears it on request', async () => {
+  const current = active('decision')
+  const feedbackDetail: OpeningMoveFeedbackDetail = {
+    coverage: 'visible',
+    playedSan: 'b4',
+    variationName: 'Evans idea',
+    evaluation: { code: 'unclear' },
+    noteText: 'A sound alternative that keeps pressure on the centre.',
+    expectedSan: 'c3',
+    planText: 'Prepare d4 while keeping the bishop active.'
+  }
+  const hintGate = deferred<OpeningHintResult>()
+  const subject = harness(current, {
+    playOpeningMove: async () => ({
+      session: active('decision', { currentFen: afterC3 }),
+      activityCompleted: false,
+      feedback: 'alternative',
+      feedbackDetail,
+      message: 'Playable alternative.'
+    }),
+    useOpeningHint: () => hintGate.promise
+  })
+
+  await subject.controller.play('b2b4')
+
+  expect(subject.board.setPosition).toHaveBeenCalledWith(afterC3, undefined, true)
+  expect(subject.controller.view.feedbackDetail).toEqual(feedbackDetail)
+  expect(subject.controller.view.announcement).toContain('b4 — Evans idea.')
+  expect(subject.controller.view.announcement).toContain('∞ Unclear position.')
+  expect(subject.controller.view.announcement).toContain('This lesson is practising c3:')
+
+  const hintWork = subject.controller.useHint()
+  expect(subject.controller.view.feedback).toBeNull()
+  expect(subject.controller.view.feedbackDetail).toBeNull()
+  hintGate.resolve({
+    session: active('decision', { currentFen: afterC3, hintLevel: 1 }),
+    level: 1,
+    text: 'Prepare d4.',
+    canReveal: false
+  })
+  await hintWork
 })
 
 test('keeps progressive plan, source, and target hint data', async () => {
