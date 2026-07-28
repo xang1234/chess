@@ -53,6 +53,105 @@ func mustAttemptRecord(t *testing.T, attempt *AttemptState) AttemptRecord {
 	return record
 }
 
+func lessonRolloverFixture(t *testing.T) (
+	context.Context, *UserStore, *sql.DB, time.Time, StoredSession, CourseJourney,
+) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
+	db := openOpeningUserTestDB(t)
+	store := NewUserStore(db)
+	seed := openingSessionSeed(now)
+	seed.State.Attempt = nil
+	journey := CourseJourney{
+		CourseID: seed.CourseID, CurrentLessonID: seed.LessonID,
+		PathLessonIDs: []string{seed.LessonID}, CreatedAt: now, UpdatedAt: now,
+	}
+	session, _, err := store.CreateLessonSession(ctx, seed, journey, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx, store, db, now, session, journey
+}
+
+func lessonRolloverCompletion(
+	current StoredSession,
+	journey CourseJourney,
+	now time.Time,
+) LessonActivityCompletion {
+	current.Status = OpeningStatusCompleted
+	current.State.Attempt = nil
+	journey.CurrentLessonID = "two-knights-plan"
+	journey.PathLessonIDs = []string{current.LessonID, "two-knights-plan"}
+	journey.UpdatedAt = now.Add(time.Minute)
+	return LessonActivityCompletion{
+		Session: current, Journey: journey, ActivityID: "giuoco-recap",
+		RequiredActivityIDs: []string{"giuoco-recap"}, Now: now.Add(time.Minute),
+		NextSession: &SessionSeed{
+			CourseID: current.CourseID, GenerationID: current.GenerationID,
+			LessonID: "two-knights-plan", Mode: OpeningModeLesson, Depth: current.Depth,
+			State: SessionState{Position: PositionState{
+				PositionID: "after-nf6", CurrentFEN: "fen-after-nf6", PlayedMoveIDs: []string{},
+			}},
+		},
+	}
+}
+
+func TestCompleteLessonActivityCreatesNextSessionAtomically(t *testing.T) {
+	ctx, store, _, now, current, journey := lessonRolloverFixture(t)
+	persisted, err := store.CompleteLessonActivity(
+		ctx, lessonRolloverCompletion(current, journey, now),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.ID == current.ID || persisted.Status != OpeningStatusActive ||
+		persisted.LessonID != "two-knights-plan" {
+		t.Fatalf("persisted next session = %+v", persisted)
+	}
+	retired, err := store.LoadSession(ctx, current.ID)
+	if err != nil || retired.Status != OpeningStatusCompleted {
+		t.Fatalf("retired session = %+v, err=%v", retired, err)
+	}
+	resumable, err := store.ResumableSession(ctx)
+	if err != nil || resumable == nil || resumable.ID != persisted.ID {
+		t.Fatalf("resumable = %+v, err=%v", resumable, err)
+	}
+}
+
+func TestCompleteLessonActivityRollsBackFailedNextSession(t *testing.T) {
+	ctx, store, db, now, current, journey := lessonRolloverFixture(t)
+	if _, err := db.Exec(`CREATE TRIGGER fail_opening_next_session
+		BEFORE INSERT ON opening_sessions
+		WHEN NEW.lesson_id = 'two-knights-plan'
+		BEGIN SELECT RAISE(ABORT, 'forced next-session failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := store.CompleteLessonActivity(
+		ctx, lessonRolloverCompletion(current, journey, now),
+	)
+	if err == nil || !strings.Contains(err.Error(), "forced next-session failure") {
+		t.Fatalf("CompleteLessonActivity() error = %v", err)
+	}
+	unchanged, loadErr := store.LoadSession(ctx, current.ID)
+	if loadErr != nil || unchanged.Status != OpeningStatusActive {
+		t.Fatalf("session after rollback = %+v, err=%v", unchanged, loadErr)
+	}
+	var sessions int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM opening_sessions`).Scan(&sessions); err != nil || sessions != 1 {
+		t.Fatalf("session count = %d, err=%v", sessions, err)
+	}
+	var progressRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM opening_lesson_progress`).Scan(&progressRows); err != nil || progressRows != 0 {
+		t.Fatalf("progress rows = %d, err=%v", progressRows, err)
+	}
+	unchangedJourney, journeyErr := store.Journey(ctx, current.CourseID)
+	if journeyErr != nil || !reflect.DeepEqual(unchangedJourney, journey) {
+		t.Fatalf("journey after rollback = %+v, want %+v, err=%v", unchangedJourney, journey, journeyErr)
+	}
+}
+
 func TestUserStoreJourneyRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)

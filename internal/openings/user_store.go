@@ -122,6 +122,7 @@ type ActivityProgressUpdate struct {
 type LessonActivityCompletion struct {
 	Session             StoredSession
 	Journey             CourseJourney
+	NextSession         *SessionSeed
 	ActivityID          string
 	RequiredActivityIDs []string
 	Attempt             *AttemptRecord

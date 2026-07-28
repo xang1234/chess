@@ -87,20 +87,37 @@ func (s *UserStore) CreateLessonSession(
 func (s *UserStore) CompleteLessonActivity(
 	ctx context.Context,
 	completion LessonActivityCompletion,
-) error {
+) (StoredSession, error) {
 	if s == nil || s.db == nil {
-		return errors.New("opening user store is required")
+		return StoredSession{}, errors.New("opening user store is required")
 	}
 	if err := validateLessonActivityCompletion(completion); err != nil {
-		return err
+		return StoredSession{}, err
 	}
 	stateJSON, err := encodeSessionState(completion.Session.State)
 	if err != nil {
-		return err
+		return StoredSession{}, err
+	}
+	persisted := completion.Session
+	nextStateJSON := ""
+	if completion.NextSession != nil {
+		seed := *completion.NextSession
+		persisted = StoredSession{
+			ID: uuid.NewString(), CourseID: seed.CourseID, GenerationID: seed.GenerationID,
+			LessonID: seed.LessonID, Mode: seed.Mode, Status: OpeningStatusActive,
+			Depth: seed.Depth, ActivityIndex: seed.ActivityIndex, State: seed.State,
+		}
+		if err := validateStoredSession(persisted); err != nil {
+			return StoredSession{}, err
+		}
+		nextStateJSON, err = encodeSessionState(seed.State)
+		if err != nil {
+			return StoredSession{}, err
+		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return StoredSession{}, err
 	}
 	defer tx.Rollback()
 
@@ -110,7 +127,7 @@ func (s *UserStore) CompleteLessonActivity(
 			SemanticFingerprint: completion.SemanticFingerprint, Outcome: completion.Outcome,
 		}
 		if err := recordAttemptAndReviewTx(ctx, tx, promptCompletion, completion.Now); err != nil {
-			return err
+			return StoredSession{}, err
 		}
 	}
 	if err := recordActivityProgressTx(ctx, tx, ActivityProgressUpdate{
@@ -119,7 +136,7 @@ func (s *UserStore) CompleteLessonActivity(
 		RequiredActivityIDs: completion.RequiredActivityIDs,
 		Now:                 completion.Now,
 	}); err != nil {
-		return err
+		return StoredSession{}, err
 	}
 	result, err := tx.ExecContext(
 		ctx,
@@ -133,15 +150,32 @@ func (s *UserStore) CompleteLessonActivity(
 		completion.Session.LessonID, completion.Session.Mode,
 	)
 	if err != nil {
-		return fmt.Errorf("update opening session after activity: %w", err)
+		return StoredSession{}, fmt.Errorf("update opening session after activity: %w", err)
 	}
 	if err := requireOneSessionRow(result, completion.Session.ID); err != nil {
-		return err
+		return StoredSession{}, err
+	}
+	if completion.NextSession != nil {
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO opening_sessions(
+			   session_id, course_id, generation_id, lesson_id, mode, status,
+			   depth, activity_index, state_json, created_at, updated_at
+			 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			persisted.ID, persisted.CourseID, persisted.GenerationID, persisted.LessonID,
+			persisted.Mode, persisted.Status, persisted.Depth, persisted.ActivityIndex,
+			nextStateJSON, completion.Now.UnixMilli(), completion.Now.UnixMilli(),
+		); err != nil {
+			return StoredSession{}, fmt.Errorf("insert next opening lesson session: %w", err)
+		}
 	}
 	if err := saveJourneyTx(ctx, tx, completion.Journey); err != nil {
-		return fmt.Errorf("save opening journey after activity: %w", err)
+		return StoredSession{}, fmt.Errorf("save opening journey after activity: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return StoredSession{}, err
+	}
+	return persisted, nil
 }
 
 func validateLessonActivityCompletion(completion LessonActivityCompletion) error {
@@ -156,6 +190,30 @@ func validateLessonActivityCompletion(completion LessonActivityCompletion) error
 	}
 	if err := validateCourseJourney(completion.Journey); err != nil {
 		return err
+	}
+	if completion.NextSession != nil {
+		next := *completion.NextSession
+		if completion.Session.Status != OpeningStatusCompleted {
+			return errors.New("next opening lesson requires the current session to be completed")
+		}
+		if next.Mode != OpeningModeLesson {
+			return errors.New("next opening session requires lesson mode")
+		}
+		if next.CourseID != completion.Session.CourseID {
+			return errors.New("next opening session course must match the current session")
+		}
+		if next.GenerationID != completion.Session.GenerationID {
+			return errors.New("next opening session generation must match the current session")
+		}
+		if next.Depth != completion.Session.Depth {
+			return errors.New("next opening session depth must match the current session")
+		}
+		if next.LessonID != completion.Journey.CurrentLessonID {
+			return errors.New("next opening session lesson must match the current journey")
+		}
+		if err := validateSessionSeed(next); err != nil {
+			return err
+		}
 	}
 	update := ActivityProgressUpdate{
 		CourseID: completion.Session.CourseID, LessonID: completion.Session.LessonID,

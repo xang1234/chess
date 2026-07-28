@@ -97,13 +97,15 @@ func (s *Service) completeLessonActivity(
 		}
 	}
 
-	if err := s.store.CompleteLessonActivity(ctx, LessonActivityCompletion{
+	persistedSession, err := s.store.CompleteLessonActivity(ctx, LessonActivityCompletion{
 		Session: session, Journey: journey, ActivityID: activity.ActivityID,
 		RequiredActivityIDs: requiredIDs, Attempt: attempt,
 		SemanticFingerprint: semanticFingerprint, Outcome: outcome, Now: now,
-	}); err != nil {
+	})
+	if err != nil {
 		return OpeningActivityResult{}, err
 	}
+	session = persistedSession
 	view, err := s.sessionView(ctx, course, session)
 	if err != nil {
 		return OpeningActivityResult{}, err
