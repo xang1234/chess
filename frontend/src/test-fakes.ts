@@ -5,6 +5,7 @@ import type {
   ImportResult,
   NormalAPI,
   OpeningHomeView,
+  OpeningCourseMap,
   ActiveOpeningSessionView,
   Profile,
   RecoveryAPI
@@ -128,6 +129,17 @@ export const fakeOpeningSession: ActiveOpeningSessionView = {
   courseTitle: 'Italian Game for White',
   path: [{ lessonId: 'giuoco-c3', title: 'Giuoco Piano' }],
   depth: 'reference',
+  courseMap: {
+    completedIdeas: 0,
+    totalIdeas: 4,
+    entries: [{
+      lessonId: 'giuoco-c3', moveLabel: '3...Bc5', title: 'Giuoco Piano',
+      state: 'current', selectable: true
+    }, {
+      lessonId: 'two-knights-d3', parentLessonId: 'giuoco-c3', moveLabel: '3...Nf6',
+      title: 'Choose the quiet setup', state: 'next', selectable: true
+    }]
+  } satisfies OpeningCourseMap,
   current: {
     activityId: 'explain-plan',
     kind: 'concept',
@@ -235,7 +247,10 @@ export function fakeAPI(overrides: Partial<NormalAPI> = {}): NormalAPI {
       finalFen: 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4'
     }),
     pauseOpeningSession: async () => {},
-    startOpeningReview: async () => ({ ...fakeOpeningSession, mode: 'review', lessonId: 'review' }),
+    startOpeningReview: async () => {
+      const { courseMap: _courseMap, ...session } = fakeOpeningSession
+      return { ...session, mode: 'review', lessonId: 'review', path: [] }
+    },
     getParentSummary: async () => ({
       learnerRating: 1200,
       ratingTrend: [],

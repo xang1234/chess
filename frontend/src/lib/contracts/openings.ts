@@ -66,6 +66,21 @@ export type OpeningTeachingTree = {
 
 export type OpeningPathItem = { lessonId: string; title: string }
 
+export type OpeningCourseMapState = 'learned' | 'current' | 'next' | 'available'
+export type OpeningCourseMapEntry = {
+  lessonId: string
+  parentLessonId?: string
+  moveLabel?: string
+  title: string
+  state: OpeningCourseMapState
+  selectable: boolean
+}
+export type OpeningCourseMap = {
+  completedIdeas: number
+  totalIdeas: number
+  entries: OpeningCourseMapEntry[]
+}
+
 export type OpeningCourseSummary = {
   courseId: string
   title: string
@@ -176,17 +191,31 @@ type OpeningSessionBase = {
   depth: OpeningDepth
 }
 
-export type ActiveOpeningSessionView = OpeningSessionBase & {
+export type ActiveOpeningLessonView = OpeningSessionBase & {
+  mode: 'lesson'
   status: 'active'
   current: OpeningActivityView
+  courseMap: OpeningCourseMap
   summary?: never
   notice?: string
 }
+
+export type ActiveOpeningReviewView = OpeningSessionBase & {
+  mode: 'review'
+  status: 'active'
+  current: OpeningActivityView
+  courseMap?: never
+  summary?: never
+  notice?: string
+}
+
+export type ActiveOpeningSessionView = ActiveOpeningLessonView | ActiveOpeningReviewView
 
 export type CompletedOpeningLessonView = OpeningSessionBase & {
   mode: 'lesson'
   status: 'completed'
   current?: never
+  courseMap?: never
   summary?: never
   notice?: string
 }
@@ -195,6 +224,7 @@ export type CompletedOpeningReviewView = OpeningSessionBase & {
   mode: 'review'
   status: 'completed'
   current?: never
+  courseMap?: never
   summary: OpeningSummary
   notice?: string
 }
@@ -202,6 +232,7 @@ export type CompletedOpeningReviewView = OpeningSessionBase & {
 export type RestartRequiredOpeningSessionView = OpeningSessionBase & {
   status: 'restart_required'
   current?: never
+  courseMap?: never
   summary?: never
   notice: string
 }
@@ -216,16 +247,6 @@ export type CompletedOpeningSessionView =
   | CompletedOpeningLessonView
   | CompletedOpeningReviewView
 
-export type OpeningRoadmapCheckpoint = {
-  completedLessonId: string
-  path: OpeningPathItem[]
-  availableLessonIds: string[]
-  recommendedLessonId?: string
-  recommendedLessonTitle?: string
-  completedLessons: number
-  totalLessons: number
-}
-
 type OpeningActivityResultBase = {
   session: OpeningSessionView
   message?: string
@@ -239,14 +260,12 @@ export type OpeningActivityResult =
     feedbackDetail?: OpeningMoveFeedbackDetail
     appliedMoves?: never
     finalFen?: never
-    checkpoint?: never
   }
   | OpeningActivityResultBase & {
     activityCompleted: true
     feedback?: 'expected'
     appliedMoves?: AppliedMoveFrames
     finalFen?: string
-    checkpoint?: OpeningRoadmapCheckpoint
   }
 
 export type OpeningHintResult = {
@@ -481,6 +500,32 @@ function decodeOpeningSummary(value: unknown, path: string): OpeningSummary {
   }
 }
 
+function decodeCourseMap(value: unknown, path: string): OpeningCourseMap {
+  const raw = record(value, path)
+  const completedIdeas = nonNegativeInteger(raw.completedIdeas, `${path}.completedIdeas`)
+  const totalIdeas = positiveInteger(raw.totalIdeas, `${path}.totalIdeas`)
+  if (completedIdeas > totalIdeas) {
+    throw new Error(`${path}.completedIdeas must not exceed totalIdeas`)
+  }
+  return {
+    completedIdeas,
+    totalIdeas,
+    entries: array(raw.entries, `${path}.entries`, (entryValue, entryPath) => {
+      const entry = record(entryValue, entryPath)
+      return {
+        lessonId: string(entry.lessonId, `${entryPath}.lessonId`),
+        parentLessonId: optionalString(entry.parentLessonId, `${entryPath}.parentLessonId`),
+        moveLabel: optionalString(entry.moveLabel, `${entryPath}.moveLabel`),
+        title: string(entry.title, `${entryPath}.title`),
+        state: enumeration(
+          entry.state, ['learned', 'current', 'next', 'available'], `${entryPath}.state`
+        ),
+        selectable: boolean(entry.selectable, `${entryPath}.selectable`)
+      }
+    })
+  }
+}
+
 export function decodeOpeningSession(value: unknown, path = 'opening session'): OpeningSessionView {
   const raw = record(value, path)
   const base = {
@@ -498,10 +543,20 @@ export function decodeOpeningSession(value: unknown, path = 'opening session'): 
   if (status === 'active') {
     if (raw.current === undefined) throw new Error(`${path} active session has no current activity`)
     if (raw.summary !== undefined) throw new Error(`${path} active session must not include a summary`)
-    return { ...base, status, current: decodeOpeningActivity(raw.current, `${path}.current`), notice }
+    const current = decodeOpeningActivity(raw.current, `${path}.current`)
+    if (base.mode === 'lesson') {
+      if (raw.courseMap === undefined) throw new Error(`${path} active lesson has no courseMap`)
+      return {
+        ...base, mode: 'lesson', status, current,
+        courseMap: decodeCourseMap(raw.courseMap, `${path}.courseMap`), notice
+      }
+    }
+    if (raw.courseMap !== undefined) throw new Error(`${path} active review must not include a course map`)
+    return { ...base, mode: 'review', status, current, notice }
   }
   if (status === 'completed') {
     if (raw.current !== undefined) throw new Error(`${path} completed session must not include a current activity`)
+    if (raw.courseMap !== undefined) throw new Error(`${path} completed session must not include a course map`)
     if (base.mode === 'review') {
       if (raw.summary === undefined) throw new Error(`${path} completed review has no summary`)
       return { ...base, mode: 'review', status, summary: decodeOpeningSummary(raw.summary, `${path}.summary`), notice }
@@ -511,6 +566,7 @@ export function decodeOpeningSession(value: unknown, path = 'opening session'): 
   }
   if (raw.current !== undefined) throw new Error(`${path} restart-required session must not include a current activity`)
   if (raw.summary !== undefined) throw new Error(`${path} restart-required session must not include a summary`)
+  if (raw.courseMap !== undefined) throw new Error(`${path} restart-required session must not include a course map`)
   if (notice === undefined) throw new Error(`${path} restart-required session has no notice`)
   return { ...base, status, notice }
 }
@@ -518,24 +574,6 @@ export function decodeOpeningSession(value: unknown, path = 'opening session'): 
 function requireActiveOpening(session: OpeningSessionView, path: string): ActiveOpeningSessionView {
   if (session.status !== 'active') throw new Error(`${path} must contain an active session`)
   return session
-}
-
-function decodeCheckpoint(value: unknown, path: string): OpeningRoadmapCheckpoint {
-  const raw = record(value, path)
-  const completedLessons = nonNegativeInteger(raw.completedLessons, `${path}.completedLessons`)
-  const totalLessons = positiveInteger(raw.totalLessons, `${path}.totalLessons`)
-  if (completedLessons > totalLessons) {
-    throw new Error(`${path}.completedLessons must not exceed totalLessons`)
-  }
-  return {
-    completedLessonId: string(raw.completedLessonId, `${path}.completedLessonId`),
-    path: array(raw.path, `${path}.path`, decodePathItem),
-    availableLessonIds: array(raw.availableLessonIds, `${path}.availableLessonIds`, string),
-    recommendedLessonId: optionalString(raw.recommendedLessonId, `${path}.recommendedLessonId`),
-    recommendedLessonTitle: optionalString(raw.recommendedLessonTitle, `${path}.recommendedLessonTitle`),
-    completedLessons,
-    totalLessons
-  }
 }
 
 export function decodeOpeningActivityResult(
@@ -549,16 +587,16 @@ export function decodeOpeningActivityResult(
   const feedback = raw.feedback === undefined
     ? undefined
     : enumeration(raw.feedback, ['expected', 'alternative', 'off_course'], `${path}.feedback`)
-  const checkpoint = raw.checkpoint === undefined
-    ? undefined
-    : decodeCheckpoint(raw.checkpoint, `${path}.checkpoint`)
+  if (raw.checkpoint !== undefined) {
+    throw new Error(`${path}.checkpoint is no longer supported`)
+  }
   const feedbackDetail = raw.feedbackDetail === undefined
     ? undefined
     : decodeMoveFeedbackDetail(raw.feedbackDetail, `${path}.feedbackDetail`)
 
   if (feedback === 'alternative' || feedback === 'off_course') {
     if (activityCompleted) throw new Error(`${path} ${feedback} feedback cannot complete an activity`)
-    if (raw.appliedMoves !== undefined || raw.finalFen !== undefined || checkpoint !== undefined) {
+    if (raw.appliedMoves !== undefined || raw.finalFen !== undefined) {
       throw new Error(`${path} ${feedback} feedback must not mutate lesson progress`)
     }
     return {
@@ -577,22 +615,20 @@ export function decodeOpeningActivityResult(
       feedback,
       message,
       appliedMoves: decodeFrames(raw.appliedMoves, `${path}.appliedMoves`),
-      finalFen: string(raw.finalFen, `${path}.finalFen`),
-      checkpoint
+      finalFen: string(raw.finalFen, `${path}.finalFen`)
     }
   }
   if (feedback !== undefined) throw new Error(`${path}.feedback is invalid`)
   if (raw.appliedMoves === undefined) {
     if (raw.finalFen !== undefined) throw new Error(`${path} passive result must not include only a final FEN`)
-    return { session, activityCompleted: true, message, checkpoint }
+    return { session, activityCompleted: true, message }
   }
   return {
     session,
     activityCompleted: true,
     message,
     appliedMoves: decodeFrames(raw.appliedMoves, `${path}.appliedMoves`),
-    finalFen: string(raw.finalFen, `${path}.finalFen`),
-    checkpoint
+    finalFen: string(raw.finalFen, `${path}.finalFen`)
   }
 }
 

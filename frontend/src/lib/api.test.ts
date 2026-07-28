@@ -162,6 +162,21 @@ const openingStepPayload = {
   referenceSections: []
 }
 
+const openingCourseMapPayload = {
+  completedIdeas: 0,
+  totalIdeas: 4,
+  entries: [
+    {
+      lessonId: 'giuoco-c3', moveLabel: '3...Bc5',
+      title: 'Giuoco Piano', state: 'current', selectable: true
+    },
+    {
+      lessonId: 'giuoco-d4', parentLessonId: 'giuoco-c3',
+      moveLabel: '4.c3', title: 'Play d4', state: 'next', selectable: true
+    }
+  ]
+}
+
 const activeOpeningPayload = {
   sessionId: 'opening-session',
   mode: 'lesson',
@@ -172,13 +187,15 @@ const activeOpeningPayload = {
   courseTitle: 'Italian Game for White',
   path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
   depth: 'reference',
+  courseMap: openingCourseMapPayload,
   current: openingStepPayload
 }
 
 test('opening session decoder retains backend-owned course navigation', () => {
   expect(decodeOpeningSession(activeOpeningPayload)).toMatchObject({
     courseTitle: 'Italian Game for White',
-    path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }]
+    path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
+    courseMap: openingCourseMapPayload
   })
 })
 
@@ -300,6 +317,7 @@ test.each([
     mode: 'review',
     status: 'completed',
     current: undefined,
+    courseMap: undefined,
     summary: undefined
   }, 'completed review has no summary'],
   [{
@@ -310,8 +328,11 @@ test.each([
       retried: 0, usedHint: 0, revealed: 0
     }
   }, 'must not include a current activity'],
-  [{ ...activeOpeningPayload, status: 'restart_required', current: undefined }, 'notice'],
-  [{ ...activeOpeningPayload, status: 'restart_required', notice: 'Updated' }, 'must not include a current activity']
+  [{ ...activeOpeningPayload, status: 'restart_required', current: undefined, courseMap: undefined }, 'notice'],
+  [{ ...activeOpeningPayload, status: 'restart_required', notice: 'Updated' }, 'must not include a current activity'],
+  [{ ...activeOpeningPayload, courseMap: undefined }, 'courseMap'],
+  [{ ...activeOpeningPayload, mode: 'review' }, 'must not include a course map'],
+  [{ ...activeOpeningPayload, status: 'completed', current: undefined }, 'must not include a course map']
 ])('opening session decoder rejects an invalid discriminated shape', (value, message) => {
   expect(() => decodeOpeningSession(value)).toThrow(message)
 })
@@ -324,6 +345,15 @@ test.each([
   ['orientation', { ...activeOpeningPayload, current: { ...openingStepPayload, orientation: 'sideways' } }]
 ])('opening session decoder rejects unknown %s values', (field, value) => {
   expect(() => decodeOpeningSession(value)).toThrow(field)
+})
+
+test.each([
+  ['state', { ...openingCourseMapPayload, entries: [{ ...openingCourseMapPayload.entries[0], state: 'later' }] }],
+  ['lessonId', { ...openingCourseMapPayload, entries: [{ ...openingCourseMapPayload.entries[0], lessonId: undefined }] }],
+  ['title', { ...openingCourseMapPayload, entries: [{ ...openingCourseMapPayload.entries[0], title: undefined }] }],
+  ['selectable', { ...openingCourseMapPayload, entries: [{ ...openingCourseMapPayload.entries[0], selectable: undefined }] }]
+])('opening course map decoder rejects malformed %s', (field, courseMap) => {
+  expect(() => decodeOpeningSession({ ...activeOpeningPayload, courseMap })).toThrow(field)
 })
 
 test.each([
@@ -348,9 +378,9 @@ test('opening home decoder rejects invalid node progress', () => {
   })).toThrow('progress')
 })
 
-test('opening result decoder rejects a checkpoint with no path', () => {
+test('opening result decoder rejects the removed checkpoint contract', () => {
   expect(() => decodeOpeningActivityResult({
-    session: { ...activeOpeningPayload, status: 'completed', current: undefined },
+    session: { ...activeOpeningPayload, status: 'completed', current: undefined, courseMap: undefined },
     activityCompleted: true,
     checkpoint: {
       completedLessonId: 'giuoco-c3',
@@ -358,7 +388,30 @@ test('opening result decoder rejects a checkpoint with no path', () => {
       completedLessons: 1,
       totalLessons: 3
     }
-  })).toThrow('checkpoint.path')
+  })).toThrow('checkpoint is no longer supported')
+})
+
+test('opening result decoder accepts an atomic transition into another lesson', () => {
+  const nextSession = {
+    ...activeOpeningPayload,
+    sessionId: 'opening-session-2',
+    lessonId: 'giuoco-d4',
+    courseMap: {
+      ...openingCourseMapPayload,
+      completedIdeas: 3,
+      entries: openingCourseMapPayload.entries.map((entry) => ({
+        ...entry,
+        state: entry.lessonId === 'giuoco-c3' ? 'learned' : 'current'
+      }))
+    }
+  }
+  expect(decodeOpeningActivityResult({
+    session: nextSession,
+    activityCompleted: true
+  })).toMatchObject({
+    activityCompleted: true,
+    session: { sessionId: 'opening-session-2', lessonId: 'giuoco-d4' }
+  })
 })
 
 test('opening result decoder rejects unknown feedback and permits omitted passive frames only', () => {
@@ -382,7 +435,10 @@ test('opening hint decoder requires an active session and exact hint fields', ()
     canReveal: false
   })).toMatchObject({ level: 2, sourceSquare: 'c2' })
   expect(() => decodeOpeningHintResult({
-    session: { ...activeOpeningPayload, status: 'restart_required', current: undefined, notice: 'Updated' },
+    session: {
+      ...activeOpeningPayload, status: 'restart_required', current: undefined,
+      courseMap: undefined, notice: 'Updated'
+    },
     level: 1,
     text: 'Plan',
     canReveal: false
@@ -476,6 +532,14 @@ test('preview API exposes an original guided opening lesson', async () => {
   const expected = await application.api.playOpeningMove(started.sessionId, 'c2c3')
   expect(expected).toMatchObject({ feedback: 'expected', activityCompleted: true })
   expect(expected.finalFen).toBe(expected.appliedMoves?.[0].resultingFen)
+  expect(expected.session).toMatchObject({
+    status: 'active', sessionId: 'preview-opening-session-2',
+    lessonId: 'two-knights-plan', current: { activityId: 'two-knights-plan' }
+  })
+  expect('checkpoint' in expected).toBe(false)
+  await expect(application.api.resumeOpeningSession()).resolves.toEqual(expected.session)
+  const completed = await application.api.advanceOpeningActivity(expected.session.sessionId)
+  expect(completed.session).toMatchObject({ status: 'completed', lessonId: 'two-knights-plan' })
   const position = await application.api.getOpeningPosition(
     'synthetic-italian', 'initial', 'reference'
   )

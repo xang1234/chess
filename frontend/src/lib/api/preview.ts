@@ -216,6 +216,15 @@ function previewOpeningStep(index: number, mode: 'lesson' | 'review'): OpeningAc
       legalMoves: ['b2b4', 'c2c3', 'd2d3'], activityNumber: 3,
       positionContext: previewPromptContext,
       annotations: [{ kind: 'square', from: 'd4', label: 'future centre' }]
+    },
+    {
+      ...common,
+      activityId: 'two-knights-plan', kind: 'concept', title: 'Choose the quiet setup',
+      instruction: 'After 3...Nf6, keep the centre steady with d3.',
+      variationName: 'Two Knights Defence', positionId: 'after-bc5',
+      currentFen: previewOpeningFens.prompt, legalMoves: [],
+      activityNumber: 1, activityTotal: 1, completedIdeas: 0, requiredIdeas: 1,
+      positionContext: previewPromptContext
     }
   ]
   return steps[index]
@@ -225,13 +234,39 @@ function previewActiveOpening(
   index: number,
   mode: 'lesson' | 'review' = 'lesson'
 ): ActiveOpeningSessionView {
+	if (mode === 'review') {
+		return {
+			sessionId: 'preview-opening-review', mode, status: 'active',
+			courseId: 'synthetic-italian', generationId: 'preview-generation',
+			lessonId: 'review', courseTitle: 'Synthetic Italian for White',
+			path: [], depth: previewOpeningDepth, current: previewOpeningStep(index, mode)
+		}
+	}
+	const secondLesson = index >= 3
 	return {
-		sessionId: 'preview-opening-session', mode, status: 'active',
-		courseId: 'synthetic-italian', generationId: 'preview-generation',
-		lessonId: mode === 'review' ? 'review' : 'giuoco-c3',
+		sessionId: secondLesson ? 'preview-opening-session-2' : 'preview-opening-session',
+		mode, status: 'active', courseId: 'synthetic-italian', generationId: 'preview-generation',
+		lessonId: secondLesson ? 'two-knights-plan' : 'giuoco-c3',
 		courseTitle: 'Synthetic Italian for White',
-		path: mode === 'review' ? [] : [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
+		path: secondLesson
+			? [
+				{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' },
+				{ lessonId: 'two-knights-plan', title: 'Choose the quiet setup' }
+			]
+			: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
 		depth: previewOpeningDepth,
+		courseMap: {
+			completedIdeas: secondLesson ? 3 : index,
+			totalIdeas: 4,
+			entries: [{
+				lessonId: 'giuoco-c3', moveLabel: '3...Bc5', title: 'Prepare d4 with c3',
+				state: secondLesson ? 'learned' : 'current', selectable: true
+			}, {
+				lessonId: 'two-knights-plan', parentLessonId: 'giuoco-c3',
+				moveLabel: '3...Nf6', title: 'Choose the quiet setup',
+				state: secondLesson ? 'current' : 'next', selectable: true
+			}]
+		},
     current: previewOpeningStep(index, mode)
   }
 }
@@ -241,8 +276,12 @@ function previewCompletedOpening(mode: 'lesson' | 'review'): OpeningSessionView 
     return {
       sessionId: 'preview-opening-session', mode, status: 'completed',
 			courseId: 'synthetic-italian', generationId: 'preview-generation',
-			lessonId: 'giuoco-c3', courseTitle: 'Synthetic Italian for White',
-			path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }], depth: previewOpeningDepth
+			lessonId: 'two-knights-plan', courseTitle: 'Synthetic Italian for White',
+			path: [
+				{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' },
+				{ lessonId: 'two-knights-plan', title: 'Choose the quiet setup' }
+			],
+			depth: previewOpeningDepth
     }
   }
   return {
@@ -264,9 +303,12 @@ function previewOpeningHome(): OpeningHomeView {
     courses: [{
       courseId: 'synthetic-italian', title: 'Synthetic Italian for White',
       perspective: 'white', depth: previewOpeningDepth, rootPositionId: 'initial',
-      completedLessons: completed ? 1 : 0, totalLessons: 1, dueReviews: 0,
+      completedLessons: completed ? 2 : previewOpeningStepIndex >= 3 ? 1 : 0,
+      totalLessons: 2, dueReviews: 0,
       nextLessonId: 'giuoco-c3', nextLessonTitle: 'Prepare d4 with c3',
-      currentLessonId: previewOpeningSession?.status === 'active' ? 'giuoco-c3' : undefined,
+      currentLessonId: previewOpeningSession?.status === 'active'
+        ? previewOpeningSession.lessonId
+        : undefined,
       currentActivityId: previewOpeningSession?.status === 'active'
         ? previewOpeningSession.current.activityId
         : undefined,
@@ -283,16 +325,34 @@ function previewOpeningHome(): OpeningHomeView {
           progress: completed ? 'completed' : previewOpeningSession?.status === 'active'
             ? 'in_progress'
             : 'available',
-          completedActivities: completed ? 3 : previewOpeningStepIndex,
+          completedActivities: completed || previewOpeningStepIndex >= 3 ? 3 : previewOpeningStepIndex,
           requiredActivities: 3, recommended: true, reviewDue: false, visible: true
+        }, {
+          lessonId: 'two-knights-plan', chapterId: 'two-knights',
+          title: 'Choose the quiet setup', objective: 'Recognize the d3 setup.',
+          minimumDepth: 'standard',
+          progress: completed ? 'completed' : previewOpeningStepIndex >= 3 ? 'in_progress' : 'available',
+          completedActivities: completed ? 1 : 0, requiredActivities: 1,
+          recommended: previewOpeningStepIndex >= 3, reviewDue: false, visible: true
         }],
-        edges: []
+        edges: [{
+          edgeId: 'giuoco-to-two-knights', fromLessonId: 'giuoco-c3',
+          toLessonId: 'two-knights-plan', ordinal: 1, kind: 'continuation',
+          minimumDepth: 'standard'
+        }]
       },
       chapters: [{
         chapterId: 'giuoco', title: 'Giuoco Piano',
         lessons: [{
           lessonId: 'giuoco-c3', title: 'Prepare d4 with c3',
-          completedSteps: completed ? 3 : previewOpeningStepIndex, totalSteps: 3, completed
+          completedSteps: completed || previewOpeningStepIndex >= 3 ? 3 : previewOpeningStepIndex,
+          totalSteps: 3, completed: completed || previewOpeningStepIndex >= 3
+        }]
+      }, {
+        chapterId: 'two-knights', title: 'Two Knights',
+        lessons: [{
+          lessonId: 'two-knights-plan', title: 'Choose the quiet setup',
+          completedSteps: completed ? 1 : 0, totalSteps: 1, completed
         }]
       }]
     }]
@@ -305,26 +365,16 @@ function completePreviewOpeningMove(): OpeningActivityResult {
   }
   const current = previewOpeningSession
   const nextIndex = previewOpeningStepIndex + 1
-  previewOpeningSession = current.mode === 'review' || nextIndex >= 3
+  previewOpeningSession = current.mode === 'review'
     ? previewCompletedOpening(current.mode)
     : previewActiveOpening(nextIndex, current.mode)
   previewOpeningStepIndex = nextIndex
-  const checkpoint = current.mode === 'lesson' && nextIndex >= 3
-    ? {
-        completedLessonId: 'giuoco-c3',
-        path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
-        availableLessonIds: [],
-        completedLessons: 1,
-        totalLessons: 1
-      }
-    : undefined
   return {
     session: clonePreviewSession(previewOpeningSession),
     activityCompleted: true,
     feedback: 'expected',
     appliedMoves: [{ uci: 'c2c3', resultingFen: previewOpeningFens.afterC3 }],
-    finalFen: previewOpeningFens.afterC3,
-    checkpoint
+    finalFen: previewOpeningFens.afterC3
   }
 }
 
@@ -431,8 +481,18 @@ const previewNormalAPI: NormalAPI = {
       throw new Error('preview opening step requires a move')
     }
     const wasWatch = previewOpeningSession.current.kind === 'demonstration'
+		if (previewOpeningSession.mode === 'lesson' && previewOpeningStepIndex === 3) {
+			previewOpeningStepIndex++
+			previewOpeningSession = previewCompletedOpening('lesson')
+			return {
+				session: clonePreviewSession(previewOpeningSession),
+				activityCompleted: true
+			}
+		}
     previewOpeningStepIndex++
-    previewOpeningSession = previewActiveOpening(previewOpeningStepIndex)
+    previewOpeningSession = previewActiveOpening(
+			previewOpeningStepIndex, previewOpeningSession.mode
+		)
     return {
       session: clonePreviewSession(previewOpeningSession),
       activityCompleted: true,

@@ -50,6 +50,14 @@ const activeOpeningPayload = {
   courseTitle: 'Italian Game for White',
   path: [{ lessonId: 'giuoco-c3', title: 'Prepare d4 with c3' }],
   depth: 'reference',
+  courseMap: {
+    completedIdeas: 0,
+    totalIdeas: 4,
+    entries: [{
+      lessonId: 'giuoco-c3', moveLabel: '3...Bc5', title: 'Giuoco Piano',
+      state: 'current', selectable: true
+    }]
+  },
   current: openingStepPayload
 }
 
