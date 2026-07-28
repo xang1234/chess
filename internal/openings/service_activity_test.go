@@ -44,7 +44,7 @@ func TestActivityRouteReturnsNonNilEmptyRootSlices(t *testing.T) {
 	}
 }
 
-func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
+func TestOpeningServiceContinuesAcrossTeachingNodes(t *testing.T) {
 	ctx := context.Background()
 	fixture := newTreeServiceFixture(t)
 	started, err := fixture.service.StartLesson(ctx, fixture.compiled.Pack.CourseID, "giuoco-plan")
@@ -96,22 +96,112 @@ func TestOpeningServiceCompletesActivitiesAndReturnsCheckpoint(t *testing.T) {
 		t.Fatalf("decision=%+v", decision)
 	}
 	done, err := fixture.service.AdvanceActivity(ctx, started.SessionID)
-	if err != nil || done.Checkpoint == nil || done.Checkpoint.RecommendedLessonID != "two-knights-plan" {
-		t.Fatalf("done=%+v err=%v", done, err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if done.Session.Status != OpeningStatusCompleted || done.Session.Current != nil ||
-		done.Checkpoint.CompletedLessonID != "giuoco-plan" ||
-		!reflect.DeepEqual(done.Checkpoint.AvailableLessonIDs, []string{"two-knights-plan"}) {
-		t.Fatalf("done=%+v", done)
+	if done.Session.Status != OpeningStatusActive || done.Session.Current == nil ||
+		done.Session.LessonID != "two-knights-plan" ||
+		done.Session.Current.ActivityID != "two-knights-d3-decision" ||
+		done.Session.SessionID == started.SessionID {
+		t.Fatalf("cross-node result = %+v", done)
 	}
-	if done.Session.CourseTitle != fixture.compiled.Pack.Title ||
-		!reflect.DeepEqual(done.Session.Path, started.Path) {
-		t.Fatalf("completed navigation title=%q path=%+v", done.Session.CourseTitle, done.Session.Path)
+	resumed, err := fixture.service.Resume(ctx)
+	if err != nil || resumed == nil || resumed.SessionID != done.Session.SessionID ||
+		resumed.Current == nil || resumed.Current.ActivityID != "two-knights-d3-decision" {
+		t.Fatalf("resumed = %+v, err=%v", resumed, err)
 	}
 	journey, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
-	if err != nil || journey.CurrentLessonID != "giuoco-plan" ||
-		!reflect.DeepEqual(journey.PathLessonIDs, []string{"giuoco-plan"}) {
+	if err != nil || journey.CurrentLessonID != "two-knights-plan" ||
+		!reflect.DeepEqual(journey.PathLessonIDs, []string{"giuoco-plan", "two-knights-plan"}) {
 		t.Fatalf("journey=%+v err=%v", journey, err)
+	}
+	retired, err := fixture.store.LoadSession(ctx, started.SessionID)
+	if err != nil || retired.Status != OpeningStatusCompleted {
+		t.Fatalf("retired session = %+v, err=%v", retired, err)
+	}
+	if done.Session.CourseMap == nil || len(done.Session.CourseMap.Entries) != 2 ||
+		done.Session.CourseMap.Entries[0].State != CourseMapLearned ||
+		done.Session.CourseMap.Entries[1].State != CourseMapCurrent {
+		t.Fatalf("continued course map = %+v", done.Session.CourseMap)
+	}
+}
+
+func TestOpeningServiceCompletesOnlyAfterVisibleCourse(t *testing.T) {
+	ctx := context.Background()
+	fixture := newTreeServiceFixture(t)
+	started, err := fixture.service.StartLesson(ctx, fixture.compiled.Pack.CourseID, "giuoco-plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.AdvanceActivity(ctx, started.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.PlayMove(ctx, started.SessionID, "c2c3"); err != nil {
+		t.Fatal(err)
+	}
+	continued, err := fixture.service.AdvanceActivity(ctx, started.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := fixture.service.PlayMove(ctx, continued.Session.SessionID, "d2d3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Session.Status != OpeningStatusCompleted || completed.Session.Current != nil {
+		t.Fatalf("completed course result = %+v", completed)
+	}
+	resumable, err := fixture.store.ResumableSession(ctx)
+	if err != nil || resumable != nil {
+		t.Fatalf("resumable after course completion = %+v, err=%v", resumable, err)
+	}
+}
+
+func TestOpeningServiceRollsBackCrossNodeContinuation(t *testing.T) {
+	ctx := context.Background()
+	fixture := newTreeServiceFixture(t)
+	started, err := fixture.service.StartLesson(ctx, fixture.compiled.Pack.CourseID, "giuoco-plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.AdvanceActivity(ctx, started.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.PlayMove(ctx, started.SessionID, "c2c3"); err != nil {
+		t.Fatal(err)
+	}
+	beforeJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.db.Exec(`CREATE TRIGGER fail_opening_next_session
+		BEFORE INSERT ON opening_sessions
+		WHEN NEW.lesson_id = 'two-knights-plan'
+		BEGIN SELECT RAISE(ABORT, 'forced next-session failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.AdvanceActivity(ctx, started.SessionID); err == nil {
+		t.Fatal("AdvanceActivity() unexpectedly succeeded")
+	}
+	unchanged, err := fixture.store.LoadSession(ctx, started.SessionID)
+	if err != nil || unchanged.Status != OpeningStatusActive || unchanged.ActivityIndex != 2 {
+		t.Fatalf("session after rollback = %+v, err=%v", unchanged, err)
+	}
+	progress, err := fixture.store.LessonProgress(
+		ctx, fixture.compiled.Pack.CourseID, "giuoco-plan",
+		RequiredActivityIDs(fixture.compiled.Lessons["giuoco-plan"]),
+	)
+	if err != nil || !reflect.DeepEqual(
+		progress.CompletedActivityIDs, []string{"giuoco-concept", "giuoco-c3-decision"},
+	) {
+		t.Fatalf("progress after rollback = %+v, err=%v", progress, err)
+	}
+	afterJourney, err := fixture.store.Journey(ctx, fixture.compiled.Pack.CourseID)
+	if err != nil || !reflect.DeepEqual(afterJourney, beforeJourney) {
+		t.Fatalf("journey after rollback = %+v, want %+v, err=%v", afterJourney, beforeJourney, err)
+	}
+	var sessions int
+	if err := fixture.store.db.QueryRow(`SELECT COUNT(*) FROM opening_sessions`).Scan(&sessions); err != nil || sessions != 1 {
+		t.Fatalf("session count = %d, err=%v", sessions, err)
 	}
 }
 
@@ -202,7 +292,8 @@ func TestOpeningServiceExposesOptionalReferenceOutsideRequiredCursor(t *testing.
 		t.Fatal(err)
 	}
 	done, err := service.AdvanceActivity(ctx, started.SessionID)
-	if err != nil || done.Checkpoint == nil {
+	if err != nil || done.Session.Status != OpeningStatusActive ||
+		done.Session.LessonID != "two-knights-plan" {
 		t.Fatalf("done=%+v err=%v", done, err)
 	}
 	progress, err := store.LessonProgress(ctx, compiled.Pack.CourseID, "giuoco-plan", RequiredActivityIDs(compiled.Lessons["giuoco-plan"]))

@@ -254,16 +254,7 @@ func (s *Service) StartLesson(
 		return OpeningSessionView{}, fmt.Errorf("opening lesson %q has no study activity", lessonID)
 	}
 	now := s.now().UTC()
-	startPosition, exists := course.Positions[lesson.StartPositionID]
-	if !exists {
-		return OpeningSessionView{}, fmt.Errorf("opening lesson %q start position is unavailable", lessonID)
-	}
-	state, err := s.stateForActivity(course, lesson.Activities[activityIndex], SessionState{
-		Position: PositionState{
-			PositionID: lesson.StartPositionID, CurrentFEN: startPosition.FEN,
-			PlayedMoveIDs: []string{},
-		},
-	}, now)
+	seed, err := s.studySessionSeed(course, generationID, lesson, depth, activityIndex, now)
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
@@ -273,14 +264,41 @@ func (s *Service) StartLesson(
 	if journey.CreatedAt.IsZero() {
 		journey.CreatedAt = now
 	}
-	session, _, err := s.store.CreateLessonSession(ctx, SessionSeed{
-		CourseID: courseID, GenerationID: generationID, LessonID: lessonID,
-		Mode: OpeningModeLesson, Depth: depth, ActivityIndex: activityIndex, State: state,
-	}, journey, now)
+	session, _, err := s.store.CreateLessonSession(ctx, seed, journey, now)
 	if err != nil {
 		return OpeningSessionView{}, err
 	}
 	return s.sessionView(ctx, course, session)
+}
+
+func (s *Service) studySessionSeed(
+	course CompiledCourse,
+	generationID string,
+	lesson Lesson,
+	depth Depth,
+	activityIndex int,
+	now time.Time,
+) (SessionSeed, error) {
+	if activityIndex < 0 || activityIndex >= len(lesson.Activities) {
+		return SessionSeed{}, fmt.Errorf("opening lesson %q activity index %d is unavailable", lesson.LessonID, activityIndex)
+	}
+	startPosition, exists := course.Positions[lesson.StartPositionID]
+	if !exists {
+		return SessionSeed{}, fmt.Errorf("opening lesson %q start position is unavailable", lesson.LessonID)
+	}
+	state, err := s.stateForActivity(course, lesson.Activities[activityIndex], SessionState{
+		Position: PositionState{
+			PositionID: lesson.StartPositionID, CurrentFEN: startPosition.FEN,
+			PlayedMoveIDs: []string{},
+		},
+	}, now)
+	if err != nil {
+		return SessionSeed{}, err
+	}
+	return SessionSeed{
+		CourseID: course.Pack.CourseID, GenerationID: generationID, LessonID: lesson.LessonID,
+		Mode: OpeningModeLesson, Depth: depth, ActivityIndex: activityIndex, State: state,
+	}, nil
 }
 
 func (s *Service) Resume(ctx context.Context) (*OpeningSessionView, error) {

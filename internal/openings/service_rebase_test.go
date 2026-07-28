@@ -69,6 +69,52 @@ func replaceTreeCourse(t *testing.T, fixture treeServiceFixture, pack CoursePack
 	return result
 }
 
+func TestOpeningRebaseAfterAutomaticRolloverNeverReturnsRemovedActivity(t *testing.T) {
+	fixture := newTreeServiceFixture(t)
+	ctx := context.Background()
+	started, err := fixture.service.StartLesson(ctx, fixture.compiled.Pack.CourseID, "giuoco-plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.AdvanceActivity(ctx, started.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.service.PlayMove(ctx, started.SessionID, "c2c3"); err != nil {
+		t.Fatal(err)
+	}
+	rolled, err := fixture.service.AdvanceActivity(ctx, started.SessionID)
+	if err != nil || rolled.Session.Current == nil ||
+		rolled.Session.Current.ActivityID != "two-knights-d3-decision" {
+		t.Fatalf("rolled session = %+v, err=%v", rolled.Session, err)
+	}
+
+	pack := decodeTreePack(t)
+	pack.ContentVersion = "2.0.1"
+	pack.Lessons[1].Activities = []LessonActivity{{
+		ActivityID: "two-knights-replacement", Kind: ActivityConcept,
+		Title: "Recognize the quiet setup", Instruction: "Notice the d3 setup.",
+		Required: true, PositionID: "after-nf6", NoteIDs: []string{}, MoveIDs: []string{},
+	}}
+	replaceTreeCourse(t, fixture, pack)
+
+	resumed, err := fixture.service.Resume(ctx)
+	if err != nil || resumed == nil {
+		t.Fatalf("resumed = %+v, err=%v", resumed, err)
+	}
+	switch resumed.Status {
+	case OpeningStatusActive:
+		if resumed.Current == nil || resumed.Current.ActivityID == "two-knights-d3-decision" {
+			t.Fatalf("active rebase returned removed or empty activity: %+v", resumed)
+		}
+	case OpeningStatusRestartRequired:
+		if resumed.Current != nil {
+			t.Fatalf("restart-required rebase returned an activity: %+v", resumed)
+		}
+	default:
+		t.Fatalf("unexpected rebase status: %+v", resumed)
+	}
+}
+
 func TestOpeningRebaseKeepsMatchingActivityAndJourney(t *testing.T) {
 	fixture := newTreeServiceFixture(t)
 	paused := pauseTreeLessonAtDecision(t, fixture)
@@ -119,7 +165,7 @@ func TestOpeningRebaseDoesNotSkipRequiredActivityInsertedBeforeCursor(t *testing
 		t.Fatal(err)
 	}
 	if result.Session.Status != OpeningStatusActive || result.Session.Current == nil ||
-		result.Session.Current.ActivityID != inserted.ActivityID || result.Checkpoint != nil {
+		result.Session.Current.ActivityID != inserted.ActivityID {
 		t.Fatalf("completion skipped inserted required activity: %+v", result)
 	}
 }

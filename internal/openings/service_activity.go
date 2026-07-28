@@ -68,7 +68,7 @@ func (s *Service) completeLessonActivity(
 	}
 	completedSet[activity.ActivityID] = true
 	nextIndex, hasNext := nextStudyActivityIndex(lesson, session.ActivityIndex, completedSet, progress.Completed)
-	var checkpoint *OpeningRoadmapCheckpoint
+	var nextSession *SessionSeed
 	if hasNext {
 		session.ActivityIndex = nextIndex
 		session.State, err = s.stateForActivity(course, lesson.Activities[nextIndex], session.State, now)
@@ -91,14 +91,40 @@ func (s *Service) completeLessonActivity(
 			}
 		}
 		session.State.Attempt = nil
-		checkpoint, err = s.lessonCheckpointAfterCompletion(ctx, course, session.LessonID, session.Depth, journey)
-		if err != nil {
-			return OpeningActivityResult{}, err
+		projection, projectionErr := s.projectTeachingTree(ctx, course, session.Depth, journey, nil)
+		if projectionErr != nil {
+			return OpeningActivityResult{}, projectionErr
+		}
+		completedProgress := projection.progressByLesson[session.LessonID]
+		completedProgress.Completed = true
+		completedProgress.CompletedActivities = completedProgress.TotalActivities
+		projection.progressByLesson[session.LessonID] = completedProgress
+		nextLessonID := recommendTeachingLesson(
+			course, session.Depth, journey, nil, projection.progressByLesson,
+		)
+		if nextLessonID != "" {
+			nextLesson := course.Lessons[nextLessonID]
+			nextIndex, exists := firstStudyActivityIndex(
+				nextLesson, projection.progressByLesson[nextLessonID],
+			)
+			if !exists {
+				return OpeningActivityResult{}, fmt.Errorf("opening lesson %q has no study activity", nextLessonID)
+			}
+			seed, seedErr := s.studySessionSeed(
+				course, session.GenerationID, nextLesson, session.Depth, nextIndex, now,
+			)
+			if seedErr != nil {
+				return OpeningActivityResult{}, seedErr
+			}
+			nextSession = &seed
+			journey.CurrentLessonID = nextLessonID
+			journey.PathLessonIDs = teachingPathLessonIDs(course, nextLessonID)
+			journey.UpdatedAt = now
 		}
 	}
 
 	persistedSession, err := s.store.CompleteLessonActivity(ctx, LessonActivityCompletion{
-		Session: session, Journey: journey, ActivityID: activity.ActivityID,
+		Session: session, Journey: journey, NextSession: nextSession, ActivityID: activity.ActivityID,
 		RequiredActivityIDs: requiredIDs, Attempt: attempt,
 		SemanticFingerprint: semanticFingerprint, Outcome: outcome, Now: now,
 	})
@@ -112,52 +138,12 @@ func (s *Service) completeLessonActivity(
 	}
 	result := OpeningActivityResult{
 		Session: view, ActivityCompleted: true, StepCompleted: true,
-		AppliedMoves: frames, FinalFEN: finalFEN, Checkpoint: checkpoint,
+		AppliedMoves: frames, FinalFEN: finalFEN,
 	}
 	if attempt != nil {
 		result.Feedback = FeedbackExpected
 	}
 	return result, nil
-}
-
-func (s *Service) lessonCheckpointAfterCompletion(
-	ctx context.Context,
-	course CompiledCourse,
-	lessonID string,
-	depth Depth,
-	journey CourseJourney,
-) (*OpeningRoadmapCheckpoint, error) {
-	projection, err := s.projectTeachingTree(ctx, course, depth, journey, nil)
-	if err != nil {
-		return nil, err
-	}
-	completedNow := !projection.progressByLesson[lessonID].Completed
-	progress := projection.progressByLesson[lessonID]
-	progress.Completed = true
-	progress.CompletedActivities = progress.TotalActivities
-	projection.progressByLesson[lessonID] = progress
-	recommendedID := recommendTeachingLesson(course, depth, journey, nil, projection.progressByLesson)
-	recommendedTitle := ""
-	if recommendedID != "" {
-		recommendedTitle = course.Lessons[recommendedID].Title
-	}
-	completedLessons := projection.completedLessons
-	if completedNow && visibleAtDepth(course.Lessons[lessonID].MinimumDepth, depth) {
-		completedLessons++
-	}
-	available := []string{}
-	for _, edge := range course.LessonChildren[lessonID] {
-		child, exists := course.Lessons[edge.ToLessonID]
-		if exists && visibleAtDepth(child.MinimumDepth, depth) {
-			available = append(available, child.LessonID)
-		}
-	}
-	return &OpeningRoadmapCheckpoint{
-		CompletedLessonID: lessonID, Path: openingPathItems(course, journey.PathLessonIDs),
-		AvailableLessonIDs: available, RecommendedLessonID: recommendedID,
-		RecommendedLessonTitle: recommendedTitle,
-		CompletedLessons:       completedLessons, TotalLessons: projection.totalLessons,
-	}, nil
 }
 
 func firstStudyActivityIndex(lesson Lesson, progress LessonProgress) (int, bool) {

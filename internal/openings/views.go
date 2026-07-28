@@ -213,16 +213,6 @@ type OpeningReferenceSection struct {
 	Annotations []BoardAnnotation `json:"annotations"`
 }
 
-type OpeningRoadmapCheckpoint struct {
-	CompletedLessonID      string            `json:"completedLessonId"`
-	Path                   []OpeningPathItem `json:"path"`
-	AvailableLessonIDs     []string          `json:"availableLessonIds"`
-	RecommendedLessonID    string            `json:"recommendedLessonId,omitempty"`
-	RecommendedLessonTitle string            `json:"recommendedLessonTitle,omitempty"`
-	CompletedLessons       int               `json:"completedLessons"`
-	TotalLessons           int               `json:"totalLessons"`
-}
-
 type OpeningStepView struct {
 	StepID             string      `json:"stepId"`
 	Kind               StepKind    `json:"kind"`
@@ -259,7 +249,6 @@ type OpeningActivityResult struct {
 	Message           string                     `json:"message,omitempty"`
 	AppliedMoves      []domain.AppliedMove       `json:"appliedMoves,omitempty"`
 	FinalFEN          string                     `json:"finalFen,omitempty"`
-	Checkpoint        *OpeningRoadmapCheckpoint  `json:"checkpoint,omitempty"`
 }
 
 type OpeningStepResult = OpeningActivityResult

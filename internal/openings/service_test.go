@@ -322,11 +322,8 @@ func TestOpeningServiceSequencesLessonFeedbackHintsAndCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if completed.Session.Status != OpeningStatusCompleted || completed.Session.Current != nil ||
-		completed.Session.Summary != nil || completed.Checkpoint == nil {
+		completed.Session.Summary != nil {
 		t.Fatalf("completed session = %+v", completed.Session)
-	}
-	if completed.Checkpoint.CompletedLessonID != "giuoco-c3" {
-		t.Fatalf("checkpoint = %+v", completed.Checkpoint)
 	}
 	var rating float64
 	if err := fixture.userDB.QueryRow(`SELECT learner_rating FROM profile WHERE id = 1`).Scan(&rating); err != nil || rating != 1432 {
