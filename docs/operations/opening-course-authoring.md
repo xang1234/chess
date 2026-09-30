@@ -163,6 +163,45 @@ learner action.
 }
 ```
 
+## Teaching rules
+
+The primary learner is a notation-literate 10-year-old. Write every required
+activity for that reader:
+
+1. **One named idea per lesson, with a hook.** Give the lesson a short,
+   concrete phrase a child can repeat, and use it as the title of the payoff
+   activity.
+2. **Ask before telling.** Open with the decision, phrased as a question about
+   the position. Put the explanation in a concept immediately after the move,
+   at the resulting position.
+3. **The learner plays their own moves.** Own-side moves on the route are
+   decisions. A demonstration shows one opponent reply, not a line to watch.
+4. **The board teaches.** Every concept draws an arrow or marks a square. On a
+   decision, annotate the problem, never the answer.
+5. **Kid register.** At most 20 words per instruction, concrete pieces and
+   squares, no attached source notes on required activities.
+6. **Only required activities are shown.** The lesson flow skips optional
+   activities, so an optional recap is invisible. Make the payoff required;
+   keep `reference` for deep material.
+
+A decision's single automatic opponent move is what keeps the board moving:
+end each decision on the position where the next activity begins.
+
+### Pedagogy warnings
+
+`coursepack validate` prints a `pedagogyWarnings` array beside the coverage
+report. Warnings are advisory: they never change the exit code or block an
+import. Each message starts with the lesson's depth and ID, so a Quick-only
+pass can filter on the `quick lesson` prefix.
+
+| Code | Meaning |
+| --- | --- |
+| `lesson_without_decision` | the learner never moves a piece in this lesson |
+| `concept_without_annotation` | a concept shows no arrow or square |
+| `long_instruction` | a non-reference instruction exceeds 20 words |
+| `long_demonstration` | a demonstration plays more than 4 plies |
+| `decision_answer_demonstrated` | a decision asks for a move an earlier demonstration in the lesson already showed |
+
 ## Depth, roles, and prompts
 
 Depth is cumulative in this exact order:

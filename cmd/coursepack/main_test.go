@@ -240,3 +240,24 @@ func TestRunSANLineReportsIllegalSAN(t *testing.T) {
 		t.Fatalf("stderr = %q, want indexed SAN error", stderr.String())
 	}
 }
+
+func TestRunValidateReportsPedagogyWarningsWithoutFailing(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"validate", treeCoursePath(t)}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run() code = %d stderr = %s", code, stderr.String())
+	}
+	var result struct {
+		PedagogyWarnings []openings.Diagnostic `json:"pedagogyWarnings"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode stdout %q: %v", stdout.String(), err)
+	}
+	want := []openings.Diagnostic{{
+		Code:    "concept_without_annotation",
+		Path:    "lessons[0].activities[0].annotations",
+		Message: `quick lesson "giuoco-plan": concept shows no arrow or square on the board`,
+	}}
+	if !reflect.DeepEqual(result.PedagogyWarnings, want) {
+		t.Fatalf("pedagogyWarnings = %#v, want %#v", result.PedagogyWarnings, want)
+	}
+}

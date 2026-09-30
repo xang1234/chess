@@ -20,6 +20,8 @@ type validationOutput struct {
 	ContentVersion string                  `json:"contentVersion"`
 	Counts         map[string]int64        `json:"counts"`
 	Coverage       openings.CoverageReport `json:"coverage"`
+	// Advisory only: pedagogy warnings never change the exit code.
+	PedagogyWarnings []openings.Diagnostic `json:"pedagogyWarnings"`
 }
 
 type validationFailure struct {
@@ -83,10 +85,11 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := writeIndentedJSON(stdout, validationOutput{
-		CourseID:       compiled.Pack.CourseID,
-		ContentVersion: compiled.Pack.ContentVersion,
-		Counts:         openings.StructuralCounts(compiled),
-		Coverage:       compiled.Coverage,
+		CourseID:         compiled.Pack.CourseID,
+		ContentVersion:   compiled.Pack.ContentVersion,
+		Counts:           openings.StructuralCounts(compiled),
+		Coverage:         compiled.Coverage,
+		PedagogyWarnings: openings.PedagogyWarnings(compiled),
 	}); err != nil {
 		_, _ = fmt.Fprintf(stderr, "write validation result: %v\n", err)
 		return 1
